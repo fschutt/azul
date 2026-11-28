@@ -70,6 +70,28 @@ fn first_takes_the_keyboard(index: usize, page: &Dom) -> Dom {
     }
 }
 
+/// The canvas's room beside a sheet, both sides together, px.
+const CANVAS_SIDES: f32 = 48.0;
+
+/// The narrowest sheet of the web layout: a phone is 320 dp wide at the least, and the sheet leaves the canvas its
+/// [`CANVAS_SIDES`] (the sheet was never narrower than 320, and ran out of a 320 dp window).
+const MIN_WEB_SHEET: f32 = 240.0;
+
+/// The width of the web layout's sheet in a window `window_width` wide at `zoom`: the window less the canvas's
+/// room beside it, at most 1200 px at 100 %.
+#[must_use]
+pub fn web_sheet_width(window_width: f32, zoom: f32) -> f32 {
+    (window_width - CANVAS_SIDES).clamp(MIN_WEB_SHEET, 1200.0 * zoom)
+}
+
+/// Whether the document is shown as the web layout's one sheet: the web layout was asked for, or
+/// the window is narrower than the A4 sheet the print layout would put in it (a phone: a sheet of
+/// 794 px ran out of a 411 dp screen and its text with it). The sheet that fits the screen reflows.
+#[must_use]
+pub fn shows_as_web(view: View, window_width: f32, zoom: f32) -> bool {
+    view == View::Web || window_width < paginate::A4_W * zoom + CANVAS_SIDES
+}
+
 /// The document area for the app's state (`window_width`: the room the
 /// web layout's sheet may take).
 #[must_use]
@@ -92,7 +114,8 @@ pub fn document_area(app: &RefAny, st: &AppState, window_width: f32) -> Dom {
          background: system:under-page-background;",
     );
     let margin = (paginate::MARGIN * zoom).round();
-    match st.view {
+    let view = if shows_as_web(st.view, window_width, zoom) { View::Web } else { View::Print };
+    match view {
         View::Print => {
             let starts = st.pages.starts_for(doc.doc().block_count());
             let count = starts.len();
@@ -108,7 +131,7 @@ pub fn document_area(app: &RefAny, st: &AppState, window_width: f32) -> Dom {
         }
         View::Web => {
             let pages = editor.page_doms(vec![0u32], 0, 1);
-            let width = (window_width - 48.0).clamp(320.0, 1200.0 * zoom);
+            let width = web_sheet_width(window_width, zoom);
             for (i, page) in pages.as_slice().iter().enumerate() {
                 canvas.add_child(sheet(
                     first_takes_the_keyboard(i, page),
@@ -173,7 +196,7 @@ extern "C" fn on_zoom_slider(mut data: RefAny, _info: CallbackInfo, slider: Slid
 /// The status bar: the caret's page, the words, the notice; the views and
 /// the zoom.
 #[must_use]
-pub fn status_bar(app: &RefAny, st: &AppState) -> Dom {
+pub fn status_bar(app: &RefAny, st: &AppState, phone: bool) -> Dom {
     let (page_label, words) = match st.doc.as_ref() {
         Some(doc) => {
             let pages = st.pages.starts_for(doc.doc().block_count()).len();
@@ -209,6 +232,12 @@ pub fn status_bar(app: &RefAny, st: &AppState) -> Dom {
     if !st.notice.is_empty() {
         segments.push(StatusBarSegment::create(s(&st.notice)));
     }
+    // A phone shows the page and the words and nothing to press: the print layout does not fit it (the web
+    // layout is the only one), the zoom is the system's font size, and the view keys and the zoom's keys and
+    // slider are 20 px controls, none of them a finger's.
+    if phone {
+        return StatusBar::create(segments).dom();
+    }
     let views: Vec<StatusBarView> = View::ALL
         .iter()
         .map(|v| StatusBarView { icon: s(v.icon()) })
@@ -226,3 +255,7 @@ pub fn status_bar(app: &RefAny, st: &AppState) -> Dom {
         .with_zoom(zoom)
         .dom()
 }
+
+#[cfg(test)]
+#[path = "pages_test.rs"]
+mod pages_test;

@@ -243,6 +243,7 @@ use azul::{
         IrohRelayMode, IrohTileRole,
     },
     json::Json,
+    misc::{Capability, PermissionState},
     option::{OptionDarkLightMode, OptionKeyringResult, OptionString},
     prelude::*,
     str::String as AzString,
@@ -778,6 +779,11 @@ struct MeetState {
     /// The camera and the screen share are test patterns (`AZMEET_TEST_PATTERN=1`, and every
     /// headless run).
     pattern_video: bool,
+    /// The system refused the camera (a runtime permission on a phone, a privacy switch on a
+    /// desktop): the camera tile says so instead of showing a black box.
+    camera_denied: bool,
+    /// The system refused the microphone: the level meter says so instead of sitting at zero.
+    mic_denied: bool,
     /// A still of the test pattern, made once with `pattern_video`: the own camera tile and the
     /// waiting room's preview show it as a camera would show its picture.
     pattern_still: Option<ImageRef>,
@@ -958,6 +964,8 @@ impl MeetState {
             },
             video_out: BTreeMap::new(),
             pattern_video: false,
+            camera_denied: false,
+            mic_denied: false,
             pattern_still: None,
             pattern_clocks: [
                 video_wire::PatternClock::new(video_wire::PATTERN_FPS),
@@ -1609,6 +1617,8 @@ fn snapshot(s: &MeetState) -> ui::CallView {
         in_room: s.room.is_some(),
         tone_mic: s.tone_mic,
         pattern_video: s.pattern_video,
+        camera_denied: s.camera_denied,
+        mic_denied: s.mic_denied,
         pattern_still: s.pattern_still.clone(),
         mirror: s.mirror,
         screen_renditions: my_renditions(s, SCREEN_TRACK),
@@ -1668,6 +1678,29 @@ fn snapshot(s: &MeetState) -> ui::CallView {
     }
 }
 
+/// Whether the system refuses a device: asked and denied, or restricted by a policy (a parent, an
+/// employer). Not asked yet is not a refusal: the request is on its way.
+fn refused(state: PermissionState) -> bool {
+    matches!(state, PermissionState::Denied | PermissionState::Restricted)
+}
+
+/// The system answered a permission request, or the person changed it in Settings: the camera and
+/// the microphone are looked at again, and a refusal is told on the screen (the camera tile and the
+/// level meter) instead of a black box and a bar that never moves.
+extern "C" fn on_permission_changed(mut data: RefAny, info: CallbackInfo) -> Update {
+    let camera = refused(info.get_permission_status(Capability::Camera));
+    let microphone = refused(info.get_permission_status(Capability::Microphone));
+    let Some(mut s) = data.downcast_mut::<MeetState>() else {
+        return Update::DoNothing;
+    };
+    if s.camera_denied == camera && s.mic_denied == microphone {
+        return Update::DoNothing;
+    }
+    s.camera_denied = camera;
+    s.mic_denied = microphone;
+    Update::RefreshDom
+}
+
 /// The app's callbacks, as the window wires them (`ui::Actions`).
 const ACTIONS: ui::Actions = ui::Actions {
     mic: mic_toggle,
@@ -1704,6 +1737,7 @@ const ACTIONS: ui::Actions = ui::Actions {
     join_camera_off: on_join_camera_off,
     key: on_key,
     keyring: on_keyring_result,
+    permission: on_permission_changed,
     retry_server: on_retry_server,
     new_chat_room: on_new_chat_room,
     schedule: on_schedule,
@@ -2399,15 +2433,21 @@ fn gen_link() -> String {
     )
 }
 
+/// Whether an endpoint bound for `relay` also announces itself on the local network and looks for the
+/// others there (the engine's local-network discovery, mDNS): when a feature asks for it (`wanted`: a
+/// direct call by its bare id finds the peer by its key on the local network, so the direct-call screen
+/// asks), and always with no relay at all, where it is the way peers find each other. The rooms do not
+/// need it with a relay: the meeting server's peers list gives each peer's ticket, which carries its
+/// direct addresses and its relay, so they meet through the relay and still form direct paths over the
+/// LAN. Off, nothing is announced or browsed, and on iOS and macOS the system's question about the local
+/// network does not come with the bind.
+fn lan_for(relay: &Relay, wanted: bool) -> bool {
+    wanted || matches!(relay, Relay::Off)
+}
+
 /// This side's iroh endpoint with the relays of `relay`; `relay_only` (`--relay-only`) binds no
-/// UDP socket at all, so no direct path forms and every packet goes through the relay. `lan`:
-/// the endpoint also announces itself on the local network and looks for the others there (the
-/// engine's local-network discovery). The rooms do not need it (the meeting server's peers list
-/// gives each peer's ticket, which carries its direct addresses and its relay), so it is off for
-/// them; a direct call by its bare id finds the peer by its key on the local network, so the
-/// direct-call screen asks for it (`connection::ensure_endpoint`). Off, nothing is announced or
-/// browsed, and on iOS and macOS the system's question about the local network does not come
-/// with the bind.
+/// UDP socket at all, so no direct path forms and every packet goes through the relay. `lan`: a
+/// feature asks for the local network (`lan_for`).
 fn bind_endpoint(relay: &Relay, relay_only: bool, lan: bool) -> IrohEndpoint {
     let config = IrohConfig::create(ALPN);
     let config = match relay {
@@ -2417,7 +2457,7 @@ fn bind_endpoint(relay: &Relay, relay_only: bool, lan: bool) -> IrohEndpoint {
             .with_relay_mode(IrohRelayMode::Custom)
             .with_relay_url(url.as_str()),
     };
-    IrohEndpoint::bind(config.with_relay_only(relay_only).with_local_discovery(lan))
+    IrohEndpoint::bind(config.with_relay_only(relay_only).with_local_discovery(lan_for(relay, lan)))
 }
 
 /// `--relay-only` (`AZMEET_RELAY_ONLY=1`): never a direct path.
@@ -2756,7 +2796,8 @@ fn start_rooms(worker: String, from: &str) {
     configure_video(&mut me, &probe_video());
     configure_network(&mut me);
     apply_launch_args(&mut me);
-    open_devices_at_start(&mut me);
+    // No device opens here: the camera and the microphone open when the user turns one on or starts or
+    // joins a meeting (`apply_join_defaults`), so a fresh install shows no permission dialog at launch.
     run(me);
 }
 
@@ -2826,12 +2867,11 @@ mod service_down_tests {
     }
 
     #[test]
-    fn the_start_screen_shows_the_camera_at_once_even_with_no_meetings_service() {
-        let mut s = lobby_without_a_service();
-        open_devices_at_start(&mut s);
+    fn the_start_screen_opens_no_device_until_the_user_turns_one_on() {
+        let s = lobby_without_a_service();
         let view = snapshot(&s);
         assert!(matches!(view.screen, ui::UiScreen::Lobby), "the start screen");
-        assert!(view.cam, "its camera preview is on from the start");
-        assert!(view.mic, "and the microphone's level shows");
+        assert!(!view.cam, "no camera is open at launch: it would ask for its permission before anything needs it");
+        assert!(!view.mic, "nor the microphone");
     }
 }

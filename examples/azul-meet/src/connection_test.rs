@@ -25,35 +25,36 @@ fn a_platform_that_is_not_ready_is_waited_for_a_second_at_a_time_and_twenty_time
     assert!(!not_ready("this build has no iroh engine"));
     let mut late = LateBind::default();
     assert!(!late.due(10_000), "nothing is scheduled");
-    assert!(late.failed("the Android context is not ready", 5_000, true));
+    assert!(late.failed("the Android context is not ready", 5_000));
     assert!(!late.due(5_999) && late.due(6_000), "a second later");
     for _ in 1..BIND_RETRIES {
-        assert!(late.failed("the Android context is not ready", 7_000, true));
+        assert!(late.failed("the Android context is not ready", 7_000));
     }
-    assert!(!late.failed("the Android context is not ready", 7_000, true), "twenty tries and no more");
+    assert!(!late.failed("the Android context is not ready", 7_000), "twenty tries and no more");
     assert!(!late.due(u64::MAX), "and nothing is scheduled then");
     // a bound endpoint forgets the tries, and says whether it looks on the local network
     late.bound(true);
     assert!(late.lan);
-    assert!(late.failed("the Android context is not ready", 9_000, false), "the count starts again");
+    assert!(late.failed("the Android context is not ready", 9_000), "the count starts again");
 }
 
 #[test]
-fn the_try_that_is_waited_for_asks_for_what_the_failed_one_asked_for() {
-    let mut late = LateBind::default();
-    assert!(late.failed("the Android context is not ready", 1_000, true));
-    assert!(late.want_lan, "a direct call by id still looks on the local network when the bind is tried again");
-    assert!(late.failed("the Android context is not ready", 2_000, false));
-    assert!(!late.want_lan);
+fn the_local_network_is_looked_at_when_a_feature_asks_and_always_with_no_relay() {
+    use crate::{lan_for, rooms::Relay};
+    assert!(!lan_for(&Relay::Default, false), "a room with a relay needs no announcement on the local network");
+    assert!(!lan_for(&Relay::Custom("https://relay.example".to_string()), false));
+    assert!(lan_for(&Relay::Default, true), "a direct call by id asks for it");
+    assert!(lan_for(&Relay::Off, false), "with no relay at all it is the way peers find each other");
+    assert!(lan_for(&Relay::Off, true));
 }
 
 #[test]
 fn any_other_reason_is_final() {
     let mut late = LateBind::default();
-    assert!(!late.failed("this build has no iroh engine", 1_000, false));
+    assert!(!late.failed("this build has no iroh engine", 1_000));
     assert!(!late.due(5_000), "no engine is not waited for");
-    assert!(late.failed("the Android context is not ready", 1_000, false));
-    assert!(!late.failed("no socket could be opened", 1_500, false), "a different reason ends the waiting");
+    assert!(late.failed("the Android context is not ready", 1_000));
+    assert!(!late.failed("no socket could be opened", 1_500), "a different reason ends the waiting");
     assert!(!late.due(5_000));
 }
 
@@ -73,7 +74,11 @@ fn with_no_room_session_there_is_nothing_to_bind_for_and_nothing_is_bound() {
     let mut s = MeetState::new("Ada", make_kit());
     s.room = None;
     assert!(!ensure_endpoint(&mut s, false));
+    assert!(!s.late_bind.wanted, "nothing asked for the local network");
     assert!(!ensure_endpoint(&mut s, true));
+    assert!(s.late_bind.wanted, "the wish is kept for the bind that comes");
+    assert!(!ensure_endpoint(&mut s, false));
+    assert!(s.late_bind.wanted, "and a later try that does not ask does not take it back");
     assert!(s.endpoint.is_none());
 }
 

@@ -227,14 +227,15 @@ const BIND_RETRIES: u32 = 20;
 /// ([`ensure_endpoint`]).
 #[derive(Debug, Default)]
 pub(crate) struct LateBind {
-    /// The bound endpoint also looks for peers on the local network (a direct call by id needs it; a meeting does not).
+    /// A feature asked for the local network (the direct-call screen: a call by a bare id finds its peer there): every bind from then on
+    /// looks there.
+    pub(crate) wanted: bool,
+    /// The bound endpoint looks for peers on the local network (`lan_for`: asked for, or no relay at all).
     pub(crate) lan: bool,
     /// The tries that failed because the platform was not ready yet.
     tries: u32,
     /// When (`wall_ms`) the next of them is due.
     retry_at: Option<u64>,
-    /// Whether the try that is waited for asks for the local network.
-    want_lan: bool,
 }
 
 /// Whether the engine's `reason` for not binding says that the platform is not ready yet ("the Android context is not ready").
@@ -243,17 +244,15 @@ pub(crate) fn not_ready(reason: &str) -> bool {
 }
 
 impl LateBind {
-    /// A try (that asked for the local network when `lan`) failed with `reason` at `now`: whether another is scheduled. Only a platform
-    /// that is not ready yet is waited for, and only [`BIND_RETRIES`] times; any other reason (no engine in the library, no socket) is
-    /// final.
-    pub(crate) fn failed(&mut self, reason: &str, now: u64, lan: bool) -> bool {
+    /// A try failed with `reason` at `now`: whether another is scheduled. Only a platform that is not ready yet is waited for, and only
+    /// [`BIND_RETRIES`] times; any other reason (no engine in the library, no socket) is final.
+    pub(crate) fn failed(&mut self, reason: &str, now: u64) -> bool {
         if !not_ready(reason) || self.tries >= BIND_RETRIES {
             self.retry_at = None;
             return false;
         }
         self.tries += 1;
         self.retry_at = Some(now + BIND_RETRY_MS);
-        self.want_lan = lan;
         true
     }
 
@@ -262,7 +261,7 @@ impl LateBind {
         self.retry_at.is_some_and(|at| now >= at)
     }
 
-    /// The endpoint is bound (with the local network or without): nothing is waited for.
+    /// The endpoint is bound (looking on the local network or not: `lan`): nothing is waited for.
     pub(crate) fn bound(&mut self, lan: bool) {
         self.lan = lan;
         self.tries = 0;
@@ -287,6 +286,10 @@ fn endpoint_in_use(s: &MeetState) -> bool {
 /// peers on the local network (a direct call by id); an endpoint bound without it is bound again with it when nothing is connected.
 /// True when an endpoint is bound afterwards.
 pub(crate) fn ensure_endpoint(s: &mut MeetState, lan: bool) -> bool {
+    // The wish for the local network stays: every later bind (a retry, a relay that changed) looks there too.
+    if lan {
+        s.late_bind.wanted = true;
+    }
     if s.endpoint.is_some() && (s.late_bind.lan || !lan || endpoint_in_use(s)) {
         return true;
     }
@@ -294,11 +297,11 @@ pub(crate) fn ensure_endpoint(s: &mut MeetState, lan: bool) -> bool {
         return false;
     };
     let relay = room.relay.clone();
-    let lan = lan || s.late_bind.lan;
-    let endpoint = bind_endpoint(&relay, relay_only(), lan);
+    let wanted = s.late_bind.wanted;
+    let endpoint = bind_endpoint(&relay, relay_only(), wanted);
     if !endpoint.is_bound() {
         let reason = bind_failure(&endpoint);
-        let again = s.late_bind.failed(&reason, wall_ms(), lan);
+        let again = s.late_bind.failed(&reason, wall_ms());
         if again {
             eprintln!("[azmeet] {}: the network is not ready yet, trying again: {reason}", s.name);
             s.link_status = String::from("starting the network");
@@ -310,16 +313,17 @@ pub(crate) fn ensure_endpoint(s: &mut MeetState, lan: bool) -> bool {
         return s.endpoint.is_some();
     }
     let node_id = endpoint.endpoint_id().as_str().to_string();
+    let looks = lan_for(&relay, wanted);
     eprintln!(
         "[azmeet] {}: endpoint {} (relays {relay:?}{}{})",
         s.name,
         short_id(&node_id),
         if relay_only() { ", relay only" } else { "" },
-        if lan { ", local network" } else { "" }
+        if looks { ", local network" } else { "" }
     );
     s.me = routes::peer_key(&node_id);
     s.endpoint = Some(endpoint);
-    s.late_bind.bound(lan);
+    s.late_bind.bound(looks);
     s.link_status = String::from("not in a meeting");
     if let Some(room) = s.room.as_mut() {
         room.node_id = node_id;
@@ -332,8 +336,7 @@ pub(crate) fn ensure_endpoint(s: &mut MeetState, lan: bool) -> bool {
 /// A bind that failed because the platform was not ready is tried again when its time comes (the room tick).
 pub(crate) fn retry_bind(s: &mut MeetState) {
     if s.late_bind.due(wall_ms()) {
-        let lan = s.late_bind.want_lan;
-        ensure_endpoint(s, lan);
+        ensure_endpoint(s, false);
     }
 }
 
@@ -358,7 +361,7 @@ pub(crate) fn rebind_endpoint(s: &mut MeetState, relay: Relay) {
         }
         return;
     }
-    let endpoint = bind_endpoint(&relay, relay_only(), s.late_bind.lan);
+    let endpoint = bind_endpoint(&relay, relay_only(), s.late_bind.wanted);
     println!(
         "AZMEET_TRANSPORT {}",
         rooms::transport_label(&relay, relay_only())
@@ -380,6 +383,7 @@ pub(crate) fn rebind_endpoint(s: &mut MeetState, relay: Relay) {
     );
     s.me = routes::peer_key(&node_id);
     s.endpoint = Some(endpoint);
+    s.late_bind.bound(lan_for(&relay, s.late_bind.wanted));
     if let Some(room) = s.room.as_mut() {
         room.node_id = node_id;
         // The new endpoint's ticket arrives with its `Ready` event.

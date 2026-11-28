@@ -15,6 +15,7 @@ cargo test -p azul-dll --features build-dll \
   --test android_ui_thread_entry_points_never_touch_the_window \
   --test android_activity_lifecycle_contract \
   --test android_extras_java_glue_contract \
+  --test android_language_contract \
   --test android_touch_slop_contract \
   --test android_surface_resize_repaints_in_full_contract \
   --test shells_reach_the_create_callback \
