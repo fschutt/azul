@@ -140,3 +140,42 @@ fn the_answer_to_a_request_is_full_reduced_or_denied() {
     assert_eq!(state_of_result(Capability::Camera, false, true), PermissionState::Denied);
     assert_eq!(state_of_result(Capability::Camera, true, true), PermissionState::Granted(PermissionQuality::Full));
 }
+
+/// A denial is remembered and not asked again behind the user's back: the diff-driven path (a probe node in the
+/// DOM) asks only while the state is `NotDetermined`. A person's explicit request asks again after ONE denial,
+/// while the system offers a rationale; a permission denied for good shows no dialog.
+///
+/// Mutation: `Denied => true` (every rebuild that adds the probe node asked again: a dialog per render).
+#[test]
+fn a_denied_permission_is_not_asked_again_by_the_diff_and_only_once_more_by_a_person() {
+    let denied = PermissionState::Denied;
+    assert!(may_show_dialog(PermissionState::NotDetermined, false, false), "the first ask comes from the diff");
+    assert!(may_show_dialog(PermissionState::NotDetermined, false, true));
+    assert!(!may_show_dialog(denied, true, false), "the diff never asks again after a denial");
+    assert!(!may_show_dialog(denied, false, false));
+    assert!(may_show_dialog(denied, true, true), "a person's request after the first denial: the system shows its dialog again");
+    assert!(!may_show_dialog(denied, false, true), "denied for good: no dialog, the app opens the settings");
+    for state in [
+        PermissionState::Granted(PermissionQuality::Full),
+        PermissionState::Granted(PermissionQuality::Reduced),
+        PermissionState::Requested,
+        PermissionState::Restricted,
+    ] {
+        assert!(!may_show_dialog(state, true, true), "{state:?} asks for nothing");
+    }
+}
+
+/// A worker that needs a permission goes on when it is granted, stops (for good, no second dialog) when it was
+/// refused, and asks once when nothing was decided or a dialog is already up.
+///
+/// Mutation: `Denied => Gate::Ask` (a refused camera tile asked again at every mount: a dialog per remount).
+#[test]
+fn a_worker_asks_only_while_nothing_is_decided() {
+    assert_eq!(gate(PermissionState::NotDetermined), Gate::Ask);
+    assert_eq!(gate(PermissionState::Requested), Gate::Ask, "a dialog is up: join it, do not make another");
+    assert_eq!(gate(PermissionState::Granted(PermissionQuality::Full)), Gate::Go);
+    assert_eq!(gate(PermissionState::Granted(PermissionQuality::Reduced)), Gate::Go);
+    assert_eq!(gate(PermissionState::EphemeralGranted(true)), Gate::Go);
+    assert_eq!(gate(PermissionState::Denied), Gate::Stop);
+    assert_eq!(gate(PermissionState::Restricted), Gate::Stop);
+}

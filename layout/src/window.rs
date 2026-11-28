@@ -1992,6 +1992,7 @@ const fn memory_walk_coverage_is_exhaustive(w: &LayoutWindow) {
         device_event_manager: _,
         hid_manager: _,
         haptic_manager: _,
+        sound_manager: _,
         media_session_manager: _,
         form_validation_manager: _,
         safe_area_insets: _,
@@ -2852,6 +2853,9 @@ pub struct LayoutWindow {
     pub hid_manager: azul_core::hid::HidManager,
     /// Queued haptic requests, drained by the shell each pass.
     pub haptic_manager: azul_core::haptics::HapticManager,
+    /// Queued system sounds, the decision about each (route, mute, OS switches, pacing) and the
+    /// bounded recording `assert_sound` and the sound board read. The shell drains it each pass.
+    pub sound_manager: azul_core::sound::SoundManager,
     /// What the app has told the system media widget it is playing. Latest
     /// wins; the shell announces it when an announceable field changes.
     pub media_session_manager: azul_core::media_session::MediaSessionManager,
@@ -4737,6 +4741,7 @@ impl LayoutWindow {
             device_event_manager: crate::managers::device_events::DeviceEventManager::new(),
             hid_manager: azul_core::hid::HidManager::new(),
             haptic_manager: azul_core::haptics::HapticManager::new(),
+            sound_manager: azul_core::sound::SoundManager::new(),
             media_session_manager: azul_core::media_session::MediaSessionManager::new(),
             form_validation_manager: azul_core::form::FormValidationManager::new(),
             safe_area_insets: azul_css::system::SafeAreaInsets::default(),
@@ -35077,6 +35082,7 @@ impl LayoutWindow {
             device_event_manager: _,
             hid_manager: _,
             haptic_manager: _,
+            sound_manager: _,
             media_session_manager: _,
             form_validation_manager: _,
             // Payload-only state (file paths / clipboard contents), no NodeIds:

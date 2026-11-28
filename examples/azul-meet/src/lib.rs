@@ -713,8 +713,9 @@ const PENDING_HELD: usize = 32;
 struct MeetState {
     name: String,
     endpoint: Option<IrohEndpoint>,
-    /// The endpoint is bound from the window's first callback, not at start (`start_rooms`, Android).
-    endpoint_deferred: bool,
+    /// How the endpoint is bound late (`connection::ensure_endpoint`): with the local network or without, and the tries a platform that
+    /// was not ready yet has cost.
+    late_bind: connection::LateBind,
     remotes: Vec<Remote>,
     /// Connections waiting for their signed announcement (`Pending`).
     pending: Vec<Pending>,
@@ -922,7 +923,7 @@ impl MeetState {
             prefs_unsaved: false,
             name: name.to_string(),
             endpoint: None,
-            endpoint_deferred: false,
+            late_bind: connection::LateBind::default(),
             remotes: Vec::new(),
             pending: Vec::new(),
             link_status: String::from("binding"),
@@ -2432,9 +2433,22 @@ fn gen_link() -> String {
     )
 }
 
+/// Whether an endpoint bound for `relay` also announces itself on the local network and looks for the
+/// others there (the engine's local-network discovery, mDNS): when a feature asks for it (`wanted`: a
+/// direct call by its bare id finds the peer by its key on the local network, so the direct-call screen
+/// asks), and always with no relay at all, where it is the way peers find each other. The rooms do not
+/// need it with a relay: the meeting server's peers list gives each peer's ticket, which carries its
+/// direct addresses and its relay, so they meet through the relay and still form direct paths over the
+/// LAN. Off, nothing is announced or browsed, and on iOS and macOS the system's question about the local
+/// network does not come with the bind.
+fn lan_for(relay: &Relay, wanted: bool) -> bool {
+    wanted || matches!(relay, Relay::Off)
+}
+
 /// This side's iroh endpoint with the relays of `relay`; `relay_only` (`--relay-only`) binds no
-/// UDP socket at all, so no direct path forms and every packet goes through the relay.
-fn bind_endpoint(relay: &Relay, relay_only: bool) -> IrohEndpoint {
+/// UDP socket at all, so no direct path forms and every packet goes through the relay. `lan`: a
+/// feature asks for the local network (`lan_for`).
+fn bind_endpoint(relay: &Relay, relay_only: bool, lan: bool) -> IrohEndpoint {
     let config = IrohConfig::create(ALPN);
     let config = match relay {
         Relay::Off => config.with_relay_mode(IrohRelayMode::Disabled),
@@ -2443,11 +2457,7 @@ fn bind_endpoint(relay: &Relay, relay_only: bool) -> IrohEndpoint {
             .with_relay_mode(IrohRelayMode::Custom)
             .with_relay_url(url.as_str()),
     };
-    // Local-network discovery (mDNS) is what makes iOS and macOS ask for the Local Network permission, and the
-    // endpoint is bound before the first screen: it is on only where it is the way peers find each other (no relay
-    // at all). With a relay they meet through it and still form direct paths over the LAN.
-    let config = config.with_local_discovery(matches!(relay, Relay::Off));
-    IrohEndpoint::bind(config.with_relay_only(relay_only))
+    IrohEndpoint::bind(config.with_relay_only(relay_only).with_local_discovery(lan_for(relay, lan)))
 }
 
 /// `--relay-only` (`AZMEET_RELAY_ONLY=1`): never a direct path.
@@ -2746,45 +2756,6 @@ fn room_at_start(worker: String, relay: Relay, from: &str) -> RoomSession {
     room
 }
 
-/// Records the endpoint this side bound: its id is the room's node id; or says why there is none. `from`: where
-/// the meeting server's address came from (empty when it is not known: the bind made from the window's first callback).
-fn adopt_endpoint(me: &mut MeetState, room: &mut RoomSession, endpoint: IrohEndpoint, from: &str) {
-    let name = me.name.clone();
-    if endpoint.is_bound() {
-        room.node_id = endpoint.endpoint_id().as_str().to_string();
-        let source = if from.is_empty() { String::new() } else { format!(" ({from})") };
-        eprintln!(
-            "[azmeet] {name}: endpoint {} (relays {:?}{}), meeting server {}{source}",
-            short_id(&room.node_id),
-            room.relay,
-            if relay_only() { ", relay only" } else { "" },
-            if room.worker.is_empty() { "none" } else { room.worker.as_str() }
-        );
-        me.endpoint = Some(endpoint);
-        me.link_status = String::from("not in a meeting");
-    } else {
-        let reason = bind_failure(&endpoint);
-        eprintln!("[azmeet] {name}: no iroh endpoint: {reason}");
-        me.notice = t_args("azmeet-no-network", &[("why", Arg::from(reason.as_str()))]);
-        me.link_status = reason;
-    }
-}
-
-/// The endpoint `start_rooms` left unbound (Android: no activity at start): bound now, from the window's first
-/// callback.
-pub(crate) fn bind_deferred_endpoint(s: &mut MeetState) {
-    if !s.endpoint_deferred {
-        return;
-    }
-    s.endpoint_deferred = false;
-    let Some(mut room) = s.room.take() else {
-        return;
-    };
-    let endpoint = bind_endpoint(&room.relay, relay_only());
-    adopt_endpoint(s, &mut room, endpoint, "");
-    s.room = Some(room);
-}
-
 /// The window with the start screen, talking to the meeting server at `worker` (none when
 /// empty; `from`: where its address came from). The server is asked once the window is up
 /// (`startup`); an unreachable or missing one is said on the start screen and, with a Retry
@@ -2798,29 +2769,26 @@ fn start_rooms(worker: String, from: &str) {
              nothing can carry a packet"
         );
     }
-    // On Android `start()` runs from the library's load-time constructor, during `System.loadLibrary`, when the
-    // engine has no Android context yet: the iroh endpoint cannot bind there ("the Android context is not ready").
-    // It is bound from the window's first callback (`startup`) instead, where the activity exists; the other
-    // platforms bind here.
-    let deferred = cfg!(target_os = "android");
-    let endpoint = (!deferred).then(|| bind_endpoint(&relay, relay_only()));
     // For scripts: how this side's packets may travel (the relay phase of azmeet_e2e.py).
     println!(
         "AZMEET_TRANSPORT {}",
         rooms::transport_label(&relay, relay_only())
     );
     let mut me = MeetState::new(&name, make_kit());
-    let mut room = room_at_start(worker.clone(), relay.clone(), from);
+    let room = room_at_start(worker.clone(), relay.clone(), from);
     if worker.is_empty() {
         me.notice = no_server_notice();
     }
-    match endpoint {
-        Some(endpoint) => adopt_endpoint(&mut me, &mut room, endpoint, from),
-        None => {
-            me.endpoint_deferred = true;
-            me.link_status = String::from("starting the network");
-        }
-    }
+    // Nothing is bound here: the endpoint is bound when the first thing that needs it starts (a meeting entered, a room's view opened, a
+    // direct call: `connection::ensure_endpoint`). A bind starts the engine's network: on iOS and macOS the system asks about the local
+    // network then, and on Android the activity does not exist yet when this runs from the library's constructor (the engine refuses
+    // then, "the Android context is not ready"). The start screen and the settings need no endpoint, and say nothing about one.
+    eprintln!(
+        "[azmeet] {name}: network not started (relays {relay:?}{}), meeting server {} ({from})",
+        if relay_only() { ", relay only" } else { "" },
+        if worker.is_empty() { "none" } else { worker.as_str() }
+    );
+    me.link_status = String::from("not in a meeting");
     me.room = Some(room);
     // The rooms this device is in (their chats come back once its identity is loaded).
     me.index = files_root().map(store::load_index).unwrap_or_default();

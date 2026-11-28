@@ -488,9 +488,11 @@ def android_audit(args):
 
     # ---- 3. pan jitter
     lines += ["## 3. Pan jitter (a finger pan through adb's input: the real finger path)", ""]
+    if getattr(args, "flash_only", False):
+        lines.append("- not run: this audit is for the cold start and the resume of an app that has no page to pan (`--flash-only`).")
     for name, apk, pan in (("AzWidgets (long page)", args.apk_e2e or args.apk_plain, (540, 1800, 540, 600, 700)),
                            ("AzMaps (the map)", args.maps, (300, 1500, 900, 900, 700))):
-        if not apk:
+        if not apk or getattr(args, "flash_only", False):
             continue
         d = device(apk)
         d.launch(cold=True)
@@ -648,6 +650,7 @@ def main(argv):
     a.add_argument("--apk-e2e", default="")
     a.add_argument("--maps", default="")
     a.add_argument("--serial", default="")
+    a.add_argument("--flash-only", action="store_true", help="idle and the flash frames only: no pan (an app without a page to scroll)")
     i = sub.add_parser("ios")
     i.add_argument("--out", required=True)
     i.add_argument("--udid", required=True)
