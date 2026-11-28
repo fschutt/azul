@@ -3619,6 +3619,30 @@ impl Runner {
                 // No repaint: a haptic changes nothing on screen.
                 ProcessEventResult::DoNothing
             }
+            CallbackChange::PlaySound { sound } => {
+                // Decided and recorded on the spot, never played: the runner is headless, so
+                // `assert_sound` reads the recording. No clock: a run records every request
+                // (the pacing belongs to a shell that has a real one).
+                let audio = self
+                    .layout_window
+                    .system_style
+                    .as_deref()
+                    .map(|style| style.audio)
+                    .unwrap_or_default();
+                self.layout_window.sound_manager.play(*sound);
+                self.layout_window.sound_manager.record_without_playing(
+                    azul_core::sound::SoundPlatform::current(),
+                    audio,
+                    None,
+                    "headless",
+                );
+                // No repaint: a sound changes nothing on screen.
+                ProcessEventResult::DoNothing
+            }
+            CallbackChange::SetSoundsMuted { muted } => {
+                self.layout_window.sound_manager.set_muted(*muted);
+                ProcessEventResult::DoNothing
+            }
             CallbackChange::RequestSoftKeyboard { visible } => {
                 self.layout_window
                     .text_edit_manager

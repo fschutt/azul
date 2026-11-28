@@ -75,8 +75,6 @@ extern "C" fn open_from_queue(context: *mut c_void) {
 /// The hook of `azul_core::url::Url::open` for iOS: `true` once the system was asked to open `url`.
 #[no_mangle]
 pub fn azul_ios_open_url(url: &str) -> bool {
-    // `azul-settings:app` is the address of the app's settings page that an app writes the same on every platform.
-    let url = crate::desktop::shell2::common::ios_logic::resolve_open_alias(url);
     if on_main_thread() {
         return open_on_main(url);
     }

@@ -7057,6 +7057,7 @@ impl X11Window {
                     }
                     t_prepare_ms = t0.elapsed().as_secs_f64() * 1000.0;
 
+                    let mut cpu_frame_rendered = false;
                     if let Some(ref layout_window) = self.common.layout_window {
                         let dom_id = DomId { inner: 0 };
                         // render_frame looks up the layout result itself; we only
@@ -7108,6 +7109,7 @@ impl X11Window {
                                     dpi,
                                 );
                                 t_render_ms = t0.elapsed().as_secs_f64() * 1000.0;
+                                cpu_frame_rendered = true;
 
                                 // #27 native backbuffer: X11 stays LEGACY by
                                 // design. XPutImage requires the image in the
@@ -7328,6 +7330,14 @@ impl X11Window {
                                 // (previous-display-list tracking now lives inside
                                 // CpuBackend::render_frame.)
                             }
+                        }
+                    }
+
+                    // The frame goes on the window's frame report (the frames since the last counter reset and the
+                    // damage): the e2e counters read it, not the backend (`CpuBackend::record_last_frame_on`).
+                    if cpu_frame_rendered {
+                        if let Some(lw) = self.common.layout_window.as_mut() {
+                            self.cpu_backend.record_last_frame_on(lw);
                         }
                     }
 
@@ -7596,6 +7606,15 @@ impl X11Window {
                         },
                     })
                     .collect();
+                // The frame goes on the window's frame report, with what WebRender says it drew: the e2e
+                // counters read the report (`LayoutWindow::record_frame`).
+                let damage = azul_layout::window::FrameDamage::of_gpu_frame(
+                    results.stats.total_draw_calls > 0,
+                    &self.gpu_damage_rects,
+                );
+                if let Some(lw) = self.common.layout_window.as_mut() {
+                    lw.record_frame(damage.clone(), damage);
+                }
             }
             Err(errors) => {
                 log_warn!(LogCategory::Rendering, "[X11] Render errors: {:?}", errors);
