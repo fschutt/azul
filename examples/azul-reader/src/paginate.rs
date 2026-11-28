@@ -266,6 +266,17 @@ mod tests {
             FontCacheSnapshot::empty(),
             ImageCacheSnapshot::empty(),
         );
+        // The lines need a font: a machine without one lays the text out as nothing. Like the
+        // layout tests, skip there, and fail where the CI says it has the fonts
+        // (`AZ_REQUIRE_TEST_FONTS=1`).
+        if pages.page_count() < 3 && std::env::var_os("AZ_REQUIRE_TEST_FONTS").is_none() {
+            eprintln!(
+                "skipped: the text made {} page(s): no system font on this machine \
+                 (AZ_REQUIRE_TEST_FONTS=1 makes this a failure)",
+                pages.page_count()
+            );
+            return;
+        }
         assert!(pages.page_count() >= 3, "{} pages", pages.page_count());
         for page in 1..pages.page_count() {
             let (top, height) = pages.span(page);
