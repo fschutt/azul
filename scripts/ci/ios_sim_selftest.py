@@ -359,6 +359,10 @@ def launch_app(udid, bundle, stdout, stderr, env, attempts=2, timeout=LAUNCH_TIM
     """`simctl launch` with the app's output in two files. -> (ok, pid or None, what simctl said). A launch that hangs or that SpringBoard
     refuses is tried once more after the device was asked again whether it has booted; an error is a result, never a traceback."""
     said = ""
+    # ABSOLUTE paths: the Simulator's launchd opens `--stdout=<path>` itself, in its own root, so a path relative to this
+    # script's directory names nothing there and SpringBoard answers "denied by service delegate (SBMainWorkspace)"
+    # (scripts/ci/mobile_qa.py says the same; the first two jobs of this driver died of it)
+    stdout, stderr = os.path.abspath(stdout), os.path.abspath(stderr)
     for attempt in range(attempts):
         try:
             p = subprocess.run(
@@ -674,7 +678,7 @@ def main(argv):
     udid = device["udid"]
     if note:
         print(f"note: {note}", flush=True)
-    out = Path(args.out)
+    out = Path(args.out).resolve()
     out.mkdir(parents=True, exist_ok=True)
     print(f"device {device['name']} {udid} ({device['runtime']}, {device['state']}); app {bundle}", flush=True)
     try:
