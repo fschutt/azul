@@ -459,11 +459,18 @@ fn report(state: &mut DragState, info: CallbackInfo, kind: BottomSheetEventKind)
     }
 }
 
-/// The pointer's y in the window.
+/// The pointer's y in the window: the first finger while one is down (the events of a finger do not move the mouse's cursor
+/// everywhere: a scripted touch, a second touch screen), else the mouse's cursor.
 fn window_y(info: &CallbackInfo) -> Option<f32> {
-    info.get_cursor_relative_to_viewport()
-        .into_option()
-        .map(|p| p.y)
+    let touch = info
+        .get_current_window_state()
+        .touch_state
+        .touch_points
+        .as_ref()
+        .first()
+        .map(|point| point.position.y);
+    touch
+        .or_else(|| info.get_cursor_relative_to_viewport().into_option().map(|p| p.y))
         .filter(|y| y.is_finite())
 }
 
@@ -479,29 +486,29 @@ fn measured_container(info: &CallbackInfo, built: f32) -> f32 {
 }
 
 extern "C" fn on_press(mut data: RefAny, mut info: CallbackInfo) -> Update {
-    let Some(pos) = info.get_cursor_relative_to_node().into_option() else {
+    let Some(y) = window_y(&info) else {
         return Update::DoNothing;
     };
-    let Some(y) = window_y(&info) else {
+    let Some(rect) = info.get_hit_node_rect() else {
         return Update::DoNothing;
     };
     let Some(mut st) = data.downcast_mut::<DragState>() else {
         return Update::DoNothing;
     };
-    if pos.y > st.grab.max(GRIP_HEIGHT) || pos.y < 0.0 {
+    // Where the press lies in the sheet: from the sheet's own top edge.
+    let in_sheet = y - rect.origin.y;
+    if !in_sheet.is_finite() || in_sheet > st.grab.max(GRIP_HEIGHT) || in_sheet < 0.0 {
         return Update::DoNothing;
     }
     st.container = measured_container(&info, st.container);
     st.armed = true;
     st.dragging = false;
-    st.on_grip = pos.y <= GRIP_HEIGHT;
+    st.on_grip = in_sheet <= GRIP_HEIGHT;
     st.start_y = y;
     st.last_y = y;
     st.step = 0.0;
-    if let Some(rect) = info.get_hit_node_rect() {
-        if rect.size.height.is_finite() && rect.size.height > 0.0 {
-            st.height = rect.size.height;
-        }
+    if rect.size.height.is_finite() && rect.size.height > 0.0 {
+        st.height = rect.size.height;
     }
     st.start_height = st.height;
     Update::DoNothing
@@ -537,6 +544,23 @@ extern "C" fn on_move(mut data: RefAny, mut info: CallbackInfo) -> Update {
     report(&mut st, info, BottomSheetEventKind::Dragged)
 }
 
+/// The pointer is up: a drag settles on a detent, a tap on the grip steps to the next one, a press in the band under the grip
+/// belongs to what is there.
+fn finish(st: &mut DragState, info: CallbackInfo, leaving: bool) -> Update {
+    st.armed = false;
+    let heights = st.heights();
+    let wanted = if st.dragging {
+        st.dragging = false;
+        heights.settle(st.height, st.step, st.lowest, st.highest)
+    } else if st.on_grip && !leaving {
+        // A tap on the grip: the next detent up.
+        step_round(st.detent, st.lowest, st.highest)
+    } else {
+        return Update::DoNothing;
+    };
+    settle_at(st, info, wanted)
+}
+
 extern "C" fn on_release(mut data: RefAny, info: CallbackInfo) -> Update {
     let Some(mut st) = data.downcast_mut::<DragState>() else {
         return Update::DoNothing;
@@ -544,31 +568,23 @@ extern "C" fn on_release(mut data: RefAny, info: CallbackInfo) -> Update {
     if !st.armed {
         return Update::DoNothing;
     }
-    st.armed = false;
-    let heights = st.heights();
-    let wanted = if st.dragging {
-        st.dragging = false;
-        heights.settle(st.height, st.step, st.lowest, st.highest)
-    } else if st.on_grip {
-        // A tap on the grip: the next detent up.
-        step_round(st.detent, st.lowest, st.highest)
-    } else {
-        // A tap in the band under the grip belongs to what is there.
-        return Update::DoNothing;
-    };
-    settle_at(&mut st, info, wanted)
+    finish(&mut st, info, false)
 }
 
-/// A leave with the button already up is a release that never came: the press ends.
+/// The pointer left with the button already up: a release that never came (a phone's system took the touch, a pan that lifts is
+/// reported as a cancel and the pointer leaves): a drag in flight ends where it was and settles, as a release would; a press that
+/// never moved is let go.
 extern "C" fn on_leave(mut data: RefAny, info: CallbackInfo) -> Update {
     if info.get_current_mouse_state().left_down {
         return Update::DoNothing;
     }
-    if let Some(mut st) = data.downcast_mut::<DragState>() {
-        st.armed = false;
-        st.dragging = false;
+    let Some(mut st) = data.downcast_mut::<DragState>() else {
+        return Update::DoNothing;
+    };
+    if !st.armed {
+        return Update::DoNothing;
     }
-    Update::DoNothing
+    finish(&mut st, info, true)
 }
 
 /// The sheet rests at `detent`: its height set, the app told.
