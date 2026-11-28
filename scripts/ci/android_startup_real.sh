@@ -7,6 +7,9 @@
 #   scripts/remote.sh run <full sha | ref> ubuntu-22.04 'bash scripts/ci/android_startup_real.sh AzWidgets AzWriter' --codegen --artifacts 'demo-out/lab/**'
 #
 # AZ_ANDROID_DEVICE=pixel_8 AZ_ANDROID_OVERLAYS=com.android.internal.emulation.pixel_8 puts the Pixel 8's camera cutout on the emulator (the QA's tab jobs do).
+# AZ_LAB_CUTOUT_APPS="AzWriter" adds a second pass after the first, on the Pixel 8 profile with its camera cutout, for those apps only (AZ_LAB_CUTOUT_STARTS
+# starts each, default 5; out: demo-out/lab-cutout): an app that draws around the camera (AzWriter's strip) gets its cutout from the window's insets
+# dispatch, and a picture that moves when it arrives is a jump the Pixel 6 profile (no cutout) cannot show.
 #
 # Output: demo-out/lab/lab.md (a table with the frames of the starting window (S), of black (B) and of the first picture (1) per row, the run lengths and
 # the engine's and the system's events of every start), lab.json, <row>/strip.png (a contact sheet of the first start) and <row>/start1/cold.mp4.
@@ -51,4 +54,25 @@ only=()
 for o in ${AZ_LAB_ONLY:-}; do only+=(--only "$o"); done
 python3 "$here/startup_lab.py" run --out "$out" --real "${lab_apks[@]}" --starts "$starts" ${only[@]+"${only[@]}"} 2>&1 | tee "$out/lab.log"
 lab_emulator_down
+
+# the second pass: the Pixel 8 profile and its camera cutout, for the apps that draw around it
+if [ -n "${AZ_LAB_CUTOUT_APPS:-}" ]; then
+  cut_out="${out}-cutout"
+  mkdir -p "$cut_out"
+  cut_apks=()
+  for app in $AZ_LAB_CUTOUT_APPS; do
+    apk="demo-out/apps/$app-$col.apk"
+    [ -e "$apk" ] && cut_apks+=(--apk "$app=$apk") || echo "no $apk: $app did not build"
+  done
+  if [ "${#cut_apks[@]}" -gt 0 ]; then
+    LAB_DEVICE=pixel_8
+    AZ_ANDROID_OVERLAYS="com.android.internal.emulation.pixel_8"
+    if lab_emulator_up "$cut_out"; then
+      python3 "$here/startup_lab.py" run --out "$cut_out" --real "${cut_apks[@]}" --starts "${AZ_LAB_CUTOUT_STARTS:-5}" 2>&1 | tee "$cut_out/lab.log"
+      lab_emulator_down
+    else
+      echo "the Pixel 8 emulator did not come up: no cutout pass"
+    fi
+  fi
+fi
 exit 0
