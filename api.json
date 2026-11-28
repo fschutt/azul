@@ -12815,66 +12815,6 @@
                 ],
                 "priority": 94.0,
                 "classes": {
-                    "EdgeInsetsPx": {
-                        "doc": [
-                            "How far from each edge of the window the system takes a swipe, in logical pixels: the numbers of one",
-                            "kind of system gesture region (`SystemGestureInsets`)."
-                        ],
-                        "external": "azul_layout::managers::gesture::EdgeInsetsPx",
-                        "derive": [
-                            "Debug",
-                            "Default",
-                            "Clone",
-                            "Copy",
-                            "PartialEq"
-                        ],
-                        "struct_fields": [
-                            {
-                                "left": {
-                                    "type": "f32"
-                                },
-                                "top": {
-                                    "type": "f32"
-                                },
-                                "right": {
-                                    "type": "f32"
-                                },
-                                "bottom": {
-                                    "type": "f32"
-                                }
-                            }
-                        ],
-                        "repr": "C"
-                    },
-                    "SystemGestureInsets": {
-                        "doc": [
-                            "Where the system takes the swipes of its own gestures: the three kinds of region Android reports in",
-                            "`WindowInsets`. A touch that starts inside one may be taken by the system before the app sees the end of",
-                            "it (the app gets a cancel). A shell fills it; a window nobody filled it for has no regions (the desktop)."
-                        ],
-                        "external": "azul_layout::managers::gesture::SystemGestureInsets",
-                        "derive": [
-                            "Debug",
-                            "Default",
-                            "Clone",
-                            "Copy",
-                            "PartialEq"
-                        ],
-                        "struct_fields": [
-                            {
-                                "normal": {
-                                    "type": "EdgeInsetsPx"
-                                },
-                                "mandatory": {
-                                    "type": "EdgeInsetsPx"
-                                },
-                                "tappable": {
-                                    "type": "EdgeInsetsPx"
-                                }
-                            }
-                        ],
-                        "repr": "C"
-                    },
                     "CallbackType": {
                         "doc": [
                             "Main callback type for UI event handling"
@@ -204662,6 +204602,66 @@
                                 },
                                 "ended": {
                                     "type": "bool"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "EdgeInsetsPx": {
+                        "doc": [
+                            "How far from each edge of the window the system takes a swipe, in logical pixels: the numbers of one",
+                            "kind of system gesture region (`SystemGestureInsets`)."
+                        ],
+                        "external": "azul_layout::managers::gesture::EdgeInsetsPx",
+                        "derive": [
+                            "Debug",
+                            "Default",
+                            "Clone",
+                            "Copy",
+                            "PartialEq"
+                        ],
+                        "struct_fields": [
+                            {
+                                "left": {
+                                    "type": "f32"
+                                },
+                                "top": {
+                                    "type": "f32"
+                                },
+                                "right": {
+                                    "type": "f32"
+                                },
+                                "bottom": {
+                                    "type": "f32"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "SystemGestureInsets": {
+                        "doc": [
+                            "Where the system takes the swipes of its own gestures: the three kinds of region Android reports in",
+                            "`WindowInsets`. A touch that starts inside one may be taken by the system before the app sees the end of",
+                            "it (the app gets a cancel). A shell fills it; a window nobody filled it for has no regions (the desktop)."
+                        ],
+                        "external": "azul_layout::managers::gesture::SystemGestureInsets",
+                        "derive": [
+                            "Debug",
+                            "Default",
+                            "Clone",
+                            "Copy",
+                            "PartialEq"
+                        ],
+                        "struct_fields": [
+                            {
+                                "normal": {
+                                    "type": "EdgeInsetsPx"
+                                },
+                                "mandatory": {
+                                    "type": "EdgeInsetsPx"
+                                },
+                                "tappable": {
+                                    "type": "EdgeInsetsPx"
                                 }
                             }
                         ],
