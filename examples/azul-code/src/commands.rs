@@ -273,7 +273,9 @@ pub fn refresh_explorer(st: &mut AppState, info: &mut CallbackInfo, app: &RefAny
     let root = w.root.clone();
     st.index.clear();
     st.index_state = IndexState::None;
-    let jobs = folders.into_iter().map(|folder| DriveJob::List { folder }).collect();
+    // The Run view's tasks come from files of the folder's root: read again with the listings.
+    let mut jobs: Vec<DriveJob> = folders.into_iter().map(|folder| DriveJob::List { folder }).collect();
+    jobs.push(DriveJob::TaskFiles);
     storage::spawn_drive_jobs(info, &root, jobs, app.clone(), on_drive_done);
 }
 
@@ -954,10 +956,11 @@ pub extern "C" fn on_files_done(mut app: RefAny, mut msg: RefAny, mut info: Call
         st.fail(sample_failed(&e), None);
     }
     if let Some(root) = st.workspace.as_ref().map(|w| w.root.clone()) {
+        // The tasks were asked for when the folder was still empty (the sample's Cargo.toml was not there yet).
         storage::spawn_drive_jobs(
             &mut info,
             &root,
-            vec![DriveJob::List { folder: String::new() }],
+            vec![DriveJob::List { folder: String::new() }, DriveJob::TaskFiles],
             handle,
             on_drive_done,
         );

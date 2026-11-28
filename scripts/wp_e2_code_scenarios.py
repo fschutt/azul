@@ -163,8 +163,9 @@ def phone_steps(first_start):
     else:
         s += exists("#__azcode_welcome")
         s += shot()                                                    # 1 first look: the welcome page, the top bar, the status bar
-        s += open_sample()
-    s += click("#__azcode_drawer-button") + exists("#__azcode_drawer", "#__azcode_scrim", "#__azcode_activity-git", "#__azcode_activity-run")
+        # the sample is written and listed; its tree is in the drawer, which is closed
+        s += click("#__azcode_open-sample") + rest(3500)
+    s += click("#__azcode_drawer-button") + exists("#__azcode_drawer", "#__azcode_scrim", "#__azcode_activity-git", "#__azcode_activity-run", SRC)
     s += shot()                                                        # 2 the drawer: the explorer over the scrim
     if first_start:
         s += click(SRC) + rest(800) + exists(MAIN) + click(MAIN) + rest(900)

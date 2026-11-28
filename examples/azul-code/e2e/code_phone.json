@@ -106,10 +106,6 @@
         "op": "wait_frame"
       },
       {
-        "op": "assert_exists",
-        "selector": "#__azcode_tree-src-"
-      },
-      {
         "op": "click",
         "selector": "#__azcode_drawer-button"
       },
@@ -134,6 +130,10 @@
       {
         "op": "assert_exists",
         "selector": "#__azcode_activity-run"
+      },
+      {
+        "op": "assert_exists",
+        "selector": "#__azcode_tree-src-"
       },
       {
         "op": "wait_frame"
@@ -626,10 +626,6 @@
         "op": "wait_frame"
       },
       {
-        "op": "assert_exists",
-        "selector": "#__azcode_tree-src-"
-      },
-      {
         "op": "click",
         "selector": "#__azcode_drawer-button"
       },
@@ -654,6 +650,10 @@
       {
         "op": "assert_exists",
         "selector": "#__azcode_activity-run"
+      },
+      {
+        "op": "assert_exists",
+        "selector": "#__azcode_tree-src-"
       },
       {
         "op": "wait_frame"
@@ -1146,10 +1146,6 @@
         "op": "wait_frame"
       },
       {
-        "op": "assert_exists",
-        "selector": "#__azcode_tree-src-"
-      },
-      {
         "op": "click",
         "selector": "#__azcode_drawer-button"
       },
@@ -1174,6 +1170,10 @@
       {
         "op": "assert_exists",
         "selector": "#__azcode_activity-run"
+      },
+      {
+        "op": "assert_exists",
+        "selector": "#__azcode_tree-src-"
       },
       {
         "op": "wait_frame"
@@ -1666,10 +1666,6 @@
         "op": "wait_frame"
       },
       {
-        "op": "assert_exists",
-        "selector": "#__azcode_tree-src-"
-      },
-      {
         "op": "click",
         "selector": "#__azcode_drawer-button"
       },
@@ -1694,6 +1690,10 @@
       {
         "op": "assert_exists",
         "selector": "#__azcode_activity-run"
+      },
+      {
+        "op": "assert_exists",
+        "selector": "#__azcode_tree-src-"
       },
       {
         "op": "wait_frame"
@@ -2232,6 +2232,10 @@
       {
         "op": "assert_exists",
         "selector": "#__azcode_activity-run"
+      },
+      {
+        "op": "assert_exists",
+        "selector": "#__azcode_tree-src-"
       },
       {
         "op": "wait_frame"
