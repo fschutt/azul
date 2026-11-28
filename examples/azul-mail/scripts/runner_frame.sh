@@ -23,6 +23,8 @@ cp target/debug/libazul.so "$link/"
 export AZ_LINK_PATH="$link"
 cargo build -p AzMail --features test-hooks 2>&1 | grep -E "^(error|warning: unused)|-->|Finished" | head -60
 bin=$PWD/target/debug/AzMail
+# the binary finds the library in the folder the build was pointed at
+export LD_LIBRARY_PATH="$link${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 status=0
 
 # 1. the scenario files: <file>:<form>:<window size>
