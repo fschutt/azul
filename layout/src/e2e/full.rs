@@ -9138,13 +9138,14 @@ mod audit_a9_report_tests {
 
 /// Writes a file a scenario asked for (a damage picture) at `path`, creating its folders. A RELATIVE path that cannot be written - a phone's
 /// app has no writable working directory (`target/e2e/x.png` failed with "Read-only file system" on the iOS Simulator and no scenario that
-/// asks for such a file could pass there) - is written under `fallback_dir` (the temp dir) with its file name instead; an absolute path is the
-/// scenario's own decision and fails as it is. -> the path written.
+/// asks for such a file could pass there) - is written under `fallback_dir` (the window's e2e output folder, `AZ_E2E_SHOT_DIR`, when it has
+/// one) with its file name instead; an absolute path is the scenario's own decision and fails as it is, and so does a relative one when there
+/// is no folder to fall back to. -> the path written.
 #[cfg(feature = "std")]
 fn write_e2e_artifact(
     path: &str,
     bytes: &[u8],
-    fallback_dir: &std::path::Path,
+    fallback_dir: Option<&std::path::Path>,
 ) -> std::io::Result<std::path::PathBuf> {
     write_e2e_artifact_with(path, bytes, fallback_dir, &|target: &std::path::Path, data: &[u8]| {
         if let Some(parent) = target.parent().filter(|p| !p.as_os_str().is_empty()) {
@@ -9159,20 +9160,20 @@ fn write_e2e_artifact(
 fn write_e2e_artifact_with(
     path: &str,
     bytes: &[u8],
-    fallback_dir: &std::path::Path,
+    fallback_dir: Option<&std::path::Path>,
     write: &dyn Fn(&std::path::Path, &[u8]) -> std::io::Result<()>,
 ) -> std::io::Result<std::path::PathBuf> {
     let target = std::path::Path::new(path);
-    match write(target, bytes) {
-        Ok(()) => Ok(target.to_path_buf()),
-        Err(first) if target.is_relative() => {
+    match (write(target, bytes), fallback_dir) {
+        (Ok(()), _) => Ok(target.to_path_buf()),
+        (Err(first), Some(dir)) if target.is_relative() => {
             let name = target
                 .file_name()
                 .map_or_else(|| std::ffi::OsString::from("e2e-artifact.png"), std::ffi::OsString::from);
-            let fallback = fallback_dir.join(name);
+            let fallback = dir.join(name);
             write(&fallback, bytes).map(|()| fallback).map_err(|_| first)
         }
-        Err(first) => Err(first),
+        (Err(first), _) => Err(first),
     }
 }
 
@@ -18672,7 +18673,10 @@ fn serve_debug_event(
                     // left the directory behind. A scenario must not depend on
                     // leftover build artefacts to pass.
                     Ok(png) => {
-                        match write_e2e_artifact(path, &png, &std::env::temp_dir()) {
+                        // The folder the window's settings name for e2e output (`AZ_E2E_SHOT_DIR`, read once by the settings): handed DOWN, the
+                        // library asks the process environment for nothing.
+                        let fallback = callback_info.get_layout_window().settings.e2e.shot_dir.clone();
+                        match write_e2e_artifact(path, &png, fallback.as_deref()) {
                             Ok(_) => send_ok(request, None, None),
                             Err(e) => send_err(
                                 request,
@@ -26202,7 +26206,7 @@ mod e2e_artifact_write_tests {
     #[test]
     fn a_relative_path_that_cannot_be_written_goes_to_the_temp_dir() {
         let written = RefCell::new(Vec::new());
-        let got = write_e2e_artifact_with("target/e2e/patch.png", b"png", Path::new("/tmp/app-cache"), &sandbox(&written))
+        let got = write_e2e_artifact_with("target/e2e/patch.png", b"png", Some(Path::new("/tmp/app-cache")), &sandbox(&written))
             .expect("the temp dir takes it");
         assert_eq!(got, PathBuf::from("/tmp/app-cache/patch.png"));
         assert_eq!(written.borrow().as_slice(), [PathBuf::from("/tmp/app-cache/patch.png")]);
@@ -26212,7 +26216,7 @@ mod e2e_artifact_write_tests {
     #[test]
     fn an_absolute_path_that_cannot_be_written_fails_as_it_is() {
         let written = RefCell::new(Vec::new());
-        let err = write_e2e_artifact_with("/readonly/x.png", b"png", Path::new("/tmp/app-cache"), &sandbox(&written)).unwrap_err();
+        let err = write_e2e_artifact_with("/readonly/x.png", b"png", Some(Path::new("/tmp/app-cache")), &sandbox(&written)).unwrap_err();
         assert_eq!(err.kind(), ErrorKind::PermissionDenied);
         assert!(written.borrow().is_empty(), "nothing was written anywhere else");
     }
@@ -26225,16 +26229,25 @@ mod e2e_artifact_write_tests {
             written.borrow_mut().push(target.to_path_buf());
             Ok(())
         };
-        let got = write_e2e_artifact_with("target/e2e/patch.png", b"png", Path::new("/tmp/app-cache"), &writer).expect("written");
+        let got = write_e2e_artifact_with("target/e2e/patch.png", b"png", Some(Path::new("/tmp/app-cache")), &writer).expect("written");
         assert_eq!(got, PathBuf::from("target/e2e/patch.png"));
         assert_eq!(written.borrow().len(), 1);
+    }
+
+    /// Without an output folder in the window's settings there is nothing to fall back to: the relative path fails as it is.
+    #[test]
+    fn a_relative_path_without_an_output_folder_fails_as_it_is() {
+        let written = RefCell::new(Vec::new());
+        let err = write_e2e_artifact_with("target/e2e/patch.png", b"png", None, &sandbox(&written)).unwrap_err();
+        assert_eq!(err.kind(), ErrorKind::PermissionDenied);
+        assert!(written.borrow().is_empty());
     }
 
     /// When the fallback cannot be written either, the FIRST error is the one reported (it names the path the scenario asked for).
     #[test]
     fn when_the_fallback_fails_too_the_first_error_is_reported() {
         let writer = |_: &Path, _: &[u8]| -> std::io::Result<()> { Err(Error::new(ErrorKind::PermissionDenied, "first")) };
-        let err = write_e2e_artifact_with("a/b.png", b"png", Path::new("/tmp/app-cache"), &writer).unwrap_err();
+        let err = write_e2e_artifact_with("a/b.png", b"png", Some(Path::new("/tmp/app-cache")), &writer).unwrap_err();
         assert_eq!(err.to_string(), "first");
     }
 }

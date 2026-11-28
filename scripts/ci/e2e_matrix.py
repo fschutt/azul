@@ -225,6 +225,9 @@ def run_android(scns, apks, out, serial="", timeout=240):
         remote = "/data/local/tmp/az_e2e.json"
         dev.adb("push", scn["file"], remote, timeout=60)
         dev.sh(f"setprop debug.az.e2e {remote}")
+        # a relative output path of a scenario (`target/e2e/x.png`) cannot be written in an app's working directory: the window's e2e output folder
+        # (AZ_E2E_SHOT_DIR) is where the engine falls back to, the app's own cache folder here
+        dev.sh(f"setprop debug.az.env 'AZ_E2E_SHOT_DIR=/data/user/0/{dev.package}/cache'")
         dev.sh(f"am force-stop {dev.package}")
         dev.adb("logcat", "-c")
         started = time.time()
@@ -290,7 +293,7 @@ def run_ios(scns, app_zips, udid, out, timeout=240):
             records += not_applicable(scn, "ios", f"the e2e Simulator app of {host} did not install")
             continue
         started = time.time()
-        dev.launch(extra_env={"AZ_E2E": str(Path(scn["file"]).resolve())}, cold=True)
+        dev.launch(extra_env={"AZ_E2E": str(Path(scn["file"]).resolve()), "AZ_E2E_SHOT_DIR": "/tmp"}, cold=True)   # /tmp: the Simulator's host folder
         seen, ended = False, False
         while time.time() - started < timeout:
             alive = dev.alive()
