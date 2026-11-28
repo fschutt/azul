@@ -2538,6 +2538,11 @@ impl IOSWindow {
                     dpi,
                 );
             }
+            // The frame goes on the window's frame report (`CpuBackend::record_last_frame_on`): the e2e
+            // counters read it, not the backend.
+            if let Some(lw) = self.common.layout_window.as_mut() {
+                self.cpu_backend.record_last_frame_on(lw);
+            }
         }
     }
 
@@ -2779,6 +2784,10 @@ impl IOSWindow {
                     height,
                     dpi,
                 );
+            }
+            // As in `rerender_cpu`: the frame goes on the window's frame report.
+            if let Some(lw) = self.common.layout_window.as_mut() {
+                self.cpu_backend.record_last_frame_on(lw);
             }
         }
 

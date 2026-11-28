@@ -62,6 +62,9 @@ mod ios_shell_invariants;
 // lifecycle machine, the CPU path left to CPU windows, nothing deleted in the background.
 #[cfg(test)]
 mod ios_gpu_invariants;
+// And the frame report: every shell that rasters a frame on the CPU puts it on the window's report, which the e2e counters read.
+#[cfg(test)]
+mod frame_report_invariants;
 
 // Re-export common types
 pub use common::{
