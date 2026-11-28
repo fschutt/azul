@@ -145,6 +145,21 @@ pub fn string_value(key: &str) -> Option<String> {
     }
 }
 
+/// The text of a user-check sheet: `reason` when the caller gave one, else "Unlock <the app's name>". LocalAuthentication
+/// refuses an EMPTY reason (`evaluatePolicy:localizedReason:reply:` raises `NSInvalidArgumentException`, an abort through
+/// Rust frames), so a sheet is never started with one.
+#[cfg(any(target_os = "macos", target_os = "ios"))]
+#[must_use]
+pub fn prompt_reason_or_default(reason: &str) -> String {
+    if !reason.trim().is_empty() {
+        return reason.to_string();
+    }
+    match string_value("CFBundleDisplayName").or_else(|| string_value("CFBundleName")) {
+        Some(name) => format!("Unlock {name}"),
+        None => String::from("Unlock your saved data"),
+    }
+}
+
 /// Whether this process runs from a bundle with an `Info.plist` of its own (it names a
 /// `CFBundleIdentifier`); a bare binary does not.
 #[cfg(any(target_os = "macos", target_os = "ios"))]

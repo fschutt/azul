@@ -13,6 +13,9 @@ const IOS_SYSTEM_FONT_RS: &str = include_str!("ios/system_font.rs");
 const GAMEPAD_APPLE_RS: &str = include_str!("../extra/gamepad/apple.rs");
 const GEOLOCATION_IOS_RS: &str = include_str!("../extra/geolocation/ios.rs");
 const MIC_APPLE_RS: &str = include_str!("../extra/audio/avfoundation_mic.rs");
+const SENSORS_APPLE_SYNC_RS: &str = include_str!("../extra/sensors/apple.rs");
+const SENSORS_MOD_RS: &str = include_str!("../extra/sensors/mod.rs");
+const CAPABILITY_PUMP_RS: &str = include_str!("common/capability_pump.rs");
 const FILE_PICKER_RS: &str = include_str!("../extra/file_picker/ios.rs");
 const CAMERA_RS: &str = include_str!("../extra/camera/avfoundation.rs");
 const AVF_AUTH_RS: &str = include_str!("../extra/camera/avf_auth.rs");
@@ -743,4 +746,39 @@ fn the_microphone_reads_the_format_of_its_samples_on_ios_too() {
         !ios_reader.trim_start().starts_with("_sample_buffer: &CMSampleBuffer) -> Option<Asbd> {\n    None"),
         "the stub that answered None is gone"
     );
+}
+
+/// Nothing starts at launch, and the sensors that cost something start only for an app that READS them: CoreMotion
+/// started only for an app with a `SensorChanged` node (an app that read the magnetometer from a timer saw `None` for
+/// ever) and started everything, the barometer and the step counter included, at the first pump of any app with a
+/// listener (the Motion & Fitness prompt at launch). The pump syncs what is wanted (a read wants a kind for a lease), the
+/// groups start and stop on their own, proximity monitoring is switched off again, and the background stops them.
+#[test]
+fn the_ios_sensors_start_on_demand_and_stop_when_nobody_reads_them() {
+    let pump = code_of(CAPABILITY_PUMP_RS);
+    assert!(pump.contains("sensors::sync(&lw.app_services.sensors, listeners)"), "the pump syncs what is wanted");
+    assert!(
+        !pump.contains("sensors::ensure_started("),
+        "the pump no longer starts everything for a listener"
+    );
+    let apple = code_of(SENSORS_APPLE_SYNC_RS);
+    for needed in [
+        "pub fn sync(",
+        "fn start_barometer(",
+        "fn start_steps(",
+        "fn stop_proximity(",
+        "fn stop_motion(",
+        "stopAccelerometerUpdates()",
+        "setProximityMonitoringEnabled: false",
+        "wanted.barometer",
+        "wanted.steps",
+        "wanted.proximity",
+    ] {
+        assert!(apple.contains(needed), "extra/sensors/apple.rs: `{needed}` is missing");
+    }
+    assert!(!apple.contains("pub fn start("), "there is no start-everything call on Apple");
+    let sync = body(SENSORS_MOD_RS, "pub fn sync(");
+    assert!(sync.contains("wanted_any(&[SensorKind::Barometer])"), "the barometer is wanted by a read of the barometer only");
+    let background = body(IOS_MOD_RS, "extern \"C\" fn app_did_enter_background(");
+    at(background, "sensors::pause(", "app_did_enter_background");
 }

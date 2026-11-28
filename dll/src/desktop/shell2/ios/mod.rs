@@ -1987,6 +1987,11 @@ extern "C" fn app_did_enter_background(_this: &Object, _cmd: Sel, _app: *mut Obj
     // then glFinish); after it every GL path of the shell asks the lifecycle machine first.
     if let Some(window) = unsafe { azul_ios_window() } {
         window.gpu_event(gpu_lifecycle::Event::Backgrounded);
+        // The motion sensors and the proximity monitoring cost battery for nothing in the background (and the
+        // proximity monitoring blanks the screen): stopped here, started again by the pump when the app reads them.
+        if let Some(lw) = window.common.layout_window.as_ref() {
+            crate::desktop::extra::sensors::pause(&lw.app_services.sensors);
+        }
     }
 }
 
