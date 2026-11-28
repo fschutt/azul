@@ -155,6 +155,7 @@ dll_tests() {
   [ "${PIPESTATUS[0]}" -eq 0 ] || code=1
   cargo test -p azul-dll --features build-dll --no-fail-fast \
     --test a_one_surface_window_shows_its_popups_inside_itself --test a_menu_on_a_phone_opens_inside_the_window \
+    --test a_second_window_of_a_phone_is_a_view_that_fills_it \
     --test transient_window_layout 2>&1 | tee dll-tests.txt
   [ "${PIPESTATUS[0]}" -eq 0 ] || code=1
   return "$code"

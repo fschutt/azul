@@ -5939,16 +5939,18 @@ pub trait PlatformWindow {
         }
     }
 
-    /// Does this window show its menus inside itself - a window with one surface, a phone or a
-    /// desktop window put on a phone display? Then a menu is no native menu and no window of its
-    /// own: the engine shows it over the page ([`LayoutWindow::open_menu_overlay`]).
-    fn shows_menus_inside_itself(&self) -> bool {
+    /// Does this window have ONE surface - a phone, or a desktop window put on a phone display
+    /// (`WindowFlags::display_preset`)? Then it cannot open another window: its popups and dialogs
+    /// are shown inside it, over the page ([`LayoutWindow::overlay_bounds`]), so are its menus
+    /// ([`LayoutWindow::open_menu_overlay`]), and a second window of the app is a view pushed over
+    /// it that fills the surface.
+    fn has_one_surface(&self) -> bool {
         let state = self.get_current_window_state();
         self.get_layout_window()
             .is_some_and(|lw| lw.effective_presentation(state).is_one_surface())
     }
 
-    /// Opens `menu` inside this window if it shows its menus there ([`Self::shows_menus_inside_itself`]):
+    /// Opens `menu` inside this window if it has one surface ([`Self::has_one_surface`]):
     /// it hangs from `anchor` (the control's rect), or from `at` when it was opened at a point. The
     /// menu is part of the page the next regeneration builds, so one is asked for. Returns whether
     /// the window took the menu; `false` leaves it to the shell.
@@ -5958,7 +5960,7 @@ pub trait PlatformWindow {
         at: LogicalPosition,
         anchor: Option<azul_core::geom::LogicalRect>,
     ) -> bool {
-        if !self.shows_menus_inside_itself() {
+        if !self.has_one_surface() {
             return false;
         }
         let window = self.get_current_window_state().size.dimensions;
@@ -5985,7 +5987,7 @@ pub trait PlatformWindow {
         if !events
             .iter()
             .any(|e| matches!(e.event_type, EventType::ContextMenu | EventType::LongPress))
-            || !self.shows_menus_inside_itself()
+            || !self.has_one_surface()
         {
             return None;
         }

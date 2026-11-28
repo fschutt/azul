@@ -1561,7 +1561,7 @@ impl X11Window {
     fn try_show_context_menu(&mut self, position: LogicalPosition) -> bool {
         // A window with one surface shows its context menu inside itself: the engine opens it
         // from the long press / the secondary press the common event pass sees.
-        if crate::desktop::shell2::common::event::PlatformWindow::shows_menus_inside_itself(&*self) {
+        if crate::desktop::shell2::common::event::PlatformWindow::has_one_surface(&*self) {
             return false;
         }
         let Some((owner, context_menu)) = self

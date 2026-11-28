@@ -64,6 +64,8 @@ mod gpu;
 /// through the `AzulSounds` helper (`scripts/android/AzulSounds.java`).
 mod sounds;
 pub use sounds::{play_system_sound, touch_sounds_enabled};
+/// A second window of the app: a view pushed over the first, the surface being one.
+mod views;
 /// `<webview>`: `android.webkit.WebView`s through the `AzulWebView` bridge.
 #[cfg(feature = "jni")]
 mod webview;
@@ -179,6 +181,20 @@ pub struct AndroidWindow {
     /// so it runs once per window lifetime.
     create_callback: azul_layout::callbacks::OptionCallback,
 
+    /// The windows of the app UNDER the one the user sees, oldest first: this shell has one surface, so a second window of the
+    /// app is a VIEW pushed over the first (`views.rs`). `common` is always the window on top.
+    #[cfg_attr(not(feature = "android-activity"), allow(dead_code))]
+    views_below: Vec<CommonWindowState>,
+    /// The windows the app asked for (`queue_window_create`) since the loop last looked: pushed at the next turn of the loop,
+    /// never in the middle of the pass that asked.
+    pending_views: Vec<WindowCreateOptions>,
+    /// The app asked to close the view on top (`CallbackInfo::close_window`): the loop runs the close protocol for it.
+    #[cfg_attr(not(feature = "android-activity"), allow(dead_code))]
+    view_close_owed: bool,
+    /// What the app was configured with, for the views it opens later (`AppConfig::routes`, the bundled fonts).
+    #[cfg_attr(not(feature = "android-activity"), allow(dead_code))]
+    view_config: AppConfig,
+
     /// Last touch position of an in-progress one-finger pan, in logical px.
     ///
     /// Android delivers absolute positions; the scroll funnel wants deltas, so
@@ -205,6 +221,79 @@ pub struct AndroidWindow {
     webviews: Option<webview::AndroidWebViews>,
 }
 
+/// What every window of the app has, with no surface: the layout window seeded from the app (its routes,
+/// bundled fonts, mode and language), the platform state around it and the hit tester. The first window
+/// and every view pushed over it are made by it, the second with the app's CURRENT system style.
+fn make_common(
+    options: WindowCreateOptions,
+    fc_cache: Arc<FcFontCache>,
+    config: &AppConfig,
+    system_style: Arc<azul_css::system::SystemStyle>,
+    app_data: Arc<RefCell<RefAny>>,
+    undo_manager: event::SharedUndoManager,
+    app_shared: Arc<crate::desktop::shell2::common::app_shared::AppShared>,
+) -> Result<(CommonWindowState, azul_layout::callbacks::OptionCallback), WindowError> {
+    // The app's create callback, kept for the first InitWindow (every other shell fires it when its window
+    // exists; this one dropped it).
+    let create_callback = options.create_callback;
+    // `WindowCreateOptions::window_state` is already a `FullWindowState`,
+    // mirroring how `HeadlessWindow::new` consumes it. No constructor call.
+    let full_window_state = options.window_state;
+
+    let mut layout_window = LayoutWindow::new(fc_cache.as_ref().clone())
+        .map_err(|e| WindowError::PlatformError(format!("Layout init failed: {:?}", e)))?;
+    layout_window.current_window_state = full_window_state.clone();
+    layout_window.routes = config.routes.clone();
+    app_shared.seed_window(&mut layout_window, config);
+    // The faces the app ships (`AppConfig::add_font`): this shell has no app-level font
+    // manager to take them from, so the window registers them itself.
+    layout_window
+        .font_manager
+        .register_app_fonts(config.bundled_fonts.as_ref());
+    // `<webview>`s are `android.webkit.WebView`s (`webview`); without
+    // the Java bridge a window says it has none (the default).
+    #[cfg(feature = "jni")]
+    layout_window
+        .webviews
+        .set_platform(azul_layout::managers::webview::WebViewPlatform::Backend);
+    // THE ENGINE DRAWS THE SELECTION HANDLES HERE (U2-a). Android has no
+    // handle API for a custom view: `TextView`'s `Editor` draws the
+    // teardrops for itself and for nobody else, and `NativeTextBridge`
+    // has said so since U2. So the engine paints them and drags them, and
+    // this window says so before its first frame.
+    layout_window.text_edit_manager.selection_handles = true;
+    // This shell has ONE surface and cannot open another window (`queue_window_create` opens none): the
+    // engine shows every popup and dialog inside this window, over the page, and a second window of the
+    // app as a view pushed over it (`azul_layout::transient::WindowPresentation`).
+    layout_window
+        .transient_windows
+        .set_shell_presentation(azul_layout::transient::WindowPresentation::OneSurface);
+
+    let mut common = CommonWindowState::new(
+        full_window_state,
+        options.mode,
+        options.background_color_light,
+        options.background_color_dark,
+        fc_cache,
+        // The style AppConfig detected at startup, not `SystemStyle::default()`.
+        // `default()` carries `Platform::Unknown`, which
+        // `OsCondition::from_system_platform` maps to `Any` — and `Any`
+        // matches no `@os(...)` arm at all, so EVERY OS-conditional UA rule
+        // silently took the fallback branch: classic always-visible
+        // scrollbars instead of overlay, `scrollbar-width: auto` instead of
+        // thin, the wrong fade timings, and the Material palette replaced by
+        // generic defaults. AppConfig's doc comment already promised this is
+        // "passed to all windows"; the desktop backends did, mobile did not.
+        system_style,
+        app_data,
+        undo_manager,
+        app_shared,
+    );
+    common.set_layout_window(layout_window);
+    common.cpu_hit_tester = Some(azul_layout::headless::CpuHitTester::new());
+    Ok((common, create_callback))
+}
+
 impl AndroidWindow {
     /// Construct a window with no native surface attached yet.
     /// `InitWindow` later swaps in the real `ANativeWindow`.
@@ -224,69 +313,21 @@ impl AndroidWindow {
         );
         // What the GPU path makes its renderer from (the resolved background colour, the debug flags), kept before the state moves.
         let gpu_options = options.clone();
-        // The app's create callback, kept for the first InitWindow (every other shell fires it when its window
-        // exists; this one dropped it).
-        let create_callback = options.create_callback;
-        // `WindowCreateOptions::window_state` is already a `FullWindowState`,
-        // mirroring how `HeadlessWindow::new` consumes it. No constructor call.
-        let full_window_state = options.window_state;
 
         // Extract the SharedIconProvider out of the config (same pattern
         // as run_headless) so we can pass it to regenerate_layout later.
         let icon_provider_handle = core::mem::take(&mut config.icon_provider);
         let icon_provider = SharedIconProvider::from_handle(icon_provider_handle);
 
-        let mut layout_window = LayoutWindow::new(fc_cache.as_ref().clone())
-            .map_err(|e| WindowError::PlatformError(format!("Layout init failed: {:?}", e)))?;
-        layout_window.current_window_state = full_window_state.clone();
-        layout_window.routes = config.routes.clone();
-        app_shared.seed_window(&mut layout_window, &config);
-        // The faces the app ships (`AppConfig::add_font`): this shell has no app-level font
-        // manager to take them from, so the window registers them itself.
-        layout_window
-            .font_manager
-            .register_app_fonts(config.bundled_fonts.as_ref());
-        // `<webview>`s are `android.webkit.WebView`s (`webview`); without
-        // the Java bridge a window says it has none (the default).
-        #[cfg(feature = "jni")]
-        layout_window
-            .webviews
-            .set_platform(azul_layout::managers::webview::WebViewPlatform::Backend);
-        // THE ENGINE DRAWS THE SELECTION HANDLES HERE (U2-a). Android has no
-        // handle API for a custom view: `TextView`'s `Editor` draws the
-        // teardrops for itself and for nobody else, and `NativeTextBridge`
-        // has said so since U2. So the engine paints them and drags them, and
-        // this window says so before its first frame.
-        layout_window.text_edit_manager.selection_handles = true;
-        // This shell has ONE surface and cannot open another window (`queue_window_create` opens none): the
-        // engine shows every popup and dialog inside this window, over the page, and a second window of the
-        // app as a view pushed over it (`azul_layout::transient::WindowPresentation`).
-        layout_window
-            .transient_windows
-            .set_shell_presentation(azul_layout::transient::WindowPresentation::OneSurface);
-
-        let mut common = CommonWindowState::new(
-            full_window_state,
-            options.mode,
-            options.background_color_light,
-            options.background_color_dark,
+        let (common, create_callback) = make_common(
+            options,
             fc_cache,
-            // The style AppConfig detected at startup, not `SystemStyle::default()`.
-            // `default()` carries `Platform::Unknown`, which
-            // `OsCondition::from_system_platform` maps to `Any` — and `Any`
-            // matches no `@os(...)` arm at all, so EVERY OS-conditional UA rule
-            // silently took the fallback branch: classic always-visible
-            // scrollbars instead of overlay, `scrollbar-width: auto` instead of
-            // thin, the wrong fade timings, and the Material palette replaced by
-            // generic defaults. AppConfig's doc comment already promised this is
-            // "passed to all windows"; the desktop backends did, mobile did not.
+            &config,
             Arc::new(config.system_style.clone()),
             Arc::new(RefCell::new(app_data)),
             undo_manager,
             app_shared,
-        );
-        common.set_layout_window(layout_window);
-        common.cpu_hit_tester = Some(azul_layout::headless::CpuHitTester::new());
+        )?;
 
         let mut window = Self {
             common,
@@ -317,6 +358,10 @@ impl AndroidWindow {
             clock_start: std::time::Instant::now(),
             tap: TapSlop::default(),
             create_callback,
+            views_below: Vec::new(),
+            pending_views: Vec::new(),
+            view_close_owed: false,
+            view_config: config.clone(),
             touch_pan_last: None,
             primary_pointer_id: None,
             pan_pointer_id: None,
@@ -714,9 +759,29 @@ impl PlatformWindow for AndroidWindow {
         }
     }
 
-    fn queue_window_create(&mut self, _options: WindowCreateOptions) {
-        // No popup windows on Android; ignored. Sub-activities are a future
-        // enhancement and would require launching new Intents from Java.
+    /// The activity has one surface, so a second window of the app is a VIEW pushed over the first
+    /// (`views.rs`), made at the next turn of the loop - never in the middle of the pass that asked.
+    fn queue_window_create(&mut self, options: WindowCreateOptions) {
+        self.pending_views.push(options);
+    }
+
+    /// BACK closes the window on top when the app has one pushed (its `CloseRequested` callbacks may veto,
+    /// as for a window of its own).
+    fn pop_view(&mut self) -> bool {
+        if !self.is_pushed_view() {
+            return false;
+        }
+        let outcome = self.run_close_protocol("android.back");
+        if outcome.confirmed {
+            self.pop_view_now();
+        }
+        true
+    }
+
+    /// The app asked to close the window it is in (`close_window()`): the loop runs the close protocol at
+    /// its next turn.
+    fn close_owed(&mut self) {
+        self.view_close_owed = true;
     }
 
     fn show_menu_from_callback(
@@ -872,6 +937,10 @@ pub fn android_main(app: AndroidApp) {
             handle_poll_event(&app, &mut window, event);
         });
 
+        // The windows the app asked for are pushed over the one on screen, and the close it asked of the one
+        // on top runs (`views.rs`): at this turn of the loop, outside any pass.
+        window.apply_pending_views();
+
         // Timers, Thread writebacks and animations. This call had NO call site
         // on Android at all, so nothing time-driven ever ran here: no Timer
         // fired, no background Thread result was ever collected, and no
@@ -890,6 +959,8 @@ pub fn android_main(app: AndroidApp) {
         if window.process_timers_and_threads() {
             window.needs_rerender = true;
         }
+        // The windows under the one on screen keep their timers and threads.
+        window.pump_suspended_views();
 
         // Native notifications: queued posts out to the NotificationManager
         // (through AzulNotifications.java), and the taps, buttons and

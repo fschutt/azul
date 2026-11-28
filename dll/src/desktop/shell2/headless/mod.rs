@@ -1225,6 +1225,20 @@ impl HeadlessWindow {
                 );
                 pending_create.window_state.window_id = free.into();
             }
+            // A window with one surface shows a second window of the app as a view that fills
+            // the surface: its size, its density and the display it is on are the surface's,
+            // whatever the app asked for a window of its own.
+            if PlatformWindow::has_one_surface(self)
+                && matches!(
+                    pending_create.window_state.flags.window_type,
+                    azul_core::window::WindowType::Normal | azul_core::window::WindowType::Dialog
+                )
+            {
+                let surface = self.common.current_window_state();
+                pending_create.window_state.size = surface.size;
+                pending_create.window_state.monitor_id = surface.monitor_id;
+                pending_create.window_state.flags.display_preset = surface.flags.display_preset;
+            }
             log_debug!(
                 LogCategory::Window,
                 "[Headless] Spawning sub-HeadlessWindow (type: {:?})",
