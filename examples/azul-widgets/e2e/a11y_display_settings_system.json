@@ -1,0 +1,26 @@
+[
+  {
+    "name": "azul_widgets_display_settings_system",
+    "description": "The 'Display settings' section of the widget page under the settings the SYSTEM has (nothing is overridden): one picture of the section and the answer of get_system_accessibility. The matrix session of a phone runs this file once per system setting (Android: settings put system font_scale, secure high_text_contrast_enabled, global animator_duration_scale; iOS: simctl ui content_size, increase_contrast) and so shows what the real setting does.",
+    "steps": [
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "scroll_into_view",
+        "text": "Display settings",
+        "block": "start",
+        "behavior": "instant"
+      },
+      {
+        "op": "wait_settled"
+      },
+      {
+        "op": "take_screenshot"
+      },
+      {
+        "op": "get_system_accessibility"
+      }
+    ]
+  }
+]

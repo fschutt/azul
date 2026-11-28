@@ -1,74 +1,177 @@
 [
   {
-    "name": "azul_widgets_display_settings_system",
-    "description": "The 'Display settings' section of the widget page under the settings the SYSTEM has (nothing is overridden): one picture of the section and the answer of get_system_accessibility. The matrix session of a phone runs this file once per system setting (Android: settings put system font_scale, secure high_text_contrast_enabled, global animator_duration_scale; iOS: simctl ui content_size, increase_contrast) and so shows what the real setting does.",
-    "steps": [
-      { "op": "wait_frame" },
-      { "op": "scroll_into_view", "text": "Display settings", "block": "start", "behavior": "instant" },
-      { "op": "wait_settled" },
-      { "op": "take_screenshot" },
-      { "op": "get_system_accessibility" }
-    ]
-  },
-  {
     "name": "azul_widgets_display_settings",
     "description": "The 'Display settings' section under each option, said by set_system_accessibility (a window's own override: the same file runs on a desktop, the emulator and the Simulator): default, text sizes 1.3 / 2.0 / ax5, bold text, increased contrast in light and in dark, reduced transparency, differentiate without colour, reduced motion. One picture each. The text of the section grows with the text size (a box in px does not), the 'What this window reads' list names the setting, a light edge is seen at 4.5:1 under increased contrast, the frosted panel is opaque without the blur under reduced transparency, and the chips get a glyph and an edge style under differentiate without colour.",
     "steps": [
-      { "op": "wait_frame" },
-      { "op": "scroll_into_view", "text": "Display settings", "block": "start", "behavior": "instant" },
-      { "op": "wait_settled" },
-      { "op": "take_screenshot" },
-      { "op": "find_node_by_text", "text": "Nothing is switched on: the page is as it was written." },
-
-      { "op": "set_system_accessibility", "text_scale": 1.3 },
-      { "op": "wait_settled" },
-      { "op": "scroll_into_view", "text": "Display settings", "block": "start", "behavior": "instant" },
-      { "op": "wait_settled" },
-      { "op": "take_screenshot" },
-      { "op": "get_system_accessibility" },
-      { "op": "assert_response", "contains": "\"effective_text_scale\":1.3" },
-
-      { "op": "set_system_accessibility", "text_scale": 2.0 },
-      { "op": "wait_settled" },
-      { "op": "scroll_into_view", "text": "Display settings", "block": "start", "behavior": "instant" },
-      { "op": "wait_settled" },
-      { "op": "take_screenshot" },
-
-      { "op": "set_system_accessibility", "text_scale": "ax5" },
-      { "op": "wait_settled" },
-      { "op": "scroll_into_view", "text": "Display settings", "block": "start", "behavior": "instant" },
-      { "op": "wait_settled" },
-      { "op": "take_screenshot" },
-
-      { "op": "set_system_accessibility", "reset": true, "bold_text": true },
-      { "op": "wait_settled" },
-      { "op": "take_screenshot" },
-
-      { "op": "set_system_accessibility", "reset": true, "contrast": "more" },
-      { "op": "wait_settled" },
-      { "op": "take_screenshot" },
-      { "op": "set_mode", "mode": "dark" },
-      { "op": "wait_settled" },
-      { "op": "take_screenshot" },
-      { "op": "set_mode", "mode": "light" },
-      { "op": "wait_settled" },
-
-      { "op": "set_system_accessibility", "reset": true, "reduced_transparency": true },
-      { "op": "wait_settled" },
-      { "op": "take_screenshot" },
-
-      { "op": "set_system_accessibility", "reset": true, "differentiate_without_color": true },
-      { "op": "wait_settled" },
-      { "op": "take_screenshot" },
-
-      { "op": "set_system_accessibility", "reset": true, "reduced_motion": true },
-      { "op": "wait_settled" },
-      { "op": "take_screenshot" },
-
-      { "op": "set_system_accessibility", "reset": true },
-      { "op": "wait_settled" },
-      { "op": "get_system_accessibility" },
-      { "op": "assert_response", "contains": "\"effective_text_scale\":1.0" }
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "scroll_into_view",
+        "text": "Display settings",
+        "block": "start",
+        "behavior": "instant"
+      },
+      {
+        "op": "wait_settled"
+      },
+      {
+        "op": "take_screenshot"
+      },
+      {
+        "op": "find_node_by_text",
+        "text": "Nothing is switched on: the page is as it was written."
+      },
+      {
+        "op": "set_system_accessibility",
+        "text_scale": 1.3
+      },
+      {
+        "op": "wait_settled"
+      },
+      {
+        "op": "scroll_into_view",
+        "text": "Display settings",
+        "block": "start",
+        "behavior": "instant"
+      },
+      {
+        "op": "wait_settled"
+      },
+      {
+        "op": "take_screenshot"
+      },
+      {
+        "op": "get_system_accessibility"
+      },
+      {
+        "op": "assert_response",
+        "contains": "\"effective_text_scale\":1.3"
+      },
+      {
+        "op": "set_system_accessibility",
+        "text_scale": 2.0
+      },
+      {
+        "op": "wait_settled"
+      },
+      {
+        "op": "scroll_into_view",
+        "text": "Display settings",
+        "block": "start",
+        "behavior": "instant"
+      },
+      {
+        "op": "wait_settled"
+      },
+      {
+        "op": "take_screenshot"
+      },
+      {
+        "op": "set_system_accessibility",
+        "text_scale": "ax5"
+      },
+      {
+        "op": "wait_settled"
+      },
+      {
+        "op": "scroll_into_view",
+        "text": "Display settings",
+        "block": "start",
+        "behavior": "instant"
+      },
+      {
+        "op": "wait_settled"
+      },
+      {
+        "op": "take_screenshot"
+      },
+      {
+        "op": "set_system_accessibility",
+        "reset": true,
+        "bold_text": true
+      },
+      {
+        "op": "wait_settled"
+      },
+      {
+        "op": "take_screenshot"
+      },
+      {
+        "op": "set_system_accessibility",
+        "reset": true,
+        "contrast": "more"
+      },
+      {
+        "op": "wait_settled"
+      },
+      {
+        "op": "take_screenshot"
+      },
+      {
+        "op": "set_mode",
+        "mode": "dark"
+      },
+      {
+        "op": "wait_settled"
+      },
+      {
+        "op": "take_screenshot"
+      },
+      {
+        "op": "set_mode",
+        "mode": "light"
+      },
+      {
+        "op": "wait_settled"
+      },
+      {
+        "op": "set_system_accessibility",
+        "reset": true,
+        "reduced_transparency": true
+      },
+      {
+        "op": "wait_settled"
+      },
+      {
+        "op": "take_screenshot"
+      },
+      {
+        "op": "set_system_accessibility",
+        "reset": true,
+        "differentiate_without_color": true
+      },
+      {
+        "op": "wait_settled"
+      },
+      {
+        "op": "take_screenshot"
+      },
+      {
+        "op": "set_system_accessibility",
+        "reset": true,
+        "reduced_motion": true
+      },
+      {
+        "op": "wait_settled"
+      },
+      {
+        "op": "take_screenshot"
+      },
+      {
+        "op": "set_system_accessibility",
+        "reset": true
+      },
+      {
+        "op": "wait_settled"
+      },
+      {
+        "op": "get_system_accessibility"
+      },
+      {
+        "op": "assert_response",
+        "contains": "\"effective_text_scale\":1.0"
+      }
     ]
   }
 ]
