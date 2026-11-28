@@ -2023,7 +2023,16 @@ extern "C" fn app_did_enter_background(_this: &Object, _cmd: Sel, _app: *mut Obj
         if let Some(lw) = window.common.layout_window.as_ref() {
             crate::desktop::extra::sensors::pause(&lw.app_services.sensors);
         }
+        // The app hears of it before this returns: iOS may suspend the process right after, and what a person would
+        // lose (the document, the drawing) is written in the handler, not afterwards.
+        raise_lifecycle(window, azul_core::lifecycle::LifecycleEvent::Paused);
     }
+}
+
+/// Tell the app of an event of its life (`CallbackInfo::set_lifecycle_handler`) and apply what its handler asked for.
+fn raise_lifecycle(window: &mut IOSWindow, event: azul_core::lifecycle::LifecycleEvent) {
+    let result = crate::desktop::lifecycle::raise(window, event);
+    window.apply_event_result(result);
 }
 
 extern "C" fn app_will_enter_foreground(_this: &Object, _cmd: Sel, _app: *mut Object) {
@@ -2032,6 +2041,10 @@ extern "C" fn app_will_enter_foreground(_this: &Object, _cmd: Sel, _app: *mut Ob
         "[iOS] applicationWillEnterForeground:"
     );
     unsafe { set_display_link_paused(false) };
+    // The counterpart of `Paused`: only a return from the background (a cold start does not pass here).
+    if let Some(window) = unsafe { azul_ios_window() } {
+        raise_lifecycle(window, azul_core::lifecycle::LifecycleEvent::Resumed);
+    }
 }
 
 /// `applicationDidReceiveMemoryWarning:` - the system is short of memory. Apple: "It is strongly
@@ -2056,12 +2069,19 @@ extern "C" fn app_did_receive_memory_warning(_this: &Object, _cmd: Sel, _app: *m
     // back when it is not: no GL command in the background).
     if let Some(window) = unsafe { azul_ios_window() } {
         window.gpu_memory_warning();
+        // The app gives back what it can make again (caches, decoded pictures, tiles).
+        raise_lifecycle(window, azul_core::lifecycle::LifecycleEvent::LowMemory);
     }
 }
 
 extern "C" fn app_will_terminate(_this: &Object, _cmd: Sel, _app: *mut Object) {
     log_info!(LogCategory::EventLoop, "[iOS] applicationWillTerminate:");
     unsafe {
+        // The app's last chance to write, before anything is taken down (not a promise: a phone often ends a process
+        // with no such call).
+        if let Some(window) = azul_ios_window() {
+            raise_lifecycle(window, azul_core::lifecycle::LifecycleEvent::WillTerminate);
+        }
         // A GPU window comes down in order (surface, renderer, context) before the window is dropped.
         if let Some(window) = azul_ios_window() {
             window.gpu_event(gpu_lifecycle::Event::Shutdown);
