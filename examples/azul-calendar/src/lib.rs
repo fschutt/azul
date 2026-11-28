@@ -1,14 +1,16 @@
 //! AzCalendar: a calendar like Outlook 2010's, on the public azul API, that makes AzMeet links
 //! online or not.
 //!
-//! The window is the Office scaffold (`OfficeShell`, the same frame AzMail and the other azul
-//! apps use): the title row, the ribbon (FILE opens the backstage: Info, Open & Export, Print,
-//! Calendars, Options, About; HOME: New Appointment, New Meeting (with an AzMeet link), Go To
-//! Today / Next 7 Days, Arrange Day / Work Week / Week / Month / Schedule View, Manage
-//! Calendars, Share; VIEW: the list, the navigation pane, the To-Do bar, flat / flora, light /
-//! dark), the navigation pane (the date navigator, "My calendars" with their colours, the
-//! module switcher), the calendar's view, the To-Do bar (appointments and tasks) and the
-//! status bar (how many items, whether the meeting links reached their server).
+//! The window is azul's app frame (`ui_frame.rs`, the one AzMail, AzChat and the other heavy
+//! apps share): the sidebar with the calendars as coloured check rows (`ui_sidebar.rs`, `nav.rs`),
+//! the tab strip as the title bar - FILE is the location, the year and the month big and bold with
+//! a pen that goes to a date (`ui_location.rs`), HOME: New Appointment, New Meeting (with an AzMeet
+//! link), Go To Today / Next 7 Days, Arrange Day / Work Week / Week / Month / Schedule View, the
+//! calendars and Print; VIEW: the list, the sidebar, the Preview, flat / flora, light / dark - the
+//! calendar's view, the Preview with the selected event (`ui_preview.rs`) and the status bar (how
+//! many items, whether the meeting links reached their server). FILE's old pages (Info, Open &
+//! Export, Print, Calendars, Options, About) are dialogs (`ui_dialogs.rs`); a phone's long press on
+//! an event and the location's `...` open action sheets (`ui_sheet.rs`).
 //!
 //! The views (`views.rs`): Day, Work Week and Week are hours down the page (`timegrid.rs`, CAL2's
 //! week: the whole day, scrolling, zooming around the pointer, a click or a drag makes a draft
@@ -52,7 +54,6 @@
 //! - `AZLIN_CONFIG`: another shared Azlin config file (the local stack's profile).
 //! - `AZCAL_SYNC_SECONDS`: how often pending links are sent again (default 30).
 //! - `AZMEET_BIN`: the AzMeet program "Join meeting" starts (default: `AzMeet` next to AzCalendar).
-//! - `AZMAIL_BIN`: the AzMail program the module switcher's Mail starts (default: next to it).
 //!
 //! On stdout, for scripts: `AZCAL_VIEW <view> <first day> <last day>` when the view changes,
 //! `AZCAL_SAVED <file>` and `AZCAL_LINK <link>` when an event is saved, `AZCAL_DELETED <id>`,
@@ -82,10 +83,18 @@ pub mod views;
 pub mod week;
 
 mod chrome;
+mod e2e_ops;
 mod editor_ui;
 mod ids;
+mod nav;
 mod print_ui;
 mod timegrid;
+mod ui_dialogs;
+mod ui_frame;
+mod ui_location;
+mod ui_preview;
+mod ui_sheet;
+mod ui_sidebar;
 mod views_ui;
 mod writes;
 mod l10n;
@@ -249,8 +258,6 @@ pub(crate) struct CalState {
     pub(crate) tasks_root: PathBuf,
     /// The list a task typed into the To-Do bar goes to (the store's default list).
     pub(crate) task_list: String,
-    /// The To-Do bar's new-task line as typed.
-    pub(crate) task_text: String,
     pub(crate) today: NaiveDate,
     // ---- what the window shows ----
     pub(crate) view: ViewKind,
@@ -260,8 +267,29 @@ pub(crate) struct CalState {
     pub(crate) nav_month: (i32, u32),
     /// The selected occurrence: the event's id and the day.
     pub(crate) selected: Option<(String, NaiveDate)>,
-    pub(crate) todo_bar: bool,
+    // ---- the frame (azul's sidebar family) ----
+    /// Desktop or phone: `AZCAL_FORM`, else asked of the window.
+    pub(crate) form: azul::widgets::FormFactor,
+    /// The sidebar's state: the 18 px rail, the expanded sidebar (a phone's drawer), or the 16 px
+    /// handle.
+    pub(crate) sidebar: azul::widgets::SidebarState,
+    /// The sidebar was left folded to its rail on a desktop (the View tab's Navigation Pane and the
+    /// sidebar's own toggle remember it across restarts).
     pub(crate) nav_folded: bool,
+    /// The window's width at the last layout: what an event handler asks whether the window is a
+    /// phone's (`ui_frame::phone_now`).
+    pub(crate) window_width: f32,
+    /// The Preview is shown (the View tab); its size as a drag left it (0: the widget's default).
+    pub(crate) show_preview: bool,
+    pub(crate) preview_size: f32,
+    /// The phone's action sheet that is open, and for what.
+    pub(crate) sheet: Option<ui_sheet::SheetFor>,
+    /// The pen of the location is a field now, and what it holds.
+    pub(crate) goto_editing: bool,
+    pub(crate) goto_text: String,
+    /// The event the last delete took (or the series before an occurrence was skipped): Undo puts
+    /// it back.
+    pub(crate) undo: Option<Event>,
     /// The language of the words (`--language`, else Options', else the system's).
     pub(crate) language: LanguagePref,
     pub(crate) ribbon_tab: usize,
@@ -300,8 +328,6 @@ pub(crate) struct CalState {
     // ---- FILE > Options ----
     pub(crate) server_text: String,
     pub(crate) server_error: String,
-    /// The category of the Options page shown.
-    pub(crate) options_category: usize,
     // ---- the editor window ----
     pub(crate) editor: Option<EditorForm>,
     /// The day of the occurrence the editor was opened on (a repeating event's).
@@ -640,6 +666,10 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
     let _mode = info.get_mode();
     azul_appkit::l10n::begin_layout(&info);
     let app = data.clone();
+    // The width the window is laid out in: what an event handler asks whether it is a phone's.
+    if let Some(mut s) = data.downcast_mut::<CalState>() {
+        s.window_width = info.get_window_width();
+    }
     let Some(guard) = data.downcast_ref::<CalState>() else {
         return Dom::create_body();
     };
@@ -652,7 +682,7 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
             app.clone(),
             on_app_mounted,
         )
-        .with_child(chrome::office_shell(s, &app, info.get_window_height()));
+        .with_child(ui_frame::window(s, &app, &info));
     Dom::create_body()
         .with_css(BODY)
         .with_menu_bar(menu_bar(&app))
@@ -1219,6 +1249,24 @@ pub(crate) extern "C" fn on_join_meeting(mut data: RefAny, mut info: CallbackInf
     else {
         return Update::DoNothing;
     };
+    join_meeting(&mut app, &mut info, &id)
+}
+
+/// Puts `text` on the clipboard (a link the user is to paste).
+pub(crate) fn copy_text(info: &mut CallbackInfo, text: &str) {
+    info.set_clipboard_content(ClipboardContent {
+        plain_text: AzString::from(text),
+        styled_runs: StyledTextRunVec::create(),
+        html: azul::option::OptionString::None,
+        files: azul::vec::StringVec::create(),
+        image: azul::option::OptionU8Vec::None,
+        link: azul::option::OptionString::None,
+        concealed: false,
+    });
+}
+
+/// Starts AzMeet on the event `id`'s meeting (its link is copied where AzMeet cannot be started).
+pub(crate) fn join_meeting(app: &mut RefAny, info: &mut CallbackInfo, id: &str) -> Update {
     let Some(mut guard) = app.downcast_mut::<CalState>() else {
         return Update::DoNothing;
     };
@@ -1226,7 +1274,7 @@ pub(crate) extern "C" fn on_join_meeting(mut data: RefAny, mut info: CallbackInf
     let Some((title, meet)) = s
         .events
         .iter()
-        .find(|e| e.id == id)
+        .find(|e| e.id == *id)
         .and_then(|e| Some((e.title.clone(), e.meeting.clone()?)))
     else {
         return Update::DoNothing;
@@ -1260,15 +1308,7 @@ pub(crate) extern "C" fn on_join_meeting(mut data: RefAny, mut info: CallbackInf
             s.launched.push(child);
         }
         Err(e) => {
-            info.set_clipboard_content(ClipboardContent {
-                plain_text: AzString::from(meet.link.as_str()),
-                styled_runs: StyledTextRunVec::create(),
-                html: azul::option::OptionString::None,
-                files: azul::vec::StringVec::create(),
-                image: azul::option::OptionU8Vec::None,
-                link: azul::option::OptionString::None,
-                concealed: false,
-            });
+            copy_text(info, &meet.link);
             eprintln!("[azcalendar] AzMeet not started ({e}); link copied");
             s.notice = azul_appkit::l10n::t_args(
                 "azcalendar-azmeet-not-started",
@@ -1430,10 +1470,15 @@ pub fn start() {
     let hidden = settings::value(text, settings::HIDDEN_CALENDARS_KEY)
         .map(calendars::hidden_of)
         .unwrap_or_default();
+    // The phone's layout asked for on a desktop (`AZCAL_FORM=phone`: the scenarios and the pictures)
+    // is a phone's window; a phone starts on one day, a desktop on the week.
+    let form = ui_frame::form_of(std::env::var(ui_frame::FORM_VAR).ok().as_deref());
+    let phone_start = ui_frame::is_phone(form, 0.0, ui_frame::touch_platform())
+        || (form == azul::widgets::FormFactor::Auto && ui_frame::touch_platform());
     let mut view = settings::value(text, settings::VIEW_KEY)
         .and_then(ViewKind::from_name)
-        .unwrap_or_else(views::default_view);
-    let todo_bar = settings::flag(text, settings::TODO_BAR_KEY).unwrap_or(true);
+        .unwrap_or_else(|| ui_frame::default_view_for(phone_start));
+    let show_preview = settings::flag(text, settings::PREVIEW_KEY).unwrap_or(true);
     let nav_folded = settings::flag(text, settings::NAVIGATION_FOLDED_KEY).unwrap_or(false);
     let language = args.language.unwrap_or_else(|| settings::language(text));
     let mut backstage = None;
@@ -1467,15 +1512,23 @@ pub fn start() {
         tasks: todo.tasks,
         tasks_root,
         task_list: todo.new_task_list,
-        task_text: String::new(),
         today,
         view,
         anchor,
         nav_month: (anchor.year(), anchor.month()),
         selected: None,
-        todo_bar,
+        form,
+        sidebar: ui_frame::initial_sidebar(form, ui_frame::touch_platform(), nav_folded),
         nav_folded,
+        window_width: 0.0,
+        show_preview,
+        preview_size: 0.0,
+        sheet: None,
+        goto_editing: false,
+        goto_text: String::new(),
+        undo: None,
         language,
+        // File, the location, is the first tab and the one the window starts on
         ribbon_tab: 0,
         backstage,
         notice: String::new(),
@@ -1493,7 +1546,6 @@ pub fn start() {
         sync_every_ms: sync_seconds.saturating_mul(1000),
         timers_started: false,
         server_error: String::new(),
-        options_category: 0,
         editor: None,
         editor_occurrence: None,
         editors_opened: 0,
@@ -1539,9 +1591,17 @@ pub fn start() {
     azul_appkit::ui::add_kit_icons(&mut config);
     // AzCalendar's words and appkit's, the engine's locale deciding.
     l10n::register(&mut config);
+    // The data a phone cannot be started with (it has no command line for `--sample`): the scenario
+    // files and the debug server load it through an op.
+    e2e_ops::register_ops(&mut config);
     let app = App::create(RefAny::new(state), config);
     let mut window = WindowCreateOptions::create(layout);
-    window.window_state.size.dimensions = LogicalSize::create(1280.0, 900.0);
+    let size = if form == azul::widgets::FormFactor::Phone {
+        ui_frame::PHONE_WINDOW
+    } else {
+        (1280.0, 900.0)
+    };
+    window.window_state.size.dimensions = LogicalSize::create(size.0, size.1);
     window.window_state.title = AzString::from("AzCalendar");
     window.window_state.window_id = AzString::from(MAIN_WINDOW_ID);
     window.window_state.flags.decorations = WindowDecorations::NoTitle;

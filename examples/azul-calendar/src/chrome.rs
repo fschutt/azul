@@ -1,34 +1,26 @@
-//! The main window's chrome on the Office scaffold (`OfficeShell`, as AzMail's): the title row,
-//! the ribbon (FILE, HOME, VIEW), the navigation pane (the date navigator with today ringed,
-//! "My calendars" with their colours, the module switcher), the calendar pane
-//! (`views_ui.rs`), the To-Do bar (appointments and tasks) and the status bar (items, and
-//! whether the meeting links reached their server). FILE opens the backstage over all of it:
-//! Info, Open & Export (.ics), Print (`print_ui.rs`), Calendars, Options, About.
+//! The main window's chrome on azul's app frame (`ui_frame.rs`): the ribbon (File = the location,
+//! HOME, VIEW), the status bar, and the pages of the old FILE menu - Info, Open & Export (.ics),
+//! Print (`print_ui.rs`), Calendars, Options, About - which are dialogs now (`ui_dialogs.rs`: the
+//! engine's `Modal`, an OS window on a desktop and an inline sheet on a phone). What the window shows
+//! besides: the sidebar (`ui_sidebar.rs`), the view (`views_ui.rs`), the Preview (`ui_preview.rs`).
 
 use std::path::PathBuf;
 
 use azul::{
     callbacks::{
         ButtonOnClickCallbackType, CheckBoxOnToggleCallbackType, ResumeCallbackType,
-        TextInputOnVirtualKeyDownCallbackType,
+        RibbonOnTabClickCallbackType, TextInputOnVirtualKeyDownCallbackType,
     },
     css::DarkLightMode,
     dialog::{FileDialog, FileOpenResult},
     dom::VirtualKeyCode,
     option::{OptionDarkLightMode, OptionFileTypeList, OptionString},
     prelude::*,
-    shells::{
-        OfficeShell, ShellNavigationModule, ShellNavigationPane, ShellNavigationPaneEvent,
-        ShellNavigationPaneEventKind, ShellPane, ShellPaneKind, ShellSettingsLayout,
-        ShellSettingsSection,
-    },
     str::String as AzString,
-    vec::StringVec,
     widgets::{
-        Backstage, BackstageNavItem, CheckBoxState, DatePicker, DatePickerState,
-        DatePickerWeekStart, OnTextInputReturn, Ribbon, RibbonAppButton, RibbonGroup, RibbonItem,
-        RibbonTab, StatusBar, StatusBarSegment, StatusBarSync, StatusBarSyncKind, TextInputState,
-        TextInputValid, Titlebar, ToDoBar, ToDoBarEvent, ToDoBarEventKind, ToDoTask,
+        CheckBoxState, OnTextInputReturn, Ribbon, RibbonButtonFace, RibbonGroup, RibbonItem, RibbonTab,
+        StatusBar, StatusBarSegment, StatusBarSync, StatusBarSyncKind, TabLabels, TabStyle, TextInputState,
+        TextInputValid,
     },
 };
 use azul_appkit::{
@@ -37,62 +29,15 @@ use azul_appkit::{
     pieces::{self, flex_row},
     ribbon::callback_button,
 };
-use chrono::{Datelike, Duration, NaiveDate};
+use chrono::NaiveDate;
 
 use crate::{
     args::BackstagePage,
     calendars::{self, Calendar, Colour},
-    editor_ui, event, ics, ids, meet_rooms, meeting, print, print_ui, settings, tasks, views,
+    editor_ui, event, ics, ids, meet_rooms, print, settings, tasks, ui_frame, ui_location, views,
     views::ViewKind,
-    views_ui, CalState, ERROR, LABEL, PAGE, SECONDARY,
+    CalState, ERROR, LABEL, PAGE, SECONDARY,
 };
-
-/// The navigation pane's width, and its width folded to the strip of module icons.
-const NAV_PX: f32 = 252.0;
-const NAV_FOLDED_PX: f32 = 56.0;
-/// How many coming appointments the To-Do bar lists.
-const TODO_APPOINTMENTS: usize = 8;
-/// The module switcher: Outlook's four, Calendar the one this is (keys of the resources).
-const MODULES: [(&str, &str); 4] = [
-    ("azcalendar-module-mail", "mail"),
-    ("azcalendar-module-calendar", "event"),
-    ("azcalendar-module-contacts", "person"),
-    ("azcalendar-module-tasks", "task_alt"),
-];
-const CALENDAR_MODULE: usize = 1;
-
-/// The window: title row, ribbon or backstage, the panes, the To-Do bar, the status bar.
-pub(crate) fn office_shell(s: &CalState, app: &RefAny, window_height: f32) -> Dom {
-    let mut shell = OfficeShell::create()
-        .with_title_row(Titlebar::create("AzCalendar").without_border_bottom().dom());
-    match s.backstage {
-        Some(page) => shell = shell.with_backstage(backstage(s, app, page)),
-        None => shell = shell.with_ribbon(ribbon(s, app)),
-    }
-    let width = if s.nav_folded { NAV_FOLDED_PX } else { NAV_PX };
-    shell = shell
-        .with_pane(
-            ShellPane::create(ids::NAVIGATION_PANE, navigation_pane(s, app))
-                .with_kind(ShellPaneKind::Navigation)
-                .with_label(label("azcalendar-navigation-pane-label"))
-                .with_width(width),
-        )
-        .with_pane(
-            ShellPane::create(
-                ids::CALENDAR_PANE,
-                views_ui::calendar_pane(s, app, window_height),
-            )
-            .with_kind(ShellPaneKind::Main)
-            .with_label(label("azcalendar-module-calendar")),
-        )
-        .with_status_bar(status_bar(s, app));
-    if s.todo_bar {
-        shell = shell
-            .with_right_bar(todo_bar(s, app))
-            .with_right_bar_label(label("azcalendar-todo-bar"));
-    }
-    shell.dom()
-}
 
 // ==== Ribbon ====
 
@@ -128,9 +73,14 @@ fn arrange_group(s: &CalState, app: &RefAny) -> RibbonGroup {
         })
 }
 
-/// FILE (the backstage), HOME and VIEW.
-fn ribbon(s: &CalState, app: &RefAny) -> Dom {
+/// File (the location: `ui_location.rs`), HOME and VIEW; the tab strip is the window's title bar
+/// (`strip`: the room the OS's window controls take, a phone's icon squares).
+pub(crate) fn ribbon(s: &CalState, app: &RefAny, strip: &ui_frame::Strip) -> Dom {
+    let file = RibbonTab::create(label("azcalendar-tab-file"))
+        .with_icon("folder")
+        .with_location(ui_location::location(s, app));
     let home = RibbonTab::create(label("azcalendar-tab-home"))
+        .with_icon("home")
         .with_group(
             RibbonGroup::create(label("azcalendar-new"))
                 .with_item(large(
@@ -155,15 +105,11 @@ fn ribbon(s: &CalState, app: &RefAny) -> Dom {
         .with_group(
             RibbonGroup::create(label("azcalendar-manage-calendars"))
                 .with_item(large(app, "folder_open", "azcalendar-open-calendar", on_open_page))
-                .with_item(large(app, "edit_calendar", "azcalendar-file-calendars", on_calendars_page)),
-        )
-        .with_group(RibbonGroup::create(label("azcalendar-share")).with_item(large(
-            app,
-            "share",
-            "azcalendar-share-calendar",
-            on_share,
-        )));
+                .with_item(large(app, "edit_calendar", "azcalendar-file-calendars", on_calendars_page))
+                .with_item(large(app, "print", "azcalendar-file-print", on_print_page)),
+        );
     let view = RibbonTab::create(label("azcalendar-tab-view"))
+        .with_icon("visibility")
         .with_group(
             RibbonGroup::create(label("azcalendar-current-view"))
                 .with_item(toggled(
@@ -188,15 +134,15 @@ fn ribbon(s: &CalState, app: &RefAny) -> Dom {
                     app,
                     "view_sidebar",
                     "azcalendar-navigation-pane",
-                    !s.nav_folded,
+                    s.sidebar == azul::widgets::SidebarState::Expanded,
                     on_toggle_navigation,
                 ))
                 .with_item(toggled(
                     app,
-                    "checklist",
-                    "azcalendar-todo-bar",
-                    s.todo_bar,
-                    on_toggle_todo,
+                    "chrome_reader_mode",
+                    "azcalendar-preview-pane",
+                    s.show_preview,
+                    on_toggle_preview,
                 )),
         )
         .with_group(
@@ -206,111 +152,33 @@ fn ribbon(s: &CalState, app: &RefAny) -> Dom {
                 .with_item(large(app, "light_mode", "kit-mode-light", on_light))
                 .with_item(large(app, "dark_mode", "kit-mode-dark", on_dark)),
         );
-    Ribbon::create(vec![home, view])
-        .with_app_button(RibbonAppButton::create(label("azcalendar-tab-file")).with_on_click(app.clone(), on_file))
+    let phone = strip.phone;
+    Ribbon::create(vec![file, home, view])
         .with_active_tab(s.ribbon_tab)
-        .with_on_tab_click(app.clone(), on_ribbon_tab)
+        .with_on_tab_click(app.clone(), on_ribbon_tab as RibbonOnTabClickCallbackType)
+        // No title row over the ribbon: its tabs are the title bar.
+        .with_tabs_in_titlebar(ui_frame::strip_offsets(strip))
+        // The tabs are buttons on the leather: a finger's size and ONE ICON each on a phone, text
+        // on a desktop.
+        .with_tab_style(if phone { TabStyle::TouchPills } else { TabStyle::Pills })
+        .with_labels(TabLabels::Auto)
+        // Apple's rule, as the wireframe has it: a button shows its words OR its icon, never both
+        // (the label is the name and the tooltip of an icon).
+        .with_button_face(if phone { RibbonButtonFace::Icon } else { RibbonButtonFace::Text })
+        // the phone's 18 px rail stands beside the band, under the tab row: the band keeps clear
+        .with_content_inset(strip.content_inset)
+        // the window's ONE chevron at the left end of a phone's tab row folds the band away
+        .with_content_toggle(phone)
+        .with_available_width(strip.width)
         .dom_desktop()
-}
-
-// ==== Navigation pane ====
-
-/// A calendar, for the callbacks of its row.
-struct CalendarRef {
-    app: RefAny,
-    id: String,
-}
-
-/// The date navigator: the month the navigator shows, inline, today ringed, the days the view
-/// shows lit (`DatePicker::with_range`), the view's day selected when it is in that month.
-fn date_navigator(s: &CalState, app: &RefAny) -> Dom {
-    let (year, month) = s.nav_month;
-    let day = if (s.anchor.year(), s.anchor.month()) == (year, month) {
-        s.anchor.day()
-    } else {
-        0
-    };
-    let state = |d: NaiveDate| DatePickerState {
-        year: d.year().max(1) as u32,
-        month: d.month(),
-        day: d.day(),
-    };
-    let (first, last) = views::visible_range(s.view, s.anchor);
-    DatePicker::create(year.max(1) as u32, month, day)
-        .with_inline(true)
-        // The calendar's weeks run Monday to Sunday: so do the navigator's rows.
-        .with_week_start(DatePickerWeekStart::Monday)
-        .with_today(s.today.year().max(1) as u32, s.today.month(), s.today.day())
-        .with_range(state(first), state(last))
-        .with_accessibility_name(label("azcalendar-date-navigator"))
-        .with_on_change(app.clone(), on_nav_date)
-        .dom()
-        .with_id(ids::DATE_NAVIGATOR)
-}
-
-/// "My calendars": a row per calendar - its box (shown or not), its colour, its name.
-fn my_calendars(s: &CalState, app: &RefAny) -> Dom {
-    let mut list = Dom::create_div()
-        .with_id(ids::MY_CALENDARS)
-        .with_css("display: flex; flex-direction: column; margin-top: 12px;")
-        .with_child(
-            Dom::create_span_with_text(label("azcalendar-my-calendars"))
-                .with_css("font-size: 12px; font-weight: bold; margin-bottom: 4px;"),
-        );
-    for (index, c) in s.calendars.iter().enumerate() {
-        let target = RefAny::new(CalendarRef {
-            app: app.clone(),
-            id: c.id.clone(),
-        });
-        list.add_child(
-            Dom::create_div()
-                .with_id(ids::calendar_row(index))
-                .with_css(
-                    "display: flex; flex-direction: row; align-items: center; padding: 2px 0px;",
-                )
-                .with_child(
-                    CheckBox::create(!s.hidden.contains(&c.id))
-                        .with_accessibility_name(crate::calendar_name(c))
-                        .with_on_toggle(target, on_calendar_shown as CheckBoxOnToggleCallbackType)
-                        .dom(),
-                )
-                .with_child(Dom::create_div().with_css(format!(
-                    "width: 10px; height: 10px; border-radius: 2px; margin-left: 6px; \
-                     margin-right: 6px; flex-shrink: 0; {}",
-                    c.colour.swatch_css()
-                )))
-                .with_child(
-                    Dom::create_span_with_text(crate::calendar_name(c)).with_css(
-                        "white-space: nowrap; overflow: hidden; text-overflow: ellipsis;",
-                    ),
-                ),
-        );
-    }
-    list
-}
-
-fn navigation_pane(s: &CalState, app: &RefAny) -> Dom {
-    let header = Dom::create_div()
-        .with_css("display: flex; flex-direction: column; min-width: 0;")
-        .with_child(date_navigator(s, app))
-        .with_child(my_calendars(s, app));
-    let mut pane = ShellNavigationPane::create()
-        .with_label(label("azcalendar-navigation-pane-label"))
-        .with_header(header)
-        .with_active_module(CALENDAR_MODULE)
-        .with_collapsed(s.nav_folded)
-        .with_on_event(app.clone(), on_navigation_event);
-    for (name, icon) in MODULES {
-        pane = pane.with_module(ShellNavigationModule::create(label(name), icon));
-    }
-    pane.dom()
+        .with_id(ids::RIBBON)
 }
 
 // ==== Status bar ====
 
 /// "Items: 12", the range shown, and the meeting links' state as the sync segment (a click
 /// sends them now).
-fn status_bar(s: &CalState, app: &RefAny) -> Dom {
+pub(crate) fn status_bar(s: &CalState, app: &RefAny) -> Dom {
     let (first, last) = views::visible_range(s.view, s.anchor);
     let items = s.occurrences(first, last).len();
     let pending = s.pending_links();
@@ -341,92 +209,7 @@ fn status_bar(s: &CalState, app: &RefAny) -> Dom {
     .dom()
 }
 
-// ==== To-Do bar ====
-
-/// The coming occurrences the To-Do bar lists: from today, the next seven days, at most
-/// `TODO_APPOINTMENTS`, by start.
-fn upcoming(s: &CalState) -> Vec<views::Occurrence> {
-    let now = chrono::Local::now().naive_local();
-    s.occurrences(s.today, s.today + Duration::days(7))
-        .into_iter()
-        .filter(|o| {
-            let e = &s.events[o.index];
-            e.all_day || o.first.and_time(e.end) >= now
-        })
-        .take(TODO_APPOINTMENTS)
-        .collect()
-}
-
-fn todo_bar(s: &CalState, app: &RefAny) -> Dom {
-    let appointments: Vec<AzString> = upcoming(s)
-        .iter()
-        .map(|o| {
-            let e = &s.events[o.index];
-            let when = if e.all_day {
-                t("azcalendar-all-day-lower")
-            } else {
-                e.start.format("%H:%M").to_string()
-            };
-            let day = crate::day_text(azul_appkit::l10n::DateStyle::ShortWeekdayDay, o.first);
-            AzString::from(format!("{day} {when}  {}", e.title))
-        })
-        .collect();
-    let tasks: Vec<ToDoTask> = s
-        .tasks
-        .iter()
-        .enumerate()
-        .map(|(i, t)| ToDoTask::create(i as u64, t.title.as_str()).with_done(t.is_done()))
-        .collect();
-    ToDoBar::create(
-        s.anchor.year().max(1) as u32,
-        s.anchor.month(),
-        s.anchor.day(),
-    )
-    .with_today(s.today.year().max(1) as u32, s.today.month(), s.today.day())
-    // The calendar's weeks run Monday to Sunday: so do the To-Do bar's rows (WIDGETS7).
-    .with_week_start(DatePickerWeekStart::Monday)
-    .with_appointments(StringVec::from(appointments))
-    .with_appointments_empty(label("azcalendar-no-upcoming-appointments"))
-    .with_task_line(label("azcalendar-type-new-task"), s.task_text.as_str())
-    .with_tasks(tasks)
-    .with_accessibility_name(label("azcalendar-todo-bar"))
-    .with_on_pick(app.clone(), on_todo_event)
-    .with_on_task(app.clone(), on_todo_event)
-    .with_on_appointment(app.clone(), on_todo_event)
-    .dom()
-    .with_id(ids::TODO_BAR)
-}
-
-// ==== Backstage ====
-
-/// FILE: the pages, Options and About under a gap.
-fn backstage(s: &CalState, app: &RefAny, page: BackstagePage) -> Dom {
-    let items: Vec<BackstageNavItem> = BackstagePage::ALL
-        .iter()
-        .map(|p| {
-            let item = BackstageNavItem::create(label(p.label()));
-            if *p == BackstagePage::Options {
-                item.with_gap_before()
-            } else {
-                item
-            }
-        })
-        .collect();
-    let content = match page {
-        BackstagePage::Info => info_page(s, app),
-        BackstagePage::Open => open_page(s, app),
-        BackstagePage::Print => print_ui::print_page(s, app),
-        BackstagePage::Calendars => calendars_page(s, app),
-        BackstagePage::Options => options_page(s, app),
-        BackstagePage::About => about_page(),
-    };
-    Backstage::create(items)
-        .with_active_item(page.index())
-        .with_on_nav_select(app.clone(), on_backstage_nav)
-        .with_on_back(app.clone(), on_backstage_back)
-        .with_content(content.with_id(ids::backstage_page(page.name())))
-        .dom()
-}
+// ==== The pages of the old FILE menu (dialogs: `ui_dialogs.rs`) ====
 
 // The pieces take keys of the resources, or words as they are (appkit's label).
 
@@ -460,7 +243,7 @@ fn primary(label: &str, id: AzString, app: &RefAny, cb: ButtonOnClickCallbackTyp
 }
 
 /// How the meeting links stand, in a sentence.
-fn sync_status(s: &CalState) -> String {
+pub(crate) fn sync_status(s: &CalState) -> String {
     match (s.pending_links(), s.sync_error.is_empty()) {
         (0, _) => t("azcalendar-sync-all-there"),
         (n, true) => t_args("azcalendar-sync-sending", &[("count", Arg::from(n))]),
@@ -474,8 +257,14 @@ fn sync_status(s: &CalState) -> String {
     }
 }
 
+/// A calendar, for the callbacks of its row on the Calendars page.
+struct CalendarRef {
+    app: RefAny,
+    id: String,
+}
+
 /// Info: where the calendar is, what it holds, the meeting server.
-fn info_page(s: &CalState, app: &RefAny) -> Dom {
+pub(crate) fn info_page(s: &CalState, app: &RefAny) -> Dom {
     let repeating = s.events.iter().filter(|e| e.repeat.is_some()).count();
     Dom::create_div()
         .with_css(PAGE)
@@ -514,7 +303,7 @@ fn calendar_names(s: &CalState, last: &str) -> Vec<String> {
 
 /// Open & Export: import an .ics file (a path, or Browse), into a calendar; export one (or
 /// all) as an .ics file.
-fn open_page(s: &CalState, app: &RefAny) -> Dom {
+pub(crate) fn open_page(s: &CalState, app: &RefAny) -> Dom {
     let mut page = Dom::create_div()
         .with_css(PAGE)
         .with_child(page_title("azcalendar-file-open"))
@@ -586,7 +375,7 @@ fn open_page(s: &CalState, app: &RefAny) -> Dom {
 }
 
 /// Calendars: each with its name (Enter renames), colour and Remove; and a new one.
-fn calendars_page(s: &CalState, app: &RefAny) -> Dom {
+pub(crate) fn calendars_page(s: &CalState, app: &RefAny) -> Dom {
     let mut page = Dom::create_div()
         .with_css(PAGE)
         .with_child(page_title("azcalendar-file-calendars"))
@@ -661,10 +450,9 @@ fn calendars_page(s: &CalState, app: &RefAny) -> Dom {
 }
 
 /// Options: the meeting server, and the look.
-fn options_page(s: &CalState, app: &RefAny) -> Dom {
+pub(crate) fn options_page(s: &CalState, app: &RefAny) -> Dom {
     let mut server = Dom::create_div()
         .with_css("display: flex; flex-direction: column;")
-        .with_child(Dom::create_span_with_text(label("azcalendar-meeting-server")).with_css(LABEL))
         .with_child(line(vec![crate::text_field(
             &s.server_text,
             "https://meet.example.com",
@@ -704,13 +492,13 @@ fn options_page(s: &CalState, app: &RefAny) -> Dom {
             button("kit-mode-dark", ids::SETTINGS_DARK, app, on_dark),
         ]))
         .with_child(check(
-            s.todo_bar,
-            "azcalendar-show-todo-bar",
-            ids::SETTINGS_TODO,
-            on_todo_checked,
+            s.show_preview,
+            "azcalendar-show-preview",
+            ids::SETTINGS_PREVIEW,
+            on_preview_checked,
         ))
         .with_child(check(
-            !s.nav_folded,
+            s.sidebar == azul::widgets::SidebarState::Expanded,
             "azcalendar-show-navigation-pane",
             ids::SETTINGS_NAVIGATION,
             on_navigation_checked,
@@ -722,19 +510,14 @@ fn options_page(s: &CalState, app: &RefAny) -> Dom {
             language_button(s, LanguagePref::English, ids::SETTINGS_LANGUAGE_ENGLISH, app),
             language_button(s, LanguagePref::German, ids::SETTINGS_LANGUAGE_GERMAN, app),
         ]));
+    // the two sections one under the other: the page is a dialog, a sheet on a phone
     Dom::create_div()
-        .with_css("display: flex; flex-direction: column; flex-grow: 1; min-height: 0;")
-        .with_child(
-            ShellSettingsLayout::create(StringVec::from(vec![
-                AzString::from(label("azcalendar-meeting-server")),
-                AzString::from(label("azcalendar-appearance")),
-            ]))
-            .with_section(ShellSettingsSection::create(label("azcalendar-meeting-server"), server))
-            .with_section(ShellSettingsSection::create(label("azcalendar-appearance"), look))
-            .with_active_category(s.options_category)
-            .with_on_category(app.clone(), on_options_category)
-            .dom(),
-        )
+        .with_css(PAGE)
+        .with_child(page_title("azcalendar-file-options"))
+        .with_child(heading("azcalendar-meeting-server"))
+        .with_child(server)
+        .with_child(heading("azcalendar-appearance"))
+        .with_child(look)
 }
 
 /// A language of Options > Appearance > Language: the chosen one a primary button.
@@ -775,7 +558,7 @@ extern "C" fn on_language_german(mut data: RefAny, mut info: CallbackInfo) -> Up
 }
 
 /// About: what this is, and its keys.
-fn about_page() -> Dom {
+pub(crate) fn about_page() -> Dom {
     let keys = [
         ("Ctrl / Cmd + N", "azcalendar-keys-new-appointment"),
         ("Ctrl / Cmd + Shift + Q", "azcalendar-keys-new-meeting"),
@@ -896,13 +679,6 @@ extern "C" fn on_next_seven_days(mut data: RefAny, _info: CallbackInfo) -> Updat
     })
 }
 
-extern "C" fn on_share(mut data: RefAny, _info: CallbackInfo) -> Update {
-    with_state(&mut data, |s| {
-        s.notice = t("azcalendar-share-later");
-        Update::RefreshDom
-    })
-}
-
 /// Shows the backstage on `page`. Print opens on what the window shows (Outlook's way): the
 /// view's print style, a page of it around the view's day.
 pub(crate) fn open_backstage(s: &mut CalState, page: BackstagePage) {
@@ -919,11 +695,6 @@ fn show_page(data: &mut RefAny, page: BackstagePage) -> Update {
         open_backstage(s, page);
         Update::RefreshDom
     })
-}
-
-/// FILE: the backstage, on Info.
-extern "C" fn on_file(mut data: RefAny, _info: CallbackInfo) -> Update {
-    show_page(&mut data, BackstagePage::Info)
 }
 
 /// Open Calendar / Open & Export: the backstage page that imports and exports .ics files.
@@ -944,22 +715,6 @@ pub(crate) extern "C" fn on_print_page(mut data: RefAny, _info: CallbackInfo) ->
     show_page(&mut data, BackstagePage::Print)
 }
 
-extern "C" fn on_backstage_nav(mut data: RefAny, _info: CallbackInfo, index: usize) -> Update {
-    with_state(&mut data, |s| {
-        if let Some(page) = BackstagePage::at(index) {
-            open_backstage(s, page);
-        }
-        Update::RefreshDom
-    })
-}
-
-extern "C" fn on_backstage_back(mut data: RefAny, _info: CallbackInfo) -> Update {
-    with_state(&mut data, |s| {
-        s.backstage = None;
-        Update::RefreshDom
-    })
-}
-
 extern "C" fn on_ribbon_tab(mut data: RefAny, _info: CallbackInfo, index: usize) -> Update {
     with_state(&mut data, |s| {
         s.ribbon_tab = index;
@@ -967,15 +722,17 @@ extern "C" fn on_ribbon_tab(mut data: RefAny, _info: CallbackInfo, index: usize)
     })
 }
 
-extern "C" fn on_options_category(mut data: RefAny, _info: CallbackInfo, index: usize) -> Update {
-    with_state(&mut data, |s| {
-        s.options_category = index;
-        Update::RefreshDom
-    })
-}
-
-/// Shows or folds the navigation pane, and keeps it so for the next start.
-fn set_navigation(s: &mut CalState, shown: bool) {
+/// Shows the sidebar expanded or folds it to the rail. A desktop keeps it so for the next start;
+/// a phone's drawer is for now.
+pub(crate) fn set_navigation(s: &mut CalState, shown: bool) {
+    s.sidebar = if shown {
+        azul::widgets::SidebarState::Expanded
+    } else {
+        azul::widgets::SidebarState::Rail
+    };
+    if ui_frame::phone_now(s) {
+        return;
+    }
     s.nav_folded = !shown;
     s.save_setting(&settings::line(
         settings::NAVIGATION_FOLDED_KEY,
@@ -983,27 +740,27 @@ fn set_navigation(s: &mut CalState, shown: bool) {
     ));
 }
 
-/// Shows or hides the To-Do bar, and keeps it so for the next start.
-fn set_todo_bar(s: &mut CalState, shown: bool) {
-    s.todo_bar = shown;
+/// Shows or hides the Preview, and keeps it so for the next start.
+fn set_preview(s: &mut CalState, shown: bool) {
+    s.show_preview = shown;
     s.save_setting(&settings::line(
-        settings::TODO_BAR_KEY,
+        settings::PREVIEW_KEY,
         if shown { "1" } else { "0" },
     ));
 }
 
 extern "C" fn on_toggle_navigation(mut data: RefAny, _info: CallbackInfo) -> Update {
     with_state(&mut data, |s| {
-        let shown = s.nav_folded;
+        let shown = s.sidebar != azul::widgets::SidebarState::Expanded;
         set_navigation(s, shown);
         Update::RefreshDom
     })
 }
 
-extern "C" fn on_toggle_todo(mut data: RefAny, _info: CallbackInfo) -> Update {
+extern "C" fn on_toggle_preview(mut data: RefAny, _info: CallbackInfo) -> Update {
     with_state(&mut data, |s| {
-        let shown = !s.todo_bar;
-        set_todo_bar(s, shown);
+        let shown = !s.show_preview;
+        set_preview(s, shown);
         Update::RefreshDom
     })
 }
@@ -1019,13 +776,111 @@ extern "C" fn on_navigation_checked(
     })
 }
 
-extern "C" fn on_todo_checked(
+extern "C" fn on_preview_checked(
     mut data: RefAny,
     _info: CallbackInfo,
     state: CheckBoxState,
 ) -> Update {
     with_state(&mut data, |s| {
-        set_todo_bar(s, state.checked);
+        set_preview(s, state.checked);
+        Update::RefreshDom
+    })
+}
+
+// ==== What the sidebar, the Preview and the sheets run ====
+
+/// The calendar at `index` of the sidebar shown or hidden (its box), kept for the next start.
+/// `false` for an index no calendar has.
+pub(crate) fn toggle_calendar(s: &mut CalState, index: usize) -> bool {
+    let Some(id) = s.calendars.get(index).map(|c| c.id.clone()) else {
+        return false;
+    };
+    crate::nav::toggle_hidden(&mut s.hidden, &id);
+    let value = calendars::hidden_value(&s.hidden);
+    s.save_setting(&settings::line(settings::HIDDEN_CALENDARS_KEY, &value));
+    true
+}
+
+/// The indices (into the app's tasks) of the open tasks the sidebar lists, in the store's order.
+#[must_use]
+pub(crate) fn open_tasks(s: &CalState) -> Vec<usize> {
+    s.tasks
+        .iter()
+        .enumerate()
+        .filter(|(_, task)| !task.is_done())
+        .map(|(i, _)| i)
+        .take(crate::nav::MAX_TASK_ROWS)
+        .collect()
+}
+
+/// The open task at `index` of the sidebar's list ticked off. A repeating task leaves its next
+/// occurrence, as in AzTasks. `false` for an index no task has.
+pub(crate) fn toggle_open_task(s: &mut CalState, index: usize) -> bool {
+    let Some(&at) = open_tasks(s).get(index) else {
+        return false;
+    };
+    let Some(task) = s.tasks.get_mut(at) else {
+        return false;
+    };
+    let next = tasks::toggle_done(task, chrono::Local::now().naive_local());
+    let task = task.clone();
+    for changed in std::iter::once(task).chain(next.clone()) {
+        s.store_task(&changed);
+    }
+    s.tasks.extend(next);
+    tasks::sort(&mut s.tasks);
+    true
+}
+
+/// Deletes the event `id` with all of its repeats: its file goes on the file thread
+/// (`AZCAL_DELETED` once it is gone), the notice says so and offers Undo.
+pub(crate) fn delete_event(s: &mut CalState, id: &str) {
+    let Some(previous) = s.events.iter().find(|e| e.id == id).cloned() else {
+        return;
+    };
+    s.remove_event_file(id);
+    s.announce_on_landing(&event::object_key(id), format!("AZCAL_DELETED {id}"));
+    s.events.retain(|e| e.id != id);
+    s.selected = None;
+    s.notice = crate::ui_sheet::deleted_text(&previous.title);
+    s.undo = Some(previous);
+}
+
+/// The repeating event `id` skips the day `day`: the notice says so and offers Undo.
+pub(crate) fn skip_occurrence(s: &mut CalState, id: &str, day: NaiveDate) {
+    let Some(previous) = s.events.iter().find(|e| e.id == id).cloned() else {
+        return;
+    };
+    let mut changed = previous.clone();
+    changed.except.push(day);
+    let stored = changed
+        .check()
+        .map_err(|e| crate::editor::error_text(&e))
+        .and_then(|event| s.store_event(event));
+    match stored {
+        Ok(_) => {
+            s.selected = None;
+            s.notice = t_args(
+                "azcalendar-occurrence-removed",
+                &[(
+                    "day",
+                    Arg::from(crate::day_text(azul_appkit::l10n::DateStyle::WeekdayDayMonth, day)),
+                )],
+            );
+            s.undo = Some(previous);
+        }
+        Err(message) => s.notice = message,
+    }
+}
+
+/// Undo: the last deleted event (or the series before its occurrence was skipped) comes back.
+pub(crate) extern "C" fn on_undo(mut data: RefAny, _info: CallbackInfo) -> Update {
+    with_state(&mut data, |s| {
+        if let Some(previous) = s.undo.take() {
+            let title = previous.title.clone();
+            let _ = s.store_event(previous);
+            s.notice = t_args("azcalendar-restored-event", &[("title", Arg::from(title))]);
+        }
         Update::RefreshDom
     })
 }
@@ -1050,166 +905,7 @@ extern "C" fn on_dark(_data: RefAny, mut info: CallbackInfo) -> Update {
     Update::DoNothing
 }
 
-// ==== Callbacks: navigation pane ====
 
-/// The date navigator: a day picked moves the view there; ‹ / › turn the navigator's month
-/// and leave the view where it is.
-extern "C" fn on_nav_date(mut data: RefAny, _info: CallbackInfo, state: DatePickerState) -> Update {
-    let Some(date) = crate::picked(state) else {
-        return Update::DoNothing;
-    };
-    with_state(&mut data, |s| {
-        let month = (date.year(), date.month());
-        if month == s.nav_month {
-            s.set_anchor(date);
-        } else {
-            s.nav_month = month;
-        }
-        Update::RefreshDom
-    })
-}
-
-/// A calendar's box in "My calendars": shown or hidden, kept for the next start.
-extern "C" fn on_calendar_shown(
-    mut data: RefAny,
-    _info: CallbackInfo,
-    state: CheckBoxState,
-) -> Update {
-    let Some((mut app, id)) = data
-        .downcast_ref::<CalendarRef>()
-        .map(|r| (r.app.clone(), r.id.clone()))
-    else {
-        return Update::DoNothing;
-    };
-    with_state(&mut app, |s| {
-        if state.checked {
-            s.hidden.remove(&id);
-        } else {
-            s.hidden.insert(id);
-        }
-        let value = calendars::hidden_value(&s.hidden);
-        s.save_setting(&settings::line(settings::HIDDEN_CALENDARS_KEY, &value));
-        Update::RefreshDom
-    })
-}
-
-/// Starts the azul app `name` (found as AzMeet is: its `<NAME>_BIN`, else next to AzCalendar).
-fn launch_app(s: &mut CalState, name: &str, variable: &str) {
-    let program = meeting::sibling_program(
-        std::env::var(variable).ok().as_deref(),
-        std::env::current_exe().ok().as_deref(),
-        name,
-    );
-    match program.filter(|p| p.is_file()) {
-        Some(program) => match std::process::Command::new(&program)
-            .env_remove("AZ_DEBUG")
-            .stdin(std::process::Stdio::null())
-            .spawn()
-        {
-            Ok(child) => {
-                s.notice = t_args("azcalendar-opening", &[("app", Arg::from(name))]);
-                s.launched.push(child);
-            }
-            Err(e) => {
-                s.notice = t_args(
-                    "azcalendar-app-not-started",
-                    &[("app", Arg::from(name)), ("why", Arg::from(e.to_string()))],
-                );
-            }
-        },
-        None => s.notice = t_args("azcalendar-app-missing", &[("app", Arg::from(name))]),
-    }
-}
-
-/// The module switcher (Mail starts AzMail; Contacts and Tasks are not built yet) and the
-/// pane's fold chevron.
-extern "C" fn on_navigation_event(
-    mut data: RefAny,
-    _info: CallbackInfo,
-    event: ShellNavigationPaneEvent,
-) -> Update {
-    with_state(&mut data, |s| match event.kind {
-        ShellNavigationPaneEventKind::ModuleSelected => match event.index {
-            CALENDAR_MODULE => Update::DoNothing,
-            0 => {
-                launch_app(s, "AzMail", "AZMAIL_BIN");
-                Update::RefreshDom
-            }
-            other => {
-                let name = MODULES
-                    .get(other)
-                    .map_or_else(|| t("azcalendar-this-module"), |(name, _)| t(name));
-                s.notice = t_args("azcalendar-module-not-built", &[("module", Arg::from(name))]);
-                Update::RefreshDom
-            }
-        },
-        ShellNavigationPaneEventKind::CollapseToggled => {
-            set_navigation(s, event.expand);
-            Update::RefreshDom
-        }
-        _ => Update::DoNothing,
-    })
-}
-
-// ==== Callbacks: To-Do bar ====
-
-extern "C" fn on_todo_event(
-    mut data: RefAny,
-    mut info: CallbackInfo,
-    event: ToDoBarEvent,
-) -> Update {
-    match event.kind {
-        ToDoBarEventKind::DatePicked => {
-            let Some(date) = crate::picked(event.date) else {
-                return Update::DoNothing;
-            };
-            with_state(&mut data, |s| {
-                s.set_anchor(date);
-                Update::RefreshDom
-            })
-        }
-        ToDoBarEventKind::TaskAdded => {
-            let title = event.text.as_str().to_string();
-            with_state(&mut data, |s| {
-                s.task_text.clear();
-                let order = azul_pim::task::next_order(&s.tasks, &s.task_list);
-                let now = chrono::Local::now().naive_local();
-                if let Some(task) = tasks::new_task(&title, &s.task_list, order, now) {
-                    // Its file is written on the file thread (`writes.rs`).
-                    s.store_task(&task);
-                    s.tasks.push(task);
-                    tasks::sort(&mut s.tasks);
-                }
-                Update::RefreshDom
-            })
-        }
-        ToDoBarEventKind::TaskToggled => with_state(&mut data, |s| {
-            let Some(task) = s.tasks.get_mut(event.id as usize) else {
-                return Update::DoNothing;
-            };
-            // Ticking off a repeating task leaves its next occurrence, as in AzTasks.
-            let next = tasks::toggle_done(task, chrono::Local::now().naive_local());
-            let task = task.clone();
-            for changed in std::iter::once(task).chain(next.clone()) {
-                s.store_task(&changed);
-            }
-            s.tasks.extend(next);
-            tasks::sort(&mut s.tasks);
-            Update::RefreshDom
-        }),
-        ToDoBarEventKind::AppointmentOpened => {
-            let Some((id, date)) = data.downcast_ref::<CalState>().and_then(|s| {
-                upcoming(&s)
-                    .get(event.index)
-                    .map(|o| (s.events[o.index].id.clone(), o.first))
-            }) else {
-                return Update::DoNothing;
-            };
-            editor_ui::open_event(&mut data, &mut info, &id, date)
-        }
-        ToDoBarEventKind::TaskOpened => Update::DoNothing,
-    }
-}
 
 // ==== Callbacks: Open & Export ====
 

@@ -22,14 +22,18 @@ names! {
     // ---- the main window ----
     /// The main window's root, inside the shell's theme scope.
     ROOT = "app";
-    /// The shell's panes: the navigation pane and the calendar pane.
-    NAVIGATION_PANE = "shell-navigation";
-    CALENDAR_PANE = "shell-calendar";
-    // ---- the navigation pane ----
+    /// The window's frame (azul's AppFrame), its ribbon, its sidebar and its Preview.
+    FRAME = "frame";
+    RIBBON = "ribbon";
+    SIDEBAR = "sidebar";
+    PREVIEW = "preview";
+    // ---- the sidebar ----
     DATE_NAVIGATOR = "date-navigator";
-    MY_CALENDARS = "my-calendars";
-    /// The To-Do bar (right of the calendar).
-    TODO_BAR = "todo-bar";
+    // ---- the Preview ----
+    PREVIEW_JOIN = "preview-join";
+    PREVIEW_COPY = "preview-copy";
+    PREVIEW_EDIT = "preview-edit";
+    PREVIEW_DELETE = "preview-delete";
     // ---- the backstage: Info, Open & Export ----
     INFO_SYNC = "info-sync";
     IMPORT_PATH = "import-path";
@@ -63,7 +67,7 @@ names! {
     SETTINGS_FLORA = "settings-flora";
     SETTINGS_LIGHT = "settings-light";
     SETTINGS_DARK = "settings-dark";
-    SETTINGS_TODO = "settings-todo";
+    SETTINGS_PREVIEW = "settings-preview";
     SETTINGS_NAVIGATION = "settings-navigation";
     SETTINGS_LANGUAGE_SYSTEM = "settings-language-system";
     SETTINGS_LANGUAGE_ENGLISH = "settings-language-english";
@@ -74,9 +78,10 @@ names! {
     REMINDER = "reminder";
     EMPTY_CALENDAR = "empty-calendar";
     NOTICE = "notice";
+    /// The notice that offers Undo, and its button.
+    UNDO = "undo";
     VIEW_PREV = "view-prev";
     VIEW_NEXT = "view-next";
-    VIEW_TITLE = "view-title";
     VIEW_TODAY = "view-today";
     MONTH_GRID = "month-grid";
     SCHEDULE = "schedule";
@@ -131,12 +136,6 @@ fn named(stem: &str) -> AzString {
 /// The date part of a day's names: `yyyymmdd`.
 fn ymd(date: NaiveDate) -> String {
     date.format("%Y%m%d").to_string()
-}
-
-/// "My calendars"' row of the calendar at `index`.
-#[must_use]
-pub fn calendar_row(index: usize) -> AzString {
-    named(&format!("calendar-{index}"))
 }
 
 /// The backstage Calendars page's name field, colour and Remove of the calendar at `index`.

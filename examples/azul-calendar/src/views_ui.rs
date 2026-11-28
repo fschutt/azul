@@ -1,8 +1,9 @@
-//! The calendar pane: the reminder and notice lines, the view's header (Previous, Next, its
-//! title, Today) and the view - the hours (`timegrid.rs`), the Month (with "+N more" where a
-//! day is full), the Schedule View (the day's hours across, a row per calendar) or the List
-//! (the coming days). Every event's box is a keyboard stop named by its title and time: a click
-//! selects it, a double click or Enter opens it in the editor window.
+//! The calendar pane: the reminder and notice lines, the view's header (Previous, Next, Today; the
+//! title is the location's) and the view - the hours (`timegrid.rs`), the Month (with "+N more"
+//! where a day is full, on a phone a day with its coloured dots), the Schedule View (the day's hours
+//! across, a row per calendar) or the List (the coming days). Every event's box is a keyboard stop
+//! named by its title and time: a click or a tap selects it (the Preview shows it), a double click
+//! or Enter opens it in the editor window, a long press on a phone opens its action sheet.
 
 use azul::{
     dom::{TabIndex, VirtualKeyCode},
@@ -63,14 +64,20 @@ pub(crate) fn interactive(dom: Dom, app: &RefAny, id: &str, date: NaiveDate, nam
             on_occurrence_open,
         )
         .with_callback(
+            EventFilter::Hover(HoverEventFilter::LongPress),
+            target.clone(),
+            on_occurrence_long_press,
+        )
+        .with_callback(
             EventFilter::Focus(FocusEventFilter::VirtualKeyDown),
             target,
             on_occurrence_key,
         )
 }
 
-/// The calendar pane (`ids::CALENDAR`).
-pub(crate) fn calendar_pane(s: &CalState, app: &RefAny, window_height: f32) -> Dom {
+/// The calendar pane (`ids::CALENDAR`); `phone`: a phone's window, `window_height` what the month's
+/// rows are counted from.
+pub(crate) fn calendar_pane(s: &CalState, app: &RefAny, phone: bool, window_height: f32) -> Dom {
     let mut pane = Dom::create_div().with_id(ids::CALENDAR).with_css(
         "display: flex; flex-direction: column; flex-grow: 1; min-width: 0; min-height: 0;",
     );
@@ -96,17 +103,28 @@ pub(crate) fn calendar_pane(s: &CalState, app: &RefAny, window_height: f32) -> D
             .with_id(ids::EMPTY_CALENDAR),
         );
     }
-    if !s.notice.is_empty() {
+    if s.undo.is_some() && !s.notice.is_empty() {
+        // a delete: what was deleted, and Undo
+        pane.add_child(
+            InfoBar::create(s.notice.as_str())
+                .with_icon("delete")
+                .with_kind(AlertKind::Info)
+                .with_action(azul_appkit::l10n::label("azcalendar-undo"))
+                .with_on_action(app.clone(), chrome::on_undo)
+                .dom()
+                .with_id(ids::UNDO),
+        );
+    } else if !s.notice.is_empty() {
         pane.add_child(
             Dom::create_span_with_text(s.notice.as_str())
                 .with_id(ids::NOTICE)
                 .with_css(NOTICE),
         );
     }
-    pane.add_child(view_header(s, app));
+    pane.add_child(view_header(app));
     let view = match s.view {
         ViewKind::Day | ViewKind::WorkWeek | ViewKind::Week => timegrid::time_grid(s, app),
-        ViewKind::Month => month_view(s, app, window_height),
+        ViewKind::Month => month_view(s, app, phone, window_height),
         ViewKind::Schedule => schedule_view(s, app),
         ViewKind::Agenda => agenda_view(s, app),
     };
@@ -114,7 +132,7 @@ pub(crate) fn calendar_pane(s: &CalState, app: &RefAny, window_height: f32) -> D
 }
 
 /// Previous, Next, the view's title, Today.
-fn view_header(s: &CalState, app: &RefAny) -> Dom {
+fn view_header(app: &RefAny) -> Dom {
     let icon_button =
         |icon: &str, name: &str, id: AzString, cb: extern "C" fn(RefAny, CallbackInfo) -> Update| {
             Button::create("")
@@ -142,11 +160,8 @@ fn view_header(s: &CalState, app: &RefAny) -> Dom {
             ids::VIEW_NEXT,
             on_next,
         ))
-        .with_child(
-            Dom::create_span_with_text(views::title(s.view, s.anchor))
-                .with_id(ids::VIEW_TITLE)
-                .with_css("font-size: 18px; margin-left: 8px; flex-grow: 1; min-width: 0;"),
-        )
+        // the title is the location's (tab 0): the spacer keeps Today at the right
+        .with_child(Dom::create_div().with_css("flex-grow: 1; min-width: 0;"))
         .with_child(
             Button::create(azul_appkit::l10n::label("azcalendar-today"))
                 .with_on_click(app.clone(), chrome::on_today)
@@ -160,7 +175,7 @@ fn view_header(s: &CalState, app: &RefAny) -> Dom {
 /// The month: the weekday names over six weeks of days (`#month-<yyyymmdd>`), each with its
 /// events as lines (time and title, in its calendar's colour) and "+N more" when they do not
 /// fit (it opens that day). A day of another month is dimmer; today's number is ringed.
-fn month_view(s: &CalState, app: &RefAny, window_height: f32) -> Dom {
+fn month_view(s: &CalState, app: &RefAny, phone: bool, window_height: f32) -> Dom {
     let days = views::days_shown(ViewKind::Month, s.anchor);
     let (first, last) = (days[0], days[days.len() - 1]);
     let occurrences = s.occurrences(first, last);
@@ -172,16 +187,21 @@ fn month_view(s: &CalState, app: &RefAny, window_height: f32) -> Dom {
          solid {LINE};"
     ));
     for day in &days[..7] {
+        // a phone's cell is 50 dp wide: the weekday is its short name
+        let name = if phone {
+            short_weekday(*day)
+        } else {
+            crate::day_text(azul_appkit::l10n::DateStyle::Weekday, *day)
+        };
         names.add_child(
             Dom::create_div()
                 .with_css(format!(
-                    "flex-grow: 1; flex-basis: 0px; min-width: 0; padding: 4px 8px; font-size: \
-                     12px; {SECONDARY} border-left: 1px solid {LINE};"
+                    "flex-grow: 1; flex-basis: 0px; min-width: 0; padding: 4px {}; font-size: \
+                     12px; {SECONDARY} border-left: 1px solid {LINE};{}",
+                    if phone { "0px" } else { "8px" },
+                    if phone { " text-align: center;" } else { "" }
                 ))
-                .with_child(Dom::create_span_with_text(crate::day_text(
-                    azul_appkit::l10n::DateStyle::Weekday,
-                    *day,
-                ))),
+                .with_child(Dom::create_span_with_text(name)),
         );
     }
     let mut grid = Dom::create_div()
@@ -193,15 +213,12 @@ fn month_view(s: &CalState, app: &RefAny, window_height: f32) -> Dom {
              border-bottom: 1px solid {LINE};"
         ));
         for day in week {
-            row.add_child(month_cell(
-                s,
-                app,
-                *day,
-                *day == s.today,
-                day.month() == month,
-                rows,
-                &occurrences,
-            ));
+            let (today, in_month) = (*day == s.today, day.month() == month);
+            row.add_child(if phone {
+                month_cell_compact(s, app, *day, today, in_month, &occurrences)
+            } else {
+                month_cell(s, app, *day, today, in_month, rows, &occurrences)
+            });
         }
         grid.add_child(row);
     }
@@ -209,6 +226,80 @@ fn month_view(s: &CalState, app: &RefAny, window_height: f32) -> Dom {
         .with_css("display: flex; flex-direction: column; flex-grow: 1; min-height: 0; padding: 0 8px 8px 0;")
         .with_child(names)
         .with_child(grid)
+}
+
+/// The weekday's short name in the window's language ("Mon", "Mo"): appkit's words.
+fn short_weekday(day: NaiveDate) -> String {
+    let key = format!("kit-weekday-short-{}", day.weekday().to_string().to_ascii_lowercase());
+    azul_appkit::l10n::t(&key)
+}
+
+/// The most dots a phone's day shows under its number.
+pub(crate) const MAX_DOTS: usize = 4;
+
+/// A day on a phone: the number over up to [`MAX_DOTS`] dots in the colours of its events' calendars.
+/// Everything of the cell is the tap that opens that day (its hours): there is no room for the
+/// events' lines in a cell 50 dp wide.
+fn month_cell_compact(
+    s: &CalState,
+    app: &RefAny,
+    day: NaiveDate,
+    today: bool,
+    in_month: bool,
+    occurrences: &[views::Occurrence],
+) -> Dom {
+    let paint = if today {
+        TODAY_PAINT
+    } else if in_month {
+        DAY_PAINT
+    } else {
+        OTHER_MONTH_PAINT
+    };
+    let number_css = if today {
+        "font-weight: bold; color: system:accent;"
+    } else if in_month {
+        ""
+    } else {
+        SECONDARY
+    };
+    let items = views::on_day(occurrences, day);
+    let mut dots = Dom::create_div().with_css(
+        "display: flex; flex-direction: row; flex-wrap: wrap; justify-content: center; gap: 2px; \
+         min-height: 6px; margin-top: 3px;",
+    );
+    for o in items.iter().take(MAX_DOTS) {
+        dots.add_child(Dom::create_div().with_css(format!(
+            "width: 6px; height: 6px; border-radius: 3px; flex-shrink: 0; {}",
+            s.colour_of(&s.events[o.index]).swatch_css()
+        )));
+    }
+    let target = RefAny::new(DayTarget {
+        app: app.clone(),
+        day,
+    });
+    Dom::create_div()
+        .with_id(ids::month_day(day))
+        .with_css(format!(
+            "display: flex; flex-direction: column; align-items: center; flex-grow: 1; \
+             flex-basis: 0px; min-width: 0; min-height: 0; overflow: hidden; padding: 4px 0px; \
+             border-left: 1px solid {LINE}; box-sizing: border-box; cursor: pointer; {paint}"
+        ))
+        .with_accessibility_name(azul_appkit::l10n::t_args(
+            "azcalendar-open-day",
+            &[(
+                "day",
+                azul_appkit::l10n::Arg::from(crate::day_text(
+                    azul_appkit::l10n::DateStyle::WeekdayDayMonth,
+                    day,
+                )),
+            )],
+        ))
+        .with_callback(EventFilter::Hover(HoverEventFilter::Click), target, on_day_open)
+        .with_child(
+            Dom::create_span_with_text(day.day().to_string())
+                .with_css(format!("font-size: 12px; flex-shrink: 0; {number_css}")),
+        )
+        .with_child(dots)
 }
 
 fn month_cell(
@@ -567,6 +658,25 @@ extern "C" fn on_occurrence_open(mut data: RefAny, mut info: CallbackInfo) -> Up
         return Update::DoNothing;
     };
     editor_ui::open_event(&mut app, &mut info, &id, date)
+}
+
+/// A long press on an event's box (a phone): its action sheet.
+extern "C" fn on_occurrence_long_press(mut data: RefAny, _info: CallbackInfo) -> Update {
+    let Some((mut app, id, date)) = data
+        .downcast_ref::<OccurrenceRef>()
+        .map(|r| (r.app.clone(), r.id.clone(), r.date))
+    else {
+        return Update::DoNothing;
+    };
+    let Some(mut s) = app.downcast_mut::<CalState>() else {
+        return Update::DoNothing;
+    };
+    if !crate::ui_frame::phone_now(&s) {
+        return Update::DoNothing;
+    }
+    s.selected = Some((id.clone(), date));
+    s.sheet = Some(crate::ui_sheet::SheetFor::Event { id, date });
+    Update::RefreshDom
 }
 
 /// Enter (or Space) on a focused event opens it; Delete asks nothing and does nothing (deleting

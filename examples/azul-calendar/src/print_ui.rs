@@ -99,10 +99,7 @@ pub(crate) fn print_page(s: &CalState, app: &RefAny) -> Dom {
         (Style::Monthly, on_style_monthly),
     ];
     let mut left = Dom::create_div()
-        .with_css(
-            "display: flex; flex-direction: column; width: 280px; flex-shrink: 0; margin-right: \
-             24px; overflow-y: auto;",
-        )
+        .with_css("display: flex; flex-direction: column; width: 100%; flex-shrink: 0;")
         .with_child(Dom::create_span_with_text(label("azcalendar-print-style")).with_css(LABEL));
     for (style, cb) in styles {
         left.add_child(
@@ -156,9 +153,10 @@ pub(crate) fn print_page(s: &CalState, app: &RefAny) -> Dom {
         )
         .with_child(chrome::page_title("azcalendar-file-print"))
         .with_child(
+            // the page is a dialog (a sheet on a phone): the options over the preview
             Dom::create_div()
                 .with_css(
-                    "display: flex; flex-direction: row; flex-grow: 1; min-height: 0; \
+                    "display: flex; flex-direction: column; flex-grow: 1; min-height: 0; \
                      margin-top: 8px;",
                 )
                 .with_child(left)
@@ -200,7 +198,8 @@ fn preview(s: &CalState) -> Dom {
     let p = &s.print_preview;
     let mut pane = Dom::create_div().with_id(ids::PRINT_PREVIEW).with_css(format!(
         "display: flex; flex-direction: column; align-items: center; flex-grow: 1; min-width: \
-         0; min-height: 0; overflow: auto; padding: 16px; {PREVIEW_SURFACE}"
+         0; min-height: 280px; max-height: 420px; margin-top: 12px; overflow: auto; padding: \
+         16px; {PREVIEW_SURFACE}"
     ));
     let caption = |text: String| {
         Dom::create_span_with_text(text).with_css(format!(
@@ -509,12 +508,27 @@ extern "C" fn on_print(mut data: RefAny, info: CallbackInfo) -> Update {
     } else {
         let len = bytes.len();
         let name = settings.file_name();
+        // a phone has no save dialog (`save_bytes` answers false there): the printout is kept in
+        // the data tree's exports folder, which is where a share sheet takes it from
+        let kept = bytes.clone();
         if FileDialog::save_bytes(name.as_str(), "application/pdf", bytes) {
             println!("AZCAL_PRINTED {} {len}", settings.style.name());
             (
                 t_args(
                     "azcalendar-print-saved",
                     &[("name", Arg::from(name)), ("what", Arg::from(settings.describe()))],
+                ),
+                false,
+            )
+        } else if let Some(mut s) = data.downcast_mut::<CalState>() {
+            let key = crate::store::export_key(name.as_str());
+            let path = s.data_dir.join(&key);
+            s.data_writes.put(key.clone(), kept);
+            s.announce_on_landing(&key, format!("AZCAL_PRINTED {} {len}", settings.style.name()));
+            (
+                t_args(
+                    "azcalendar-print-kept",
+                    &[("path", Arg::from(path.display().to_string()))],
                 ),
                 false,
             )

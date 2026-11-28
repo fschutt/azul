@@ -69,9 +69,9 @@ pub fn hour_px(text: &str) -> Option<f32> {
 pub const VIEW_KEY: &str = "view=";
 /// The calendars "My calendars" hides (`calendars::hidden_value`).
 pub const HIDDEN_CALENDARS_KEY: &str = "hidden_calendars=";
-/// Whether the To-Do bar is shown (`1` / `0`).
-pub const TODO_BAR_KEY: &str = "todo_bar=";
-/// Whether the navigation pane is folded to its strip (`1` / `0`).
+/// Whether the Preview is shown (`1` / `0`).
+pub const PREVIEW_KEY: &str = "preview=";
+/// Whether the sidebar is folded to its rail (`1` / `0`).
 pub const NAVIGATION_FOLDED_KEY: &str = "navigation_folded=";
 /// The language of the words (`system`, `en`, `de`: appkit's `LanguagePref::name`).
 pub const LANGUAGE_KEY: &str = "language=";
@@ -207,12 +207,12 @@ mod tests {
 
     #[test]
     fn a_settings_value_is_its_last_line_and_a_flag_is_one_or_zero() {
-        let text = "view=month\ntodo_bar=1\nview= week \nnavigation_folded=yes\n";
+        let text = "view=month\npreview=1\nview= week \nnavigation_folded=yes\n";
         assert_eq!(value(text, VIEW_KEY), Some("week"));
         assert_eq!(value(text, HIDDEN_CALENDARS_KEY), None);
-        assert_eq!(flag(text, TODO_BAR_KEY), Some(true));
+        assert_eq!(flag(text, PREVIEW_KEY), Some(true));
         assert_eq!(flag(text, NAVIGATION_FOLDED_KEY), None);
-        assert_eq!(flag(&line(TODO_BAR_KEY, "0"), TODO_BAR_KEY), Some(false));
+        assert_eq!(flag(&line(PREVIEW_KEY, "0"), PREVIEW_KEY), Some(false));
         assert_eq!(line(VIEW_KEY, " day "), "view=day\n");
     }
 }
