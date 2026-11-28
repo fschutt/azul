@@ -2658,11 +2658,18 @@ pub fn start() {
     // AzMail's words and azcloud-kit's error table, in English and German (the engine's
     // locale decides).
     l10n::register(&mut config);
+    // The phone's layout asked for on a desktop (`AZMAIL_FORM=phone`: the scenarios and the pictures)
+    // is a phone's window: a phone's size, and no desktop minimum in its way.
+    let (size, minimum) = if state.form == azul::widgets::FormFactor::Phone {
+        ((411.0, 760.0), (320.0, 480.0))
+    } else {
+        ((1280.0, 860.0), (800.0, 520.0))
+    };
     let mut window = kit::window_options(
         &kit_ref,
         ui_main::layout_main,
-        (1280.0, 860.0),
-        (800.0, 520.0),
+        size,
+        minimum,
         ui_main::on_main_window_created,
     );
     window.window_state.window_id = AzString::from(MAIN_WINDOW_ID);

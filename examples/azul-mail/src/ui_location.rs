@@ -11,7 +11,7 @@ use azul::{
 };
 use azul_appkit::l10n::t;
 
-use crate::{listing, ui_backstage, ui_main, with_app, MailApp};
+use crate::{listing, ui_backstage, ui_frame, ui_main, with_app, MailApp};
 
 /// What the location says: the mailbox it names (its index, its name) when a mailbox is shown,
 /// and the name big under it.
@@ -71,8 +71,21 @@ pub(crate) fn location(s: &MailApp, app: &RefAny) -> Dom {
     if let Some((index, name)) = place.mailbox {
         bar = bar.with_parent(LocationCrumb::create(name.as_str(), index));
     }
+    // On a phone the 18 px rail stands under the tab row, beside the band: the band's content
+    // keeps clear of it. `Ribbon::with_content_inset` is the tab widget's own way to say that (the
+    // TABS agent's hook); until it is on master this wrapper does it.
+    if ui_frame::phone_now(s) {
+        return Dom::create_div()
+            .with_css(format!(
+                "box-sizing: border-box; width: 100%; height: 100%; padding-left: {RAIL_INSET}px;"
+            ))
+            .with_child(bar.dom());
+    }
     bar.dom()
 }
+
+/// How far the band's content keeps from the window's left edge on a phone: the rail's width.
+const RAIL_INSET: f32 = 18.0;
 
 /// The block's reports: the mailbox's crumb shows that mailbox's Inbox, `...` opens File's pages.
 extern "C" fn on_location(mut data: RefAny, _info: CallbackInfo, event: LocationEvent) -> Update {
