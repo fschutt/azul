@@ -1,12 +1,17 @@
 //! iOS permission backend.
 //!
-//! Subscribe path (`handle_event`) → `AVCaptureDevice.requestAccess(for:)`
-//! for camera/mic, `CLLocationManager.requestWhenInUseAuthorization` for
-//! geo, `PHPhotoLibrary.requestAuthorization(for:)` for photos, etc. Each
+//! Request path ([`request`], called by the permission manager when a probe node
+//! subscribes to a NotDetermined capability after a user gesture - never at
+//! launch, never from a render or timer loop, one capability at a time) →
+//! `AVCaptureDevice.requestAccess(for:)` for camera/mic,
+//! `CLLocationManager.requestWhenInUse/AlwaysAuthorization` for geo,
+//! `UNUserNotificationCenter.requestAuthorization` for notifications. Each
 //! requires the corresponding `Info.plist` key (`NSCameraUsageDescription`,
-//! …) — a missing key SIGABRTs the app on the first prompt. These async
-//! prompts land with the `CLLocationManager` / `AVCaptureSession` session
-//! work; `handle_event` is still a no-op below.
+//! …) - a missing key SIGABRTs the app on the first prompt; the backends check
+//! it first and say so instead. A capability with no request path on iOS (photos:
+//! Photos.framework is not loaded, Motion: its prompt is the first read of the
+//! barometer or the step counter, Local Network: the first Bonjour use, Face ID: the
+//! first biometric evaluation) is logged, never silently skipped.
 //!
 //! Probe path (`probe_status`) → the synchronous class/instance status
 //! getters, collapsed onto `PermissionState` per research/08 §2. This is
@@ -28,12 +33,39 @@ use objc::{
     sel, sel_impl,
 };
 
+/// The permission manager's diff events. A Subscribe is the manager's own business (it calls [`request`] only when the
+/// state is NotDetermined and a user gesture has been seen); a Release has nothing to give back here: the capture
+/// sessions belong to the camera / microphone workers and the location manager to the geolocation backend.
 pub fn handle_event(event: &PermissionDiffEvent) {
     let _ = event;
-    // TODO(P1.2+): issue the matching request<X>Access / native release.
-    // The synchronous read path (probe_status) is wired below; the async
-    // subscribe/release prompts land with the CLLocationManager /
-    // AVCaptureSession session work.
+}
+
+/// Ask the system for `capability`: the prompt of THAT capability only (one request, never a bundle), from the main
+/// thread, on behalf of a user action (the caller holds the request until the shell has seen a gesture). The answer
+/// reaches the manager through the app's queue (`AppServices::permission`) when the system gives it.
+pub fn request(capability: Capability) {
+    let Some(services) = crate::desktop::process_app::services() else {
+        return;
+    };
+    match capability {
+        #[cfg(feature = "objc2-av-foundation")]
+        Capability::Camera => {
+            crate::desktop::extra::camera::avf_auth::request_av_access_nonblocking(true, &services.permission);
+        }
+        #[cfg(feature = "objc2-av-foundation")]
+        Capability::Microphone => {
+            crate::desktop::extra::camera::avf_auth::request_av_access_nonblocking(false, &services.permission);
+        }
+        Capability::Geolocation => crate::desktop::extra::geolocation::ios::request_authorization(false),
+        Capability::GeolocationBackground => crate::desktop::extra::geolocation::ios::request_authorization(true),
+        Capability::Notifications => crate::desktop::notifications::request_permission(),
+        other => {
+            crate::plog_info!(
+                "[permission] ios: {:?} has no request of its own (see extra/permission/ios.rs); it is asked by its first use",
+                other
+            );
+        }
+    }
 }
 
 pub fn probe_status(capability: Capability) -> PermissionState {
@@ -99,42 +131,46 @@ fn av_media_status(media_four_cc: &str) -> PermissionState {
 /// `CLLocationManager.authorizationStatus` (+ `accuracyAuthorization` to
 /// distinguish precise vs reduced). `background` capabilities are only
 /// satisfied by `authorizedAlways`; `authorizedWhenInUse` is foreground-only.
+///
+/// The status is the CLASS method (no manager is made per probe: the permission manager polls this); only the
+/// accuracy of a grant needs an instance (iOS 14+), made at that moment.
 fn cl_status(background: bool) -> PermissionState {
     let cls = match lookup("CLLocationManager") {
         Some(c) => c,
         None => return PermissionState::NotDetermined,
     };
     unsafe {
-        let mgr: *mut Object = msg_send![cls, new];
-        if mgr.is_null() {
-            return PermissionState::NotDetermined;
-        }
         // CLAuthorizationStatus: notDetermined 0, restricted 1, denied 2,
         // authorizedAlways 3, authorizedWhenInUse 4.
-        let status: isize = msg_send![mgr, authorizationStatus];
-        let result = match status {
+        let status: isize = msg_send![cls, authorizationStatus];
+        match status {
             0 => PermissionState::NotDetermined,
             1 => PermissionState::Restricted,
             2 => PermissionState::Denied,
-            3 => PermissionState::Granted(cl_quality(mgr)),
+            3 => PermissionState::Granted(cl_quality(cls)),
             4 => {
                 if background {
-                    // When-in-use can't satisfy a background subscription.
-                    PermissionState::Denied
+                    // When-in-use cannot satisfy a background subscription, and it is not a refusal either: the
+                    // app may still ask for the upgrade to Always (once). `Denied` read as final.
+                    PermissionState::NotDetermined
                 } else {
-                    PermissionState::Granted(cl_quality(mgr))
+                    PermissionState::Granted(cl_quality(cls))
                 }
             }
             _ => PermissionState::NotDetermined,
-        };
-        let _: () = msg_send![mgr, release];
-        result
+        }
     }
 }
 
-/// `accuracyAuthorization`: fullAccuracy 0, reducedAccuracy 1 (iOS 14+).
-unsafe fn cl_quality(mgr: *mut Object) -> PermissionQuality {
+/// `accuracyAuthorization`: fullAccuracy 0, reducedAccuracy 1 (iOS 14+): an instance property, read from a manager made
+/// for the question and released.
+unsafe fn cl_quality(cls: &Class) -> PermissionQuality {
+    let mgr: *mut Object = msg_send![cls, new];
+    if mgr.is_null() {
+        return PermissionQuality::Full;
+    }
     let acc: isize = msg_send![mgr, accuracyAuthorization];
+    let _: () = msg_send![mgr, release];
     if acc == 1 {
         PermissionQuality::Reduced
     } else {

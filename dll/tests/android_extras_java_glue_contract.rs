@@ -258,7 +258,7 @@ fn a_picked_document_is_copied_off_the_ui_thread() {
 #[test]
 fn a_switched_off_location_provider_falls_back_to_the_other_one() {
     let src = java_code("scripts/android/AzulGeolocation.java");
-    let body = method_body(&src, "public static void subscribe(");
+    let body = method_body(&src, "public static synchronized void subscribe(");
     assert!(
         !body.contains("provider = fine ?"),
         "the fallback must not be a function of the permission alone: it picked the switched-off provider again"

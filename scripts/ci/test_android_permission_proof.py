@@ -1,0 +1,58 @@
+#!/usr/bin/env python3
+"""The pure parts of scripts/ci/android_permission_proof.py (the rest needs an emulator).
+
+    python3 scripts/ci/test_android_permission_proof.py
+"""
+import json
+import sys
+import unittest
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import android_permission_proof as proof  # noqa: E402
+
+
+def report_line(rows):
+    return "11-28 02:10:11.000  123  456 I RustStdoutStderr: AZ_SELFTEST_REPORT " + json.dumps({"app": "AzSelfTest", "rows": rows})
+
+
+class ReportRowsTest(unittest.TestCase):
+    def test_the_rows_of_the_newest_report_are_the_answer(self):
+        first = report_line([{"id": "sensors.geolocation", "verdict": "NEEDS-HUMAN", "detail": "answer the dialog"}])
+        second = report_line([{"id": "sensors.geolocation", "verdict": "PASS", "detail": "lat=48.52 lon=8.67"}])
+        rows = proof.report_rows("noise\n" + first + "\nmore noise\n" + second + "\n")
+        self.assertEqual(rows["sensors.geolocation"], ("PASS", "lat=48.52 lon=8.67"))
+
+    def test_no_report_or_a_cut_line_is_no_rows(self):
+        self.assertEqual(proof.report_rows("nothing here"), {})
+        self.assertEqual(proof.report_rows("AZ_SELFTEST_REPORT {\"rows\": ["), {})
+
+
+class FakeDev:
+    """Taps recorded, nodes of a uiautomator dump by resource id."""
+
+    def __init__(self, ids):
+        self.ids = ids
+        self.taps = []
+
+    def tap_node(self, xml, text=None, resource_id=None):
+        if resource_id in self.ids:
+            self.taps.append(resource_id)
+            return True
+        return False
+
+
+class TapAnyTest(unittest.TestCase):
+    def test_the_first_button_the_dialog_has_is_tapped_and_only_one(self):
+        dev = FakeDev({"com.android.permissioncontroller:id/permission_allow_foreground_only_button"})
+        self.assertTrue(proof.tap_any(dev, "<xml/>", proof.ALLOW_IDS))
+        self.assertEqual(dev.taps, ["com.android.permissioncontroller:id/permission_allow_foreground_only_button"])
+
+    def test_a_dialog_without_the_button_is_not_answered(self):
+        dev = FakeDev({"com.android.permissioncontroller:id/permission_deny_button"})
+        self.assertFalse(proof.tap_any(dev, "<xml/>", proof.ALLOW_IDS))
+        self.assertEqual(dev.taps, [])
+
+
+if __name__ == "__main__":
+    unittest.main()

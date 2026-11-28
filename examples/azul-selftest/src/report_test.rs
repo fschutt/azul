@@ -97,3 +97,16 @@ fn the_counts_add_up_to_the_rows() {
     let c = counts(&rows);
     assert_eq!((c.pass, c.unavailable, c.denied, c.fail, c.needs_human, c.pending), (2, 0, 1, 0, 0, 1));
 }
+
+/// The row list of a harness: ids split at commas, blanks and spaces dropped.
+#[test]
+fn a_row_list_is_ids_split_at_commas() {
+    assert_eq!(parse_row_list("sensors.geolocation"), vec!["sensors.geolocation".to_string()]);
+    assert_eq!(
+        parse_row_list(" system.notifications , ,sensors.geolocation,"),
+        vec!["system.notifications".to_string(), "sensors.geolocation".to_string()]
+    );
+    assert!(parse_row_list("").is_empty());
+    assert!(parse_row_list(" , ").is_empty());
+}
+

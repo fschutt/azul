@@ -148,6 +148,18 @@ pub fn json_string(s: &str) -> String {
     out
 }
 
+/// The rows a run is asked to do (`AZ_SELFTEST_ROWS=sensors.geolocation,system.notifications`, on Android the property
+/// `debug.az.selftest_rows`): ids separated by commas, blanks ignored. A harness that wants ONE row, answered by a person it plays
+/// (the system dialog it taps), starts the app with this; the app runs those rows, prints the report and stays open.
+#[must_use]
+pub fn parse_row_list(text: &str) -> Vec<String> {
+    text.split(',')
+        .map(str::trim)
+        .filter(|id| !id.is_empty())
+        .map(str::to_string)
+        .collect()
+}
+
 /// The report as JSON: who ran it, the counts, every row.
 #[must_use]
 pub fn report_json(ctx: &Context, rows: &[RowResult]) -> String {
