@@ -266,6 +266,10 @@ fn a_new_surface_keeps_the_renderer_and_draws_at_the_new_size() {
     let picture = draw(&mut gpu, &mut window, second);
     assert_eq!((picture.width, picture.height), (second.width, second.height));
     assert_same_text_page("executor-rotated", &picture, &cpu_picture(&window.common, 1.0), 80);
+
+    // A renderer that is dropped without its `deinit` panics in WebRender: the path is shut down, as a window's close does.
+    let mut ctx = GpuCtx { common: &mut window.common, native_window: None };
+    assert_eq!(gpu.shutdown(&mut ctx), Outcome::Gpu);
 }
 
 /// A lost context is rebuilt under the same window and the frame after it is right; a second loss with no frame between
@@ -377,6 +381,10 @@ fn a_heavy_trim_without_a_surface_gives_the_gpu_memory_back_and_the_next_surface
     assert_eq!(gpu.renderers_made(), 2);
     let picture = draw(&mut gpu, &mut window, surface);
     assert_same_text_page("executor-after-trim", &picture, &cpu_picture(&window.common, DPI), (80.0 * DPI) as u32);
+
+    // A renderer that is dropped without its `deinit` panics in WebRender: the path is shut down, as a window's close does.
+    let mut ctx = GpuCtx { common: &mut window.common, native_window: None };
+    assert_eq!(gpu.shutdown(&mut ctx), Outcome::Gpu);
 }
 
 /// Closing the window leaves nothing: the surface, then the renderer, then the context.
