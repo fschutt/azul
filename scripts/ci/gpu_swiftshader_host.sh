@@ -38,7 +38,8 @@ for line in sys.stdin:
         m = json.loads(line)
     except ValueError:
         continue
-    if m.get("reason") == "compiler-artifact" and m.get("executable") and m.get("profile", {}).get("test") and "azul_dll" in m.get("target", {}).get("name", "").replace("-", "_"):
+    # `cargo test -p azul-dll --lib --no-run` builds one test executable: the unit tests of the library
+    if m.get("reason") == "compiler-artifact" and m.get("executable") and m.get("profile", {}).get("test"):
         best = m["executable"]
 print(best)
 ')"
@@ -48,7 +49,7 @@ if [ -z "$bin" ] || [ ! -x "$bin" ]; then
 fi
 echo "binary: $bin"
 
-stacks="${AZ_SW_STACKS:-swiftshader=gles_swiftshader}"
+stacks="${AZ_SW_STACKS:-swiftshader=gles_swiftshader llvmpipe=gles_llvmpipe angle=gles_angle}"
 tests="${AZ_SW_TESTS:-gles_control the_first_surface_brings_the_path_up_and_draws_the_cpu_page webrender_over_gles_draws_the_page_the_cpu_renderer_draws webrender_over_gles_draws_the_widget_showcase_the_cpu_renderer_draws a_second_frame_shows_its_own_page_and_nothing_of_the_first}"
 
 for entry in $stacks; do
@@ -65,8 +66,14 @@ for entry in $stacks; do
     if [ -e "$dir/$target" ]; then ln -sf "$dir/$target" "$shim/$link"; fi
   done
   ls -la "$shim"
-  LD_LIBRARY_PATH="$ld" ldd "$dir/libEGL.so" 2>&1 | head -n 12
   ld="$shim:$dir:$emu/lib64:$emu/lib64/vulkan"
+  LD_LIBRARY_PATH="$ld" ldd "$dir/libEGL.so" 2>&1 | head -n 12
+  # what each stack needs to find its own pieces: Mesa's drivers and its surfaceless platform; ANGLE's Vulkan driver, SwiftShader's
+  extra=()
+  case "$name" in
+    llvmpipe) extra=(EGL_PLATFORM=surfaceless LIBGL_DRIVERS_PATH="$dir/dri" GBM_BACKENDS_PATH="$dir/gbm") ;;
+    angle) extra=(ANGLE_DEFAULT_PLATFORM=swiftshader VK_ICD_FILENAMES="$emu/lib64/vulkan/vk_swiftshader_icd.json") ;;
+  esac
   for t in $tests; do
     echo "=== $name / $t"
     case "$t" in
@@ -77,11 +84,13 @@ for entry in $stacks; do
     mkdir -p "$PWD/$out/pixels-$name"
     runner=""; command -v xvfb-run >/dev/null 2>&1 && runner="xvfb-run -a"
     env -u EGL_PLATFORM AZ_REQUIRE_GLES=1 AZ_GLES_HOST_TESTS=1 AZ_GPU_DRAWS=1 AZ_GPU_PIXELS_DIR="$PWD/$out/pixels-$name" AZ_GL_TRACE="2:$PWD/$out/gltrace-$name-$t.txt" \
-      timeout 900 $runner env LD_LIBRARY_PATH="$ld" "$bin" "$filter" --test-threads=1 --nocapture >"$out/$name-$t.log" 2>&1
+      timeout 900 $runner env "${extra[@]}" LD_LIBRARY_PATH="$ld" "$bin" "$filter" --test-threads=1 --nocapture >"$out/$name-$t.log" 2>&1
     status=$?
     echo "exit $status"
-    grep -E "control \(split|test result|panicked|FAILED|SKIPPED|differ|% of|mean |GL_RENDERER|renderer|llvmpipe|SwiftShader|Mesa|ES 3" "$out/$name-$t.log" | cut -c1-300 | head -n 60
-    [ -s "$out/gltrace-$name-$t.txt" ] && gzip -f "$out/gltrace-$name-$t.txt"
+    grep -E "control \(split" "$out/$name-$t.log" | cut -c1-900 | head -n 60
+    grep -E "test result|panicked|FAILED|SKIPPED|differ|% of|mean |^error|no OpenGL" "$out/$name-$t.log" | cut -c1-400 | head -n 30
+    grep -E "^\[probe\]" "$out/$name-$t.log" | cut -c1-260 | head -n 140
+    [ -s "$out/gltrace-$name-$t.txt" ] && { grep -m3 -E "glGetString\(which=79(36|37|38)" "$out/gltrace-$name-$t.txt"; gzip -f "$out/gltrace-$name-$t.txt"; }
   done
 done
 ls -la "$out" | head -n 60
