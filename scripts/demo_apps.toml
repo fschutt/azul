@@ -425,6 +425,7 @@ dir = "examples/azul-sheets"
 description = "a spreadsheet: a ribbon, a formula bar and a cell grid on the IronCalc engine"
 platforms = ["linux", "macos-arm64", "macos-intel", "windows"]
 weight = 3
+e2e = true   # the desktop QA build (AzSheets-e2e-linux): the scenario files of examples/azul-sheets/e2e run in the host e2e
 
 [[app]]
 package = "AzShells"
@@ -439,6 +440,7 @@ dir = "examples/azul-show"
 description = "a presentation editor with a slide rail, a presenter view and a show"
 platforms = ["linux", "macos-arm64", "macos-intel", "windows"]
 weight = 2
+e2e = true   # the desktop QA build (AzShow-e2e-linux): the scenario files of examples/azul-show/e2e run in the host e2e
 
 [[app]]
 package = "AzTasks"

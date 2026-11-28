@@ -368,9 +368,10 @@ class E2eVariantTest(unittest.TestCase):
 
     def test_the_real_manifest_passes_its_own_check_with_the_variant_in_it(self):
         self.assertTrue(self.m["lib"]["mobile-e2e"]["artifact_only"])
-        # the phone apps whose QA variant the layout audit and the scripted checks of the phone QA drive
+        # the apps whose QA variant the layout audit and the scripted checks of the phone QA drive (AzSheets and AzShow: the desktop
+        # QA build first, their phone columns follow with the document apps' refactor)
         self.assertEqual([a["package"] for a in self.m["app"] if a.get("e2e")],
-                         ["AzWidgets", "AzMaps", "AzPaint", "AzMeet", "AzWriter", "AzCompanion", "AzCode"])
+                         ["AzWidgets", "AzMaps", "AzPaint", "AzMeet", "AzWriter", "AzCompanion", "AzCode", "AzSheets", "AzShow"])
         self.assertTrue(self.m["lib"]["mobile-e2e-iroh"]["artifact_only"])
         self.assertEqual([e for e in demo_apps.check(self.m) if "e2e" in e], [])
 

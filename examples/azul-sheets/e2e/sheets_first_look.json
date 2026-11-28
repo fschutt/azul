@@ -1,0 +1,303 @@
+[
+  {
+    "name": "azsheets_first_look_desktop",
+    "only_on": [
+      "linux",
+      "windows",
+      "macos"
+    ],
+    "description": "AzSheets, the first look on a desktop at rest (a CPU render of the window), in this order: 1 Flora light 1280 x 800, 2 Flora dark, 3 Flat light, 4 Flora light 800 x 600.",
+    "steps": [
+      {
+        "op": "set_display_preset",
+        "preset": "off"
+      },
+      {
+        "op": "resize",
+        "width": 1280,
+        "height": 800
+      },
+      {
+        "op": "set_mode",
+        "mode": "light"
+      },
+      {
+        "op": "set_theme",
+        "theme": "flora"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_settled",
+        "timeout_ms": 3000
+      },
+      {
+        "op": "take_screenshot"
+      },
+      {
+        "op": "set_display_preset",
+        "preset": "off"
+      },
+      {
+        "op": "resize",
+        "width": 1280,
+        "height": 800
+      },
+      {
+        "op": "set_mode",
+        "mode": "dark"
+      },
+      {
+        "op": "set_theme",
+        "theme": "flora"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_settled",
+        "timeout_ms": 3000
+      },
+      {
+        "op": "take_screenshot"
+      },
+      {
+        "op": "set_display_preset",
+        "preset": "off"
+      },
+      {
+        "op": "resize",
+        "width": 1280,
+        "height": 800
+      },
+      {
+        "op": "set_mode",
+        "mode": "light"
+      },
+      {
+        "op": "set_theme",
+        "theme": "flat"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_settled",
+        "timeout_ms": 3000
+      },
+      {
+        "op": "take_screenshot"
+      },
+      {
+        "op": "set_display_preset",
+        "preset": "off"
+      },
+      {
+        "op": "resize",
+        "width": 800,
+        "height": 600
+      },
+      {
+        "op": "set_mode",
+        "mode": "light"
+      },
+      {
+        "op": "set_theme",
+        "theme": "flora"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_settled",
+        "timeout_ms": 3000
+      },
+      {
+        "op": "take_screenshot"
+      }
+    ]
+  },
+  {
+    "name": "azsheets_first_look_phone",
+    "only_on": [
+      "linux",
+      "windows",
+      "macos"
+    ],
+    "description": "AzSheets on a simulated phone: 1 Pixel 8 portrait light (411 x 914), 2 dark, 3 landscape (914 x 411), 4 iPhone SE (375 x 667), 5 iPhone 16 Pro (402 x 874).",
+    "steps": [
+      {
+        "op": "set_display_preset",
+        "preset": "pixel8"
+      },
+      {
+        "op": "resize",
+        "width": 411,
+        "height": 914
+      },
+      {
+        "op": "set_mode",
+        "mode": "light"
+      },
+      {
+        "op": "set_theme",
+        "theme": "flora"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_settled",
+        "timeout_ms": 3000
+      },
+      {
+        "op": "take_screenshot"
+      },
+      {
+        "op": "set_display_preset",
+        "preset": "pixel8"
+      },
+      {
+        "op": "resize",
+        "width": 411,
+        "height": 914
+      },
+      {
+        "op": "set_mode",
+        "mode": "dark"
+      },
+      {
+        "op": "set_theme",
+        "theme": "flora"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_settled",
+        "timeout_ms": 3000
+      },
+      {
+        "op": "take_screenshot"
+      },
+      {
+        "op": "set_display_preset",
+        "preset": "pixel8"
+      },
+      {
+        "op": "resize",
+        "width": 914,
+        "height": 411
+      },
+      {
+        "op": "set_mode",
+        "mode": "light"
+      },
+      {
+        "op": "set_theme",
+        "theme": "flora"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_settled",
+        "timeout_ms": 3000
+      },
+      {
+        "op": "take_screenshot"
+      },
+      {
+        "op": "set_display_preset",
+        "preset": "iphone_home_button"
+      },
+      {
+        "op": "resize",
+        "width": 375,
+        "height": 667
+      },
+      {
+        "op": "set_mode",
+        "mode": "light"
+      },
+      {
+        "op": "set_theme",
+        "theme": "flora"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_settled",
+        "timeout_ms": 3000
+      },
+      {
+        "op": "take_screenshot"
+      },
+      {
+        "op": "set_display_preset",
+        "preset": "iphone_island"
+      },
+      {
+        "op": "resize",
+        "width": 402,
+        "height": 874
+      },
+      {
+        "op": "set_mode",
+        "mode": "light"
+      },
+      {
+        "op": "set_theme",
+        "theme": "flora"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_settled",
+        "timeout_ms": 3000
+      },
+      {
+        "op": "take_screenshot"
+      },
+      {
+        "op": "set_display_preset",
+        "preset": "off"
+      },
+      {
+        "op": "resize",
+        "width": 1280,
+        "height": 800
+      }
+    ]
+  }
+]
