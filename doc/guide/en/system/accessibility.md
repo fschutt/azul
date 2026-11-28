@@ -278,6 +278,8 @@ text size is a number, the contrast a `ContrastPreference` (`NoPreference`,
 | Text size | Every font size, absolute line height, letter and word spacing is multiplied by the user's scale, once. `em` and `rem` follow. A box sized in `px` keeps its size; a box sized by its text grows with it. |
 | Bold text | Every text takes the next heavier weight (400 becomes 700, a 700 stays). |
 | Reduced motion | Every declared `animation` (transitions, slides, flips, fades, enter and exit effects) reads as absent: the end state is reached at once. |
+| Increased contrast | Every text is read at 7:1 on the surface behind it, an opaque fill a text sits on is one an extreme ink reaches that on, borders and rings (a shadow without blur and offset: a focus halo) are seen at 4.5:1, and a gradient fill is one flat colour. A translucent fill, a soft shadow and a transparent colour stay as written. |
+| Reduced transparency | A frosted surface (a translucent fill with a `backdrop-filter`) is an opaque fill and paints no blur. A scrim or a tint, which are not frosted glass, stay as written. |
 
 The text scale is what the system calls it: Android's `fontScale` (and the
 non-linear scaling since Android 14), iOS's Dynamic Type category (`Large` is
@@ -297,6 +299,14 @@ inherits:
 The text in `.rail` and below uses the smaller of the user's scale and 1.3. A cap
 below 1.0 reads as 1.0 (it limits growth only; text the user made smaller stays
 small).
+
+A subtree whose colours ARE the content (a hue strip, the series of a chart, a
+map, the frame of a photo) is left as written under increased contrast, with
+another custom property that inherits:
+
+```css
+.hue-strip { --azul-contrast-adjust: none; }
+```
 
 ### Reading the settings in CSS
 
