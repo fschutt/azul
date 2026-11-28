@@ -86,13 +86,23 @@ echo "=== 3. the e2e library and apps: the e2e matrix, then the life of AzWidget
 if [ "${AZ_QA_IOS_E2E:-1}" != 1 ]; then
   echo "AZ_QA_IOS_E2E=0: section 3 is left out"
 elif build_lib mobile-e2e; then
-  python3 scripts/demo_build.py ios --target "$target" --apps "AzWidgets AzWriter" --libs demo-out/libs --out demo-out/apps --results demo-out/results --variant mobile-e2e \
+  # AZ_QA_IOS_E2E_APPS="AzClock AzCalculator AzReader" (space separated; default AzWidgets AzWriter): the e2e apps the matrix runs its files on
+  e2e_apps="${AZ_QA_IOS_E2E_APPS:-AzWidgets AzWriter}"
+  python3 scripts/demo_build.py ios --target "$target" --apps "$e2e_apps" --libs demo-out/libs --out demo-out/apps --results demo-out/results --variant mobile-e2e \
     || echo "an e2e app did not build"
   e2e_zip="$(ls demo-out/apps/AzWidgets-e2e-ios-sim*.zip 2>/dev/null | head -n 1)"
-  writer_zip="$(ls demo-out/apps/AzWriter-e2e-ios-sim*.zip 2>/dev/null | head -n 1)"
-  if [ -n "$e2e_zip" ]; then
+  matrix_zips=""
+  for a in $e2e_apps; do
+    z="$(ls demo-out/apps/"$a"-e2e-ios-sim*.zip 2>/dev/null | head -n 1)"
+    [ -n "$z" ] && matrix_zips="$matrix_zips $z"
+  done
+  matrix_zips="${matrix_zips# }"
+  first_zip="${matrix_zips%% *}"
+  if [ -n "$first_zip" ]; then
     echo "--- 3a. every e2e scenario file against its host app (scripts/ci/e2e_matrix.py)"
-    AZ_QA_MATRIX_APPS="$e2e_zip $writer_zip" bash scripts/ci/ios_qa.sh demo-out/qa-matrix "$e2e_zip" e2e-matrix matrix
+    AZ_QA_MATRIX_APPS="$matrix_zips" bash scripts/ci/ios_qa.sh demo-out/qa-matrix "$first_zip" e2e-matrix matrix
+  fi
+  if [ -n "$e2e_zip" ]; then
     echo "--- 3b. the life of AzWidgets-e2e: the lifecycle and the debug-server session"
     AZ_QA_GUI=1 AZ_QA_EXPECT_GPU="$expect_gpu" AZ_QA_ONLY=03,04,05,06,07,08,09,10,11 \
       AZ_QA_SCENARIOS="examples/azul-widgets/e2e/building_blocks.json examples/azul-widgets/e2e/every_input_form.json examples/azul-widgets/e2e/tab_looks.json" \
