@@ -947,6 +947,15 @@ pub struct LayoutCallbackInfoRefData<'a> {
     /// for an export) takes them, so that it measures with the faces the screen draws with.
     /// `None` where the host has none (a web page, a test).
     pub registered_fonts: Option<&'a (dyn core::any::Any + Send + Sync)>,
+    /// The window's Fluent localizer - the one the layout pass translates its `AzString::tr`
+    /// texts with, made from the app's `AppConfig::fluent_locales`: an
+    /// `azul_layout::fluent::FluentLocalizerHandle`, opaque to this crate, which sits below the
+    /// layout crate (`azul_layout::fluent::fluent_localizer_of` hands it out). A layout
+    /// callback that has to say words as plain text (a placeholder, an accessible name, a
+    /// widget's label, which a widget measures and wraps) says them with the window's own
+    /// localizer, on whatever thread the pass runs on. `None` where the host has none (a web
+    /// page, a test, an app that registered no translations).
+    pub localizer: Option<&'a (dyn core::any::Any + Send + Sync)>,
     /// Platform-specific system style (colors, spacing, etc.)
     /// Used for CSD rendering and menu windows.
     pub system_style: Arc<SystemStyle>,
@@ -1976,6 +1985,15 @@ impl LayoutCallbackInfo {
     #[must_use]
     pub const fn registered_fonts(&self) -> Option<&(dyn core::any::Any + Send + Sync)> {
         unsafe { (*self.ref_data).registered_fonts }
+    }
+
+    /// The window's Fluent localizer as the host handed it to this layout pass
+    /// ([`LayoutCallbackInfoRefData::localizer`]): opaque here, the layout crate downcasts it
+    /// (`azul_layout::fluent::fluent_localizer_of`, `LayoutCallbackInfo.get_fluent_localizer` of
+    /// the C API). `None` where the host has none.
+    #[must_use]
+    pub const fn localizer(&self) -> Option<&(dyn core::any::Any + Send + Sync)> {
+        unsafe { (*self.ref_data).localizer }
     }
 
     #[must_use]
