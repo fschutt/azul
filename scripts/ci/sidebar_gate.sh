@@ -349,9 +349,14 @@ run dll_check dll_check
 widgets_check() {
   local code=0
   cargo run -r -p azul-doc -- codegen all || return 1
-  cargo check -p AzWidgets --lib --tests || code=1
+  # azul-dll's build script refuses to link a libazul that lies in the cargo profile directory (a runner's
+  # cache may have restored one); a check links nothing, so an empty stub in a folder of its own satisfies it
+  local link
+  link=$(mktemp -d)
+  : > "$link/libazul.so"
+  AZ_LINK_PATH="$link" cargo check -p AzWidgets --lib --tests || code=1
   # the apps' shared frame (the example the app work packages copy from) over the same bindings
-  cargo check -p azul-appkit --features azul --lib || code=1
+  AZ_LINK_PATH="$link" cargo check -p azul-appkit --features azul --lib || code=1
   return "$code"
 }
 run widgets_check widgets_check
