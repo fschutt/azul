@@ -52,7 +52,7 @@ fn opening_the_drawer_leaves_the_editor_and_closing_it_does_not_bring_the_row_ba
 fn the_sheet_starts_at_half_and_the_numbers_are_finger_sized() {
     assert_eq!(PhoneState::default().sheet, Detent::Half);
     assert!(TOUCH >= 48.0 && TOP_BAR >= TOUCH && KEY_ROW >= TOUCH);
-    assert!(DRAWER_MIN < DRAWER_MAX && STATUS_BAR < TOUCH);
+    assert!(DRAWER_MIN < DRAWER_MAX && STATUS_BAR >= TOUCH);
 }
 
 #[test]

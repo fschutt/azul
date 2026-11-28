@@ -156,7 +156,7 @@ fn tab(app: &RefAny, index: usize, doc: &Doc, active: bool) -> Dom {
     };
     let close = clickable(
         ids::tab_close(index),
-        "display: flex; flex-direction: row; align-items: center; justify-content: center; width: 40px; height: 100%; \
+        "display: flex; flex-direction: row; align-items: center; justify-content: center; width: 48px; height: 100%; \
          flex-shrink: 0; cursor: pointer;",
         &t_args("azcode-close-tab", &[("name", Arg::from(doc.name.as_str()))]),
         AccessibilityRole::PushButton,
@@ -389,7 +389,7 @@ fn key_row(app: &RefAny) -> Dom {
             clickable(
                 ids::key(index),
                 "display: flex; flex-direction: row; align-items: center; justify-content: center; min-width: 48px; \
-                 height: 40px; padding: 0px 8px; margin: 0px 2px; flex-shrink: 0; border-radius: 6px; font-size: 16px; \
+                 height: 48px; padding: 0px 8px; margin: 0px 2px; flex-shrink: 0; border-radius: 6px; font-size: 16px; \
                  font-family: monospace; cursor: pointer; background: rgba(128, 128, 128, 0.18); \
                  :hover { background: rgba(128, 128, 128, 0.30); }",
                 &l10n::t(key.name),
@@ -427,7 +427,7 @@ extern "C" fn on_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
 /// One segment of the status bar: an icon and/or a text, a finger tall; a tap runs `callback` when there is one.
 fn segment(app: &RefAny, id: AzString, icon: &str, text: &str, name: &str, callback: Option<CallbackType>) -> Dom {
     let css = format!(
-        "display: flex; flex-direction: row; align-items: center; justify-content: center; height: 100%; min-width: 44px; \
+        "display: flex; flex-direction: row; align-items: center; justify-content: center; height: 100%; min-width: 48px; \
          padding: 0px 8px; flex-shrink: 0; font-size: 12px; white-space: nowrap; {}",
         if callback.is_some() { "cursor: pointer; :hover { background: rgba(128, 128, 128, 0.20); }" } else { "" }
     );
