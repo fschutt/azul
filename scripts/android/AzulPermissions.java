@@ -7,15 +7,24 @@
 // as a Java callback - Activity.onRequestPermissionsResult - which native code
 // cannot receive, so it lands here and is forwarded.
 //
-// Lenient by construction: an unknown request code or an empty grant array is
-// reported as "not granted" rather than throwing. A permission dialog the user
-// dismissed must not take the app with it.
+// ONE dialog at a time. The system cancels a request made while another one is on the screen (its result
+// arrays come back EMPTY, with nothing shown to the user), and two capabilities that want a permission in the
+// same frame (a camera tile and a microphone tile, a location probe and the first notification) are the
+// ordinary case: the requests wait for each other here, in the order they were made.
+//
+// Lenient by construction: an empty result array - the system dropped the request: the user pressed Home, the
+// activity was paused, the framework refused to start it - is reported as "cancelled", NOT as a denial (nobody
+// said no, and a denial is remembered). A permission dialog the user dismissed must not take the app with it.
 
 package com.azul.permission;
 
 import android.app.Activity;
 import android.content.Context;
 import android.content.SharedPreferences;
+
+import com.azul.geolocation.AzulGeolocation;
+
+import java.util.ArrayDeque;
 
 public final class AzulPermissions {
 
@@ -49,22 +58,51 @@ public final class AzulPermissions {
         }
     }
 
+    /** A request that waits for its turn. */
+    private static final class Pending {
+        final String[] permissions;
+        final int requestCode;
+
+        Pending(String[] permissions, int requestCode) {
+            this.permissions = permissions;
+            this.requestCode = requestCode;
+        }
+    }
+
+    // Both only ever touched on the UI thread (request() hops there, the result arrives there): no lock.
+    private static final ArrayDeque<Pending> waiting = new ArrayDeque<>();
+    private static Pending inFlight;
+
     /**
      * Ask for runtime permissions, on the UI thread. Called from Rust on
      * android_main's thread; the answer arrives, as for any request, through
      * AzulActivity.onRequestPermissionsResult and onRequestPermissionsResultProxy.
-     * A request the framework refuses to start is reported as a denial, so the
-     * Rust side is never left waiting for an answer that cannot come.
+     * A request waits until the dialog of the one before it is answered (see the header): the system would
+     * cancel it unasked. A request the framework refuses to start is reported as dropped, so the Rust side is
+     * never left waiting for an answer that cannot come.
      */
     public static void request(final Activity activity, final String[] permissions,
                                final int requestCode) {
         activity.runOnUiThread(() -> {
-            try {
-                activity.requestPermissions(permissions, requestCode);
-            } catch (RuntimeException e) {
-                nativeOnPermissionResult(requestCode, false, false);
-            }
+            waiting.add(new Pending(permissions, requestCode));
+            startNext(activity);
         });
+    }
+
+    /** Show the dialog of the next waiting request, unless one is on the screen. UI thread only. */
+    private static void startNext(Activity activity) {
+        while (inFlight == null) {
+            Pending next = waiting.poll();
+            if (next == null) {
+                return;
+            }
+            try {
+                activity.requestPermissions(next.permissions, next.requestCode);
+                inFlight = next;
+            } catch (RuntimeException e) {
+                nativeOnPermissionCancelled(next.requestCode);
+            }
+        }
     }
 
     /**
@@ -83,29 +121,41 @@ public final class AzulPermissions {
         if (permissions == null || grantResults == null) {
             return false;
         }
-        // Android reports an EMPTY array when a request is cancelled (the user
-        // swiped the dialog away, or another dialog pre-empted it). That is a
-        // denial, not a missing answer — reporting nothing would leave the
-        // Rust side waiting on a result that is never coming.
-        if (permissions.length == 0 || grantResults.length == 0) {
-            nativeOnPermissionResult(requestCode, false, false);
-            return true;
+        Pending done = inFlight;
+        if (done == null || done.requestCode != requestCode) {
+            // Not a request of ours (or one this class no longer waits for).
+            return false;
         }
-        remember(activity, permissions, grantResults);
-        boolean all = true;
-        boolean any = false;
-        for (int r : grantResults) {
-            // PackageManager.PERMISSION_GRANTED == 0
-            if (r == 0) {
-                any = true;
-            } else {
-                all = false;
+        inFlight = null;
+        final boolean dropped = permissions.length == 0 || grantResults.length == 0;
+        if (dropped) {
+            // Android reports EMPTY arrays when a request is cancelled (the user pressed Home, the activity was
+            // paused, another dialog pre-empted it). Nobody said no: the Rust side puts the capability back to
+            // what the system says, and nothing is remembered as a denial.
+            nativeOnPermissionCancelled(requestCode);
+        } else {
+            remember(activity, permissions, grantResults);
+            boolean all = true;
+            boolean any = false;
+            for (int r : grantResults) {
+                // PackageManager.PERMISSION_GRANTED == 0
+                if (r == 0) {
+                    any = true;
+                } else {
+                    all = false;
+                }
             }
+            nativeOnPermissionResult(requestCode, all, any);
         }
-        nativeOnPermissionResult(requestCode, all, any);
+        // A location subscription that came before its permission starts now.
+        AzulGeolocation.onPermissionAnswered(activity, done.permissions, dropped);
+        startNext(activity);
         return true;
     }
 
     private static native void nativeOnPermissionResult(int requestCode, boolean allGranted,
                                                         boolean anyGranted);
+
+    /** The system dropped the request without an answer (see the header). */
+    private static native void nativeOnPermissionCancelled(int requestCode);
 }

@@ -134,6 +134,29 @@ pub fn may_show_dialog(state: PermissionState, rationale: bool, reask: bool) -> 
     }
 }
 
+/// What a WORKER thread that needs a capability to do its job (a camera tile opening the camera, the microphone
+/// tile, the speech recogniser) does first.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Gate {
+    /// Granted: go on.
+    Go,
+    /// Not decided yet (or a dialog for it is up): ask ONCE and wait for the answer.
+    Ask,
+    /// Refused, by the user or by a policy: stop, and never ask again from here. The app tells the user and offers
+    /// the settings; the worker does not open the device and does not stand in for it with a test pattern.
+    Stop,
+}
+
+/// The [`Gate`] for the state the quiet probe reports.
+#[must_use]
+pub const fn gate(state: PermissionState) -> Gate {
+    match state {
+        PermissionState::Granted(_) | PermissionState::EphemeralGranted(_) => Gate::Go,
+        PermissionState::Denied | PermissionState::Restricted => Gate::Stop,
+        PermissionState::NotDetermined | PermissionState::Requested => Gate::Ask,
+    }
+}
+
 /// The state from the answer to a request: whether every permission of it was granted, and whether any
 /// was. A user who grants the approximate location only has granted a REDUCED location, not denied it.
 #[must_use]

@@ -164,3 +164,18 @@ fn a_denied_permission_is_not_asked_again_by_the_diff_and_only_once_more_by_a_pe
         assert!(!may_show_dialog(state, true, true), "{state:?} asks for nothing");
     }
 }
+
+/// A worker that needs a permission goes on when it is granted, stops (for good, no second dialog) when it was
+/// refused, and asks once when nothing was decided or a dialog is already up.
+///
+/// Mutation: `Denied => Gate::Ask` (a refused camera tile asked again at every mount: a dialog per remount).
+#[test]
+fn a_worker_asks_only_while_nothing_is_decided() {
+    assert_eq!(gate(PermissionState::NotDetermined), Gate::Ask);
+    assert_eq!(gate(PermissionState::Requested), Gate::Ask, "a dialog is up: join it, do not make another");
+    assert_eq!(gate(PermissionState::Granted(PermissionQuality::Full)), Gate::Go);
+    assert_eq!(gate(PermissionState::Granted(PermissionQuality::Reduced)), Gate::Go);
+    assert_eq!(gate(PermissionState::EphemeralGranted(true)), Gate::Go);
+    assert_eq!(gate(PermissionState::Denied), Gate::Stop);
+    assert_eq!(gate(PermissionState::Restricted), Gate::Stop);
+}
