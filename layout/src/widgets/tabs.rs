@@ -2803,9 +2803,13 @@ fn show_flip_pull(
     }
 }
 
-/// The tick of one tab crossing. `SystemSound::TabChange` plugs in here (the sound API is the
-/// sounds agent's); one tick per flip, the momentum's too.
-const fn flip_tick(_info: &mut CallbackInfo) {}
+/// The tick of one tab crossing: the platform's own tab-change sound (`SystemSound::TabChange`: on
+/// Android the touch-sound click, on iOS the selection haptic, on a desktop none). One tick per flip,
+/// the momentum's too (a timer callback may ask: the shell plays at the end of the timer turn); the
+/// engine drops the same sound asked for twice within 40 ms and the OS's own switches stay in charge.
+fn flip_tick(info: &mut CallbackInfo) {
+    info.play_system_sound(azul_core::sound::SystemSound::TabChange);
+}
 
 /// Tell the app of a flip to `to`, as a tap on its pill would, and tick.
 fn tell_flip(data: &mut RefAny, info: &mut CallbackInfo, to: usize) -> Update {
