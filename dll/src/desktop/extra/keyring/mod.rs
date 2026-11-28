@@ -104,6 +104,8 @@ pub(crate) mod record;
 pub mod windows;
 
 #[cfg(test)]
+mod apple_invariants;
+#[cfg(test)]
 mod tests;
 
 /// The variable naming the file that keeps a run's keyring instead of the
