@@ -2081,6 +2081,69 @@ fn an_inline_docked_panel_is_content_of_its_zone_and_moves_between_zones() {
     );
 }
 
+/// The workspace's layout callback, counting its calls: the user's callback runs once per layout pass.
+extern "C" fn counting_workspace_layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
+    if let Some(s) = data.downcast_ref::<TearState>() {
+        s.events.lock().unwrap().push("layout");
+    }
+    workspace_layout(data, info)
+}
+
+/// A panel the window's FIRST DOM opens inline is grafted by the pass that found it (its config says
+/// `dock="inline"`, `open`: `TransientDocks::is_inline` draws a node the manager has not met by that):
+/// the first layout is ONE pass. The reconcile that registers the panel afterwards counted as a docking
+/// change, so the window laid itself out a second time, cold, before its first frame (the startup
+/// timeline of 2026-11-26: the AzWidgets gallery's "Tools" panel, 46 ms on macOS, 168 ms on a Linux
+/// runner).
+#[test]
+fn an_inline_panel_the_first_dom_opens_costs_one_layout_pass() {
+    let events = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let app_data = Arc::new(RefCell::new(RefAny::new(TearState {
+        open: true,
+        torn_attr: false,
+        tearoff: TransientTearoff::Zone,
+        events: events.clone(),
+    })));
+    let mut options = WindowCreateOptions::default();
+    options.window_state.size.dimensions = LogicalSize {
+        width: 900.0,
+        height: 600.0,
+    };
+    let cb: extern "C" fn(RefAny, LayoutCallbackInfo) -> Dom = counting_workspace_layout;
+    options.window_state.layout_callback = LayoutCallback::create(cb);
+    let mut parent = headless(options, app_data);
+    let layouts = |events: &Arc<std::sync::Mutex<Vec<&'static str>>>| {
+        events.lock().unwrap().iter().filter(|e| **e == "layout").count()
+    };
+
+    parent.regenerate_layout().expect("the first layout");
+
+    assert_eq!(
+        layouts(&events),
+        1,
+        "the pass that found the panel drew it inline already: the registration asks for no second pass"
+    );
+    let home = rect_of(&parent, "home").expect("home column");
+    let panel = rect_of(&parent, "panel").expect("the panel is laid out by the first pass");
+    assert!(
+        inside(panel, home),
+        "inline in its home column: {panel:?} in {home:?}"
+    );
+    {
+        let lw = parent.get_layout_window().unwrap();
+        let open = lw.transient_windows.open_windows();
+        assert_eq!(open.len(), 1, "the panel is registered after the pass");
+        assert!(open[0].is_inline());
+    }
+
+    // The next rebuild of the same DOM is one pass as well, and keeps the panel where it is.
+    let before = layouts(&events);
+    relayout(&mut parent);
+    assert_eq!(layouts(&events) - before, 1);
+    let again = rect_of(&parent, "panel").expect("still inline");
+    assert_eq!(again, panel, "an identical rebuild leaves the panel where the first pass put it");
+}
+
 // ---------------------------------------------------------------------------
 // The keyboard across the picker popup (focus and arrows, 2026-09-26)
 // ---------------------------------------------------------------------------

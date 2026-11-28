@@ -148,6 +148,8 @@ mod a_variable_font_has_at_most_so_many_instances;
 mod a_variable_font_never_reaches_shaping_as_a_variable_file;
 #[path = "a_variable_font_registered_in_memory_is_drawn_at_the_exact_weight.rs"]
 mod a_variable_font_registered_in_memory_is_drawn_at_the_exact_weight;
+#[path = "the_instances_of_all_stacks_of_a_variable_face_are_made_together.rs"]
+mod the_instances_of_all_stacks_of_a_variable_face_are_made_together;
 #[path = "a_vertical_block_gives_its_runs_the_writing_mode_and_combines_its_digits.rs"]
 mod a_vertical_block_gives_its_runs_the_writing_mode_and_combines_its_digits;
 #[path = "white_space_and_the_line_breaking_properties_decide_where_a_line_ends.rs"]

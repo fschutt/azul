@@ -354,11 +354,15 @@ impl App {
         // with no icon theme registers nothing and every caller keeps its
         // existing glyph fallback.
         #[cfg(all(not(miri), target_os = "linux"))]
-        crate::desktop::shell2::linux::system_icons::register_system_icons(
-            &mut app_config.icon_provider,
-            &app_config.system_style,
-            &settings.platform,
-        );
+        {
+            crate::desktop::shell2::linux::system_icons::register_system_icons(
+                &mut app_config.icon_provider,
+                &app_config.system_style,
+                &settings.platform,
+            );
+            // About 13 ms on a Linux runner: the theme's SVGs read and turned into icons before the first frame.
+            startup.mark("app_create:system_icons");
+        }
 
         // Apply the AppConfig system-animation overrides ON TOP of discovery:
         // the user's scroll physics (momentum / overscroll / wheel-vs-trackpad
