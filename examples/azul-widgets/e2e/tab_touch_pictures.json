@@ -1,7 +1,7 @@
 [
   {
     "name": "azul_widgets_touch_tabs_pictures_a_strip_in_the_status_bar_around_the_camera",
-    "description": "The pictures of the tab strip in the status bar's band (QA's contact sheet: tabs/): the window is a Pixel 8 (411 x 914 dp) with the camera in the middle, then an iPhone with the Dynamic Island, light and dark, flat and flora, a pill far along the row selected (the row scrolls to put it whole in a lane), the phone on its side, and the same page with no phone. Every picture is a CPU render of the window at rest. The assertions are the page's own: they keep the scenario honest on every platform.",
+    "description": "The pictures of the tab strip in the status bar's band (QA's contact sheet: tabs/): the window is a Pixel 8 (411 x 914 dp) with the camera in the middle, light and dark, flat and flora, a pill far along the row selected (the row scrolls to put it whole in a lane), the phone on its side, an iPhone with the Dynamic Island, a ribbon's tabs as the strip (AzWriter), and the same page with no phone (three tabs and twelve, the flip panel). Every picture is a CPU render of the window at rest, taken in this order: 1 Pixel 8 portrait light flat, 2 Design selected, 3 Account selected (the end of the row), 4 dark, 5 flora light, 6 flora dark, 7 iPhone island portrait, 8 iPhone island landscape, 9 Pixel 8 landscape, 10 ribbon in the band, 11 ribbon, Review selected, 12 ribbon dark, 13 no phone: three tabs, 14 no phone: twelve tabs and the flip panel. The assertions are the page's own: they keep the scenario honest on every platform.",
     "steps": [
       { "op": "resize", "width": 411, "height": 914 },
       { "op": "set_mode", "mode": "light" },
@@ -37,13 +37,22 @@
       { "op": "wait_settled" },
       { "op": "take_screenshot" },
 
+      { "op": "set_mode", "mode": "light" },
       { "op": "set_theme", "theme": "flora" },
       { "op": "wait_frame" },
       { "op": "wait_frame" },
       { "op": "wait_settled" },
       { "op": "take_screenshot" },
 
+      { "op": "set_mode", "mode": "dark" },
+      { "op": "wait_frame" },
+      { "op": "wait_frame" },
+      { "op": "wait_settled" },
+      { "op": "take_screenshot" },
+
       { "op": "set_mode", "mode": "light" },
+      { "op": "set_theme", "theme": "flat" },
+      { "op": "resize", "width": 393, "height": 852 },
       { "op": "click", "text": "iPhone 16 Pro" },
       { "op": "wait_frame" },
       { "op": "wait_frame" },
@@ -58,14 +67,50 @@
       { "op": "wait_settled" },
       { "op": "take_screenshot" },
 
+      { "op": "resize", "width": 914, "height": 411 },
+      { "op": "click", "text": "Pixel 8" },
+      { "op": "wait_frame" },
+      { "op": "wait_frame" },
+      { "op": "wait_settled" },
+      { "op": "get_display_features" },
+      { "op": "assert_response", "contains": "\"left\":36.0" },
+      { "op": "take_screenshot" },
+
       { "op": "resize", "width": 411, "height": 914 },
+      { "op": "click", "text": "Ribbon in the band" },
+      { "op": "wait_frame" },
+      { "op": "wait_frame" },
+      { "op": "wait_settled" },
+      { "op": "find_node_by_text", "text": "Clipboard" },
+      { "op": "assert_response", "contains": "\"found\":true" },
+      { "op": "take_screenshot" },
+
+      { "op": "click", "text": "Review" },
+      { "op": "wait_frame" },
+      { "op": "wait_frame" },
+      { "op": "wait_settled" },
+      { "op": "take_screenshot" },
+
+      { "op": "set_mode", "mode": "dark" },
+      { "op": "wait_frame" },
+      { "op": "wait_frame" },
+      { "op": "wait_settled" },
+      { "op": "take_screenshot" },
+
+      { "op": "set_mode", "mode": "light" },
+      { "op": "click", "text": "Ribbon in the band" },
       { "op": "click", "text": "No phone" },
       { "op": "wait_frame" },
       { "op": "wait_frame" },
       { "op": "wait_settled" },
       { "op": "get_display_features" },
       { "op": "assert_response", "contains": "\"preset\":\"off\"" },
-      { "op": "scroll_into_view", "text": "A phone to try it on", "block": "center", "behavior": "instant" },
+      { "op": "scroll_into_view", "text": "Touch pills - three tabs fit a phone", "block": "center", "behavior": "instant" },
+      { "op": "wait_frame" },
+      { "op": "wait_settled" },
+      { "op": "take_screenshot" },
+
+      { "op": "scroll_into_view", "text": "A vertical swipe on the panel flips to the next / previous tab", "block": "center", "behavior": "instant" },
       { "op": "wait_frame" },
       { "op": "wait_settled" },
       { "op": "take_screenshot" }

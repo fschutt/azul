@@ -50,7 +50,13 @@ pub(crate) struct TabLooksDemo {
     /// The phone the window pretends to sit on: 0 none, 1 Pixel 8, 2 iPhone with the Dynamic Island,
     /// 3 the phone it really runs on (its own cutout, nothing simulated).
     phone: usize,
+    /// The strip in the band is a word processor's ribbon (its tabs, the groups of the active one below)
+    /// and not a plain tab bar.
+    ribbon_band: bool,
 }
+
+/// The tabs of the ribbon in the band: more than a phone has room for.
+const RIBBON_TABS: [&str; 6] = ["Home", "Insert", "Draw", "Design", "Layout", "Review"];
 
 /// The tabs of the touch strip: more than a phone has room for.
 const TOUCH_TABS: [&str; 12] = [
@@ -133,6 +139,10 @@ pub(crate) fn tab_looks_section(data: &RefAny, demo: &TabLooksDemo, theme: UiThe
             captioned("The panel slides in from the side of the switch", panel),
             captioned("A ribbon on the leather", leather_ribbon(data, demo, theme)),
             captioned(
+                "Touch pills - three tabs fit a phone",
+                header(data, demo, TabStyle::TouchPills, theme),
+            ),
+            captioned(
                 "Touch pills - 32 px in a 48 px row: drag the row, the selected pill comes into view",
                 Dom::create_div()
                     .with_css("max-width: 360px; overflow: hidden;")
@@ -188,7 +198,7 @@ fn phone_row(data: &RefAny, demo: &TabLooksDemo, theme: UiTheme) -> Dom {
     let button = |label: &str, on_click: extern "C" fn(RefAny, CallbackInfo) -> Update| {
         Button::with_type(
             label,
-            if label_is_on(label, demo.phone) {
+            if label_is_on(label, demo) {
                 ButtonType::Primary
             } else {
                 ButtonType::Default
@@ -204,14 +214,18 @@ fn phone_row(data: &RefAny, demo: &TabLooksDemo, theme: UiTheme) -> Dom {
         .with_child(button("Pixel 8", on_phone_pixel))
         .with_child(button("iPhone 16 Pro", on_phone_island))
         .with_child(button("This phone", on_phone_real))
+        .with_child(button("Ribbon in the band", on_ribbon_band))
 }
 
 /// Whether the button named `label` is the phone that is on.
-fn label_is_on(label: &str, phone: usize) -> bool {
-    matches!(
-        (label, phone),
-        ("No phone", 0) | ("Pixel 8", 1) | ("iPhone 16 Pro", 2) | ("This phone", 3)
-    )
+fn label_is_on(label: &str, demo: &TabLooksDemo) -> bool {
+    match label {
+        "No phone" => demo.phone == 0,
+        "Pixel 8" => demo.phone == 1,
+        "iPhone 16 Pro" => demo.phone == 2,
+        "This phone" => demo.phone == 3,
+        _ => demo.ribbon_band,
+    }
 }
 
 /// The status bar's band for the phone the window pretends to sit on, `None` when it sits on none.
@@ -237,7 +251,39 @@ pub(crate) fn phone_strip(
     theme: UiTheme,
     band: StatusBarBand,
 ) -> Dom {
-    touch_header(data, demo, theme, Some(band))
+    if demo.ribbon_band {
+        ribbon_strip(data, demo, theme, band)
+    } else {
+        touch_header(data, demo, theme, Some(band))
+    }
+}
+
+/// A word processor's ribbon in the band: its tabs are the strip (the touch pills), the groups of
+/// the active tab sit below it, and a vertical swipe over them flips to the next / previous tab.
+fn ribbon_strip(data: &RefAny, demo: &TabLooksDemo, theme: UiTheme, band: StatusBarBand) -> Dom {
+    let tabs: Vec<RibbonTab> = RIBBON_TABS
+        .iter()
+        .map(|name| {
+            RibbonTab::create(*name)
+                .with_group(
+                    RibbonGroup::create("Clipboard")
+                        .with_item(command("content_paste", "Paste"))
+                        .with_item(command("content_copy", "Copy")),
+                )
+                .with_group(
+                    RibbonGroup::create("Page")
+                        .with_item(command("margin", "Margins"))
+                        .with_item(command("crop_portrait", "Orientation")),
+                )
+        })
+        .collect();
+    Ribbon::create(tabs)
+        .with_active_tab(demo.ribbon_tab)
+        .with_tab_style(TabStyle::TouchPills)
+        .with_theme(theme)
+        .with_status_bar(band)
+        .with_on_tab_click(data.clone(), on_look_ribbon_tab as RibbonOnTabClickCallbackType)
+        .dom_desktop()
 }
 
 /// The camera the simulated phone has, drawn as a black dot (a desktop window has none; on a phone
@@ -277,6 +323,11 @@ fn put_on_phone(info: &mut CallbackInfo, preset: DisplayPreset, on: bool) {
     };
     window.flags.system_bars.draw_into_cutout = on;
     info.modify_window_state(window);
+}
+
+/// The strip in the band is a ribbon, or a plain tab bar again.
+extern "C" fn on_ribbon_band(mut data: RefAny, _info: CallbackInfo) -> Update {
+    keep(&mut data, |s| s.tab_looks.ribbon_band = !s.tab_looks.ribbon_band)
 }
 
 extern "C" fn on_phone_off(mut data: RefAny, mut info: CallbackInfo) -> Update {
