@@ -656,3 +656,105 @@ impl LayoutWindow {
         }
     }
 }
+
+// ---------------------------------------------------------------------------------------------
+// The question a script, a screen reader or a test asks: which popups are open, and where?
+// ---------------------------------------------------------------------------------------------
+
+/// How an open popup is shown: the same question has the same answer on every host.
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub enum PopupShown {
+    /// As a box inside the page of its own window ([`WindowPresentation::OneSurface`]).
+    Overlay,
+    /// As content of the page (`dock="inline"`): no popup at all, laid out where it stands.
+    Inline,
+    /// As a surface of its own, an OS popup or dialog window.
+    Window,
+    /// As a free toplevel window the user tore it off into.
+    TornOff,
+}
+
+impl PopupShown {
+    /// The name a script reads: `overlay`, `inline`, `window` or `torn-off`.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Overlay => "overlay",
+            Self::Inline => "inline",
+            Self::Window => "window",
+            Self::TornOff => "torn-off",
+        }
+    }
+}
+
+/// One open popup, dialog, drop-down list or popover as the engine knows it. What the e2e op
+/// `list_popups` reports, so a scenario asks "is the dialog open, where, and is it on top" without
+/// knowing whether the host shows it as a window or inside the page.
+#[derive(Debug, Clone, PartialEq)]
+pub struct PopupInfo {
+    /// The `<transient-window>` node, in the root DOM.
+    pub node: NodeId,
+    /// The id the popup's content is laid out under when it has a surface of its own. An overlay
+    /// is laid out in the root DOM with the page: this id is then not a document of its own.
+    pub content_dom: DomId,
+    /// Where it hangs from.
+    pub anchor: TransientAnchor,
+    /// What closes it.
+    pub dismiss: azul_core::transient::TransientDismiss,
+    /// How it is shown.
+    pub shown: PopupShown,
+    /// Its name: the `title` attribute, else its accessible name (`aria-label`); `None` when the
+    /// app named it neither.
+    pub title: Option<String>,
+    /// The box of an overlay in window coordinates; `None` for a popup that is a window, whose
+    /// place the window manager decides.
+    pub rect: Option<LogicalRect>,
+    /// The overlay is the window's whole top layer (a modal dialog's scrim).
+    pub covers_window: bool,
+    /// The overlay Escape and the back button close first: the one opened last. Only overlays
+    /// have a top; a window has the window manager's focus.
+    pub top: bool,
+}
+
+impl LayoutWindow {
+    /// Every open popup, dialog, drop-down list and popover of this window, in the order they
+    /// opened (the last is the newest). The same answer on a desktop (each is a window) and on a
+    /// phone (each is a box inside the page).
+    #[must_use]
+    pub fn open_popups(&self) -> Vec<PopupInfo> {
+        let root = self.layout_results.get(&DomId::ROOT_ID);
+        let open = self.transient_windows.open_windows();
+        let top = open
+            .iter()
+            .rev()
+            .find(|w| w.overlay.is_some())
+            .map(|w| w.source_node);
+        open.iter()
+            .map(|w| {
+                let shown = if w.overlay.is_some() {
+                    PopupShown::Overlay
+                } else if w.is_inline() {
+                    PopupShown::Inline
+                } else if w.torn.is_some() {
+                    PopupShown::TornOff
+                } else {
+                    PopupShown::Window
+                };
+                let title = root
+                    .map(|r| transient_window_title(&r.styled_dom, w.source_node, ""))
+                    .filter(|t| !t.is_empty());
+                PopupInfo {
+                    node: w.source_node,
+                    content_dom: w.content_dom,
+                    anchor: w.placement.anchor,
+                    dismiss: w.placement.dismiss,
+                    shown,
+                    title,
+                    rect: w.overlay.map(|o| o.rect),
+                    covers_window: w.overlay.is_some_and(|o| o.cover),
+                    top: top == Some(w.source_node),
+                }
+            })
+            .collect()
+    }
+}

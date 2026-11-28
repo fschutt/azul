@@ -589,6 +589,7 @@ const OP_POLICY: &[(&str, Option<DenyReason>)] = &[
     // (a dialog, a menu the app opened). A multi-window scenario has no other
     // way to learn the `window_id`s it then addresses.
     ("list_windows",              None),
+    ("list_popups",               None),
     ("get_node_hierarchy",        None),
     ("get_html_string",           None),
     ("get_node_css_properties",   None),

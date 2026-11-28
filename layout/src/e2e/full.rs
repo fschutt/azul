@@ -3281,6 +3281,19 @@ pub enum DebugEvent {
     /// (`azul-menu`, `azul-menu-2` while a submenu is open) - takes the
     /// envelope's `window_id`. This op is how a script learns those ids.
     ListWindows,
+    /// List every popup, dialog, drop-down list and popover that is open in the window, the
+    /// same on every host.
+    ///
+    /// `{ "op": "list_popups" }`
+    ///
+    /// A desktop shows each of them as a window of its own (`list_windows` names it, `shown` is
+    /// `"window"`); a phone has one surface and shows each as a box over the page (`shown` is
+    /// `"overlay"`, `rect` is where it is, `covers_window` marks a modal's scrim, `top` the one
+    /// Escape and the back button close first). The answer is `{ "popup_count": n, "popups":
+    /// [ { "dom_id", "node_id", "selector", "anchor", "dismiss", "shown", "title", "rect",
+    /// "covers_window", "top" } ] }`, oldest first. An overlay is part of the window's own
+    /// document: address its content with `selector` like any other node.
+    ListPopups,
     /// Get the raw node hierarchy (for debugging DOM structure issues).
     /// Address a child DOM (a `VirtualView` / transient-window document) with
     /// the envelope's `dom_id`, like every other node-addressing op.
@@ -19970,6 +19983,41 @@ fn serve_debug_event(
                 .to_string();
             let response = window_list(&registered_debug_windows(), &this_window);
             send_ok(request, None, Some(ResponseData::WindowList(response)));
+        }
+
+        DebugEvent::ListPopups => {
+            let popups: Vec<serde_json::Value> = callback_info
+                .get_layout_window()
+                .open_popups()
+                .iter()
+                .map(|p| {
+                    serde_json::json!({
+                        "dom_id": ROOT_DOM_ID.inner,
+                        "node_id": p.node.index(),
+                        "selector": build_selector_for_node(callback_info, ROOT_DOM_ID, p.node),
+                        "anchor": p.anchor.as_str(),
+                        "dismiss": p.dismiss.as_str(),
+                        "shown": p.shown.as_str(),
+                        "title": p.title,
+                        "rect": p.rect.map(|r| LogicalRectJson {
+                            x: r.origin.x,
+                            y: r.origin.y,
+                            width: r.size.width,
+                            height: r.size.height,
+                        }),
+                        "covers_window": p.covers_window,
+                        "top": p.top,
+                    })
+                })
+                .collect();
+            send_ok(
+                request,
+                None,
+                Some(ResponseData::Json(serde_json::json!({
+                    "popup_count": popups.len(),
+                    "popups": popups,
+                }))),
+            );
         }
 
         DebugEvent::GetDomTree => {

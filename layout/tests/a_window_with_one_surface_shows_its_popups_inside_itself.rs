@@ -523,3 +523,55 @@ fn a_list_popup_leaves_the_page_its_keys() {
     assert!(lw.key_listener_hears(DomId::ROOT_ID, page_node, &ws), "the field keeps its keys");
     assert!(lw.key_listener_hears(DomId::ROOT_ID, transient, &ws), "and the list hears its arrows");
 }
+
+/// The question a script asks - "which popups are open, where, and which is on top?" - has one
+/// answer on both hosts: only HOW each is shown differs.
+#[test]
+fn the_open_popups_are_listed_the_same_way_on_a_phone_and_on_a_desktop() {
+    use azul_layout::transient_reconcile::PopupShown;
+
+    let dom = page(popup(TransientAnchor::Dialog, true, Some("Delete?"), vec![panel(280.0, 120.0)]));
+
+    let (mut phone, ws) = window(PHONE, true);
+    assert!(phone.open_popups().is_empty(), "nothing opened yet");
+    show(&mut phone, &ws, &dom);
+    let listed = phone.open_popups();
+    assert_eq!(listed.len(), 1);
+    let dialog = &listed[0];
+    assert_eq!(dialog.node, popup_node(&phone));
+    assert_eq!(dialog.anchor, TransientAnchor::Dialog);
+    assert_eq!(dialog.dismiss, TransientDismiss::Outside);
+    assert_eq!(dialog.title.as_deref(), Some("Delete?"));
+    assert_eq!(dialog.shown, PopupShown::Overlay);
+    assert_eq!(dialog.rect, Some(rect(0.0, 0.0, 412.0, 915.0)), "the scrim is the window");
+    assert!(dialog.covers_window && dialog.top);
+
+    let (mut desktop, ws) = window(PHONE, false);
+    show(&mut desktop, &ws, &dom);
+    let listed = desktop.open_popups();
+    assert_eq!(listed.len(), 1);
+    assert_eq!(listed[0].shown, PopupShown::Window);
+    assert_eq!(listed[0].title.as_deref(), Some("Delete?"), "named the same");
+    assert_eq!(listed[0].rect, None, "the window manager places a window");
+    assert!(!listed[0].covers_window && !listed[0].top, "no overlay, no top");
+}
+
+/// The popup that Escape and the back button close first is the one opened last.
+#[test]
+fn only_the_newest_overlay_is_the_top_one() {
+    let (mut lw, ws) = window(PHONE, true);
+    let row = || {
+        Dom::create_div()
+            .with_css("height: 40px; width: 120px;")
+            .with_child(popup(TransientAnchor::Bottom, true, None, vec![panel(100.0, 50.0)]))
+    };
+    let dom = Dom::create_body().with_css("margin: 0;").with_child(row()).with_child(row());
+    show(&mut lw, &ws, &dom);
+    let listed = lw.open_popups();
+    assert_eq!(listed.len(), 2);
+    assert!(!listed[0].top && listed[1].top, "the later is on top: {listed:?}");
+    assert!(lw.dismiss_top_overlay_on_escape());
+    let listed = lw.open_popups();
+    assert_eq!(listed.len(), 1);
+    assert!(listed[0].top, "the one left is the top");
+}
