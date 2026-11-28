@@ -10,7 +10,7 @@
 //! in the middle of a line. A paged display list holds the layout of every paragraph, and the layout knows its lines: each
 //! line is a range now.
 //!
-//! Every line is 20 px (`line-height: 20px`), a paragraph is twelve of them (`<br>` between words, so the font does not
+//! Every line is 20 px (`line-height: 20px`), a paragraph is twelve of them (`<br/>` between words, so the font does not
 //! change how many lines there are) and a page 105 px: no break of the plain interval is on a line.
 //!
 //! Needs a system font (a machine without one lays the text out as nothing): skipped there, a failure where the CI says it
@@ -30,7 +30,7 @@ fn html(paragraphs: usize, lines: usize) -> String {
     let body: String = (0..paragraphs)
         .map(|p| {
             let words: Vec<String> = (0..lines).map(|l| format!("word{p}x{l}")).collect();
-            format!("<p>{}</p>", words.join("<br>"))
+            format!("<p>{}</p>", words.join("<br/>"))
         })
         .collect();
     format!(
