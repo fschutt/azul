@@ -36,10 +36,10 @@ pub mod storage;
 use azul::{
     app::App,
     callbacks::{
-        CallbackInfo, LayoutCallbackInfo, LifecycleEvent, RefAny, TimerCallbackInfo, TimerCallbackReturn, Update,
+        CallbackInfo, LayoutCallbackInfo, RefAny, TimerCallbackInfo, TimerCallbackReturn, Update,
     },
     css::EventFilter,
-    dom::{Dom, VirtualKeyCode},
+    dom::{Dom, LifecycleEvent, VirtualKeyCode},
     font::FontCacheSnapshot,
     option::OptionLifecycleEvent,
     shells::{DocumentShell, ShellThemeAccent, ShellThemeScope},

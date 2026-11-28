@@ -26197,28 +26197,6 @@
                             "returns": null
                         },
                         "repr": "C"
-                    },
-                    "LifecycleEvent": {
-                        "external": "azul_core::lifecycle::LifecycleEvent",
-                        "derive": [
-                            "Debug",
-                            "Copy",
-                            "Clone",
-                            "PartialEq",
-                            "Eq",
-                            "PartialOrd",
-                            "Ord",
-                            "Hash"
-                        ],
-                        "enum_fields": [
-                            {
-                                "Paused": {},
-                                "Resumed": {},
-                                "LowMemory": {},
-                                "WillTerminate": {}
-                            }
-                        ],
-                        "repr": "C"
                     }
                 }
             },
@@ -40163,6 +40141,28 @@
                                 "fn_body": "azul_layout::frame_tap::FrameTapCallback::create(cb)"
                             }
                         },
+                        "repr": "C"
+                    },
+                    "LifecycleEvent": {
+                        "external": "azul_core::lifecycle::LifecycleEvent",
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Paused": {},
+                                "Resumed": {},
+                                "LowMemory": {},
+                                "WillTerminate": {}
+                            }
+                        ],
                         "repr": "C"
                     }
                 }

@@ -1,11 +1,11 @@
 use azul::{
     callbacks::{
-        ButtonOnClickCallbackType, CallbackType, DialogOnCloseCallbackType, LifecycleEvent, RenderImageCallbackInfo,
+        ButtonOnClickCallbackType, CallbackType, DialogOnCloseCallbackType, RenderImageCallbackInfo,
         StandardDialogOnEventCallbackType,
     },
     css::PhysicalSizeU32,
     dialog::{FileDialog, FileOpenResult},
-    dom::RenderImageCallback,
+    dom::{LifecycleEvent, RenderImageCallback},
     error::{ResultRawImageDecodeImageError, ResultU8VecEncodeImageError, ResultU8VecFileError},
     file::{FilePath, FileReadBytesResult},
     gl::{GlContextPtr, Texture},
