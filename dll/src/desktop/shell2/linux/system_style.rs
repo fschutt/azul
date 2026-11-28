@@ -1557,26 +1557,11 @@ fn discover_gnome_style(env: &PlatformEnv, gs: &Gsettings) -> Result<SystemStyle
     }
 
     // ── Text scaling ────────────────────────────────────────────────
-    // GNOME's accessibility "Large Text" and every fractional-scaling setup
-    // express themselves here, NOT in the font name — a user at 1.25 sees
-    // every GTK app at 125 % and azul at 100 %, which is the complaint that
-    // reads as "the fonts are tiny in this app". Applied to each detected
-    // size, so it composes with whatever the font settings said.
-    let text_scale = gs.get("org.gnome.desktop.interface", "text-scaling-factor")
-        .and_then(|v| v.trim().parse::<f32>().ok())
-        .filter(|f| *f > 0.0 && (*f - 1.0).abs() > f32::EPSILON);
-    if let Some(scale) = text_scale {
-        let apply = |sz: &mut OptionF32| {
-            if let OptionF32::Some(v) = sz {
-                *sz = OptionF32::Some(*v * scale);
-            }
-        };
-        apply(&mut style.fonts.ui_font_size);
-        apply(&mut style.fonts.monospace_font_size);
-        apply(&mut style.fonts.title_font_size);
-        apply(&mut style.fonts.menu_font_size);
-        apply(&mut style.fonts.small_font_size);
-    }
+    // GNOME's accessibility "Large Text" and every fractional-scaling setup express themselves in
+    // `text-scaling-factor`, not in the font name. It is NOT multiplied into the sizes above any
+    // more: it is the user's text scale (`SystemStyle::preferences`, read with the other
+    // accessibility settings at the end of `discover`), which the layout applies to every font
+    // size ONCE - a menu popup and a title bar included, so nothing is scaled twice.
 
     // ── Font rendering hints ────────────────────────────────────────
     // What the desktop asked for, rather than what the rasteriser guessed.
@@ -1991,11 +1976,14 @@ fn discover_kde_style(env: &PlatformEnv, gs: &Gsettings) -> Result<SystemStyle, 
     if let Some(factor) = read_kde_str("KDE", "AnimationDurationFactor") {
         if let Ok(f) = factor.trim().parse::<f32>() {
             style.animation.animation_duration_factor = f;
-            if f <= 0.0 {
-                style.animation.animations_enabled = false;
-                style.prefers_reduced_motion = BoolCondition::True;
-                style.accessibility.prefers_reduced_motion = true;
+            // the factor and the font DPI, as the typed preferences
+            let kde = azul_css::accessibility_raw::RawKde {
+                animation_duration_factor: Some(f),
+                force_font_dpi: read_kde_str("General", "forceFontDPI")
+                    .and_then(|dpi| dpi.trim().parse::<f32>().ok()),
             }
+            .into_preferences();
+            style.set_preferences(style.preferences.overlaid(&kde));
         }
     }
 
@@ -2305,62 +2293,33 @@ pub(crate) fn linux_version_of(release: &str) -> OsVersion {
 
 // ── Accessibility queries ───────────────────────────────────────────────
 
-/// Detect GNOME reduced-motion preference via `gsettings`.
-fn detect_gnome_reduced_motion(gs: &Gsettings) -> BoolCondition {
-    match gs.get("org.gnome.desktop.interface", "enable-animations") {
-        Some(val) => {
-            if val.trim() == "false" {
-                BoolCondition::True // reduced motion IS preferred
-            } else {
-                BoolCondition::False
-            }
-        }
-        None => BoolCondition::False,
-    }
-}
-
-/// Detect GNOME high-contrast theme via `gsettings`.
-fn detect_gnome_high_contrast(gs: &Gsettings) -> BoolCondition {
-    match gs.get("org.gnome.desktop.interface", "high-contrast") {
-        Some(val) => {
-            if val.trim() == "true" {
-                BoolCondition::True
-            } else {
-                BoolCondition::False
-            }
-        }
-        None => {
-            // Also check if the GTK theme name contains "HighContrast"
-            match gs.get("org.gnome.desktop.interface", "gtk-theme") {
-                Some(theme) if theme.contains("HighContrast") => BoolCondition::True,
-                _ => BoolCondition::False,
-            }
-        }
-    }
-}
-
-/// Detect KDE reduced-motion preference via `kreadconfig5`/`kreadconfig6`.
-fn detect_kde_reduced_motion() -> BoolCondition {
-    // Try kreadconfig6 first, then kreadconfig5
-    let kread = if run_command_with_timeout("kreadconfig6", &["--help"], 500).is_ok() {
-        "kreadconfig6"
-    } else {
-        "kreadconfig5"
+/// What GNOME's settings say of the user's accessibility options: the text scaling factor ("Large
+/// text" is 1.25), the animations, the high contrast, the pointer size, the screen reader and the
+/// magnifier. A key the schema does not have (a KDE session, GNOME before the move of
+/// `high-contrast` into `org.gnome.desktop.a11y.interface`) is `None`: unknown, not off.
+fn read_gnome_raw(gs: &Gsettings) -> azul_css::accessibility_raw::RawGnome {
+    let flag = |schema: &str, key: &str| gs.get(schema, key).map(|value| value.trim() == "true");
+    let number = |schema: &str, key: &str| -> Option<f32> {
+        gs.get(schema, key).and_then(|value| value.trim().parse::<f32>().ok())
     };
-
-    match run_command_with_timeout(
-        kread,
-        &["--group", "KDE", "--key", "AnimationDurationFactor"],
-        1000,
-    ) {
-        Ok(val) => {
-            // A factor of 0 means animations are disabled
-            match val.trim().parse::<f32>() {
-                Ok(factor) if factor <= 0.0 => BoolCondition::True,
-                _ => BoolCondition::False,
-            }
-        }
-        Err(_) => BoolCondition::False,
+    // `high-contrast`: its own schema since GNOME 3.x, the interface schema before, and a GTK theme
+    // named "HighContrast" in any case.
+    let high_contrast = flag("org.gnome.desktop.a11y.interface", "high-contrast")
+        .or_else(|| flag("org.gnome.desktop.interface", "high-contrast"))
+        .or_else(|| {
+            gs.get("org.gnome.desktop.interface", "gtk-theme")
+                .map(|theme| theme.contains("HighContrast"))
+        });
+    azul_css::accessibility_raw::RawGnome {
+        text_scaling_factor: number("org.gnome.desktop.interface", "text-scaling-factor"),
+        enable_animations: flag("org.gnome.desktop.interface", "enable-animations"),
+        high_contrast,
+        cursor_size: number("org.gnome.desktop.interface", "cursor-size")
+            .map(|size| size.max(0.0) as u32),
+        screen_reader: flag("org.gnome.desktop.a11y.applications", "screen-reader-enabled"),
+        screen_magnifier: flag("org.gnome.desktop.a11y.applications", "screen-magnifier-enabled"),
+        portal_contrast: None,
+        portal_reduced_motion: None,
     }
 }
 
@@ -2619,14 +2578,14 @@ pub(crate) fn discover(
     );
     style.os_version = detect_linux_version();
 
-    // Accessibility — try GNOME first, then KDE
-    if style.prefers_reduced_motion == BoolCondition::False {
-        style.prefers_reduced_motion = detect_gnome_reduced_motion(&gs);
-    }
-    if style.prefers_reduced_motion == BoolCondition::False {
-        style.prefers_reduced_motion = detect_kde_reduced_motion();
-    }
-    style.prefers_high_contrast = detect_gnome_high_contrast(&gs);
+    // The user's accessibility settings: the text size, the animations, the contrast, the
+    // pointer, the screen reader. The desktop's own answer (GNOME's gsettings; KDE's was read with
+    // its other settings above) is laid over nothing: every option a desktop does not have stays
+    // unknown.
+    let reported = style
+        .preferences
+        .overlaid(&read_gnome_raw(&gs).into_preferences());
+    style.set_preferences(reported);
 
     // The user's stylesheets (`~/.azul/css/<theme>/`, and the legacy
     // `$XDG_CONFIG_HOME/azul/styles/<exe>.css`) are not a system style: the

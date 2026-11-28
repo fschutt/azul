@@ -15,6 +15,7 @@ use alloc::string::String;
 use core::ffi::c_void;
 
 use azul_css::{
+    accessibility_raw::RawWindows,
     corety::AzString,
     dynamic_selector::{BoolCondition, OsVersion},
     props::basic::color::{ColorU, OptionColorU},
@@ -43,6 +44,11 @@ const SPI_GETFONTSMOOTHINGTYPE: u32 = 0x200A;
 const SPI_GETWHEELSCROLLLINES: u32 = 0x0068;
 const SPI_GETMOUSEHOVERTIME: u32 = 0x0066;
 const SPI_GETCLIENTAREAANIMATION: u32 = 0x1042;
+const SPI_GETHIGHCONTRAST: u32 = 0x0042;
+const SPI_GETSCREENREADER: u32 = 0x0046;
+const SPI_GETMESSAGEDURATION: u32 = 0x2016;
+/// `HCF_HIGHCONTRASTON`: a high contrast (contrast) theme is in force.
+const HCF_HIGHCONTRASTON: u32 = 0x0000_0001;
 const SPI_GETKEYBOARDCUES: u32 = 0x100A;
 const SPI_GETBEEP: u32 = 0x0001;
 const SPI_GETCARETWIDTH: u32 = 0x2006;
@@ -143,6 +149,9 @@ pub(crate) fn discover_timed(
     startup.mark("style:user32_loaded");
 
     let mut style = defaults::windows_11_light();
+    // What Windows says of the user's accessibility settings (the registry and
+    // `SystemParametersInfo`), filled below and turned into the typed preferences at the end.
+    let mut raw = RawWindows::default();
 
     unsafe {
         // ── Input metrics ────────────────────────────────────────────
@@ -282,9 +291,52 @@ pub(crate) fn discover_timed(
                     azul_css::system::FocusBehavior::KeyboardOnly
                 },
             };
-            if anim == 0 {
-                style.prefers_reduced_motion = azul_css::dynamic_selector::BoolCondition::True;
-                style.accessibility.prefers_reduced_motion = true;
+            raw.client_area_animation = Some(anim != 0);
+            raw.keyboard_cues = Some(kb_cues != 0);
+
+            // High contrast: the `HIGHCONTRASTW` the system fills (`cbSize`, `dwFlags`, the name of
+            // the scheme, which is not asked for: a null pointer).
+            #[repr(C)]
+            struct HighContrastW {
+                cb_size: u32,
+                flags: u32,
+                default_scheme: *mut u16,
+            }
+            let mut contrast = HighContrastW {
+                cb_size: core::mem::size_of::<HighContrastW>() as u32,
+                flags: 0,
+                default_scheme: core::ptr::null_mut(),
+            };
+            if (u32_lib.SystemParametersInfoW)(
+                SPI_GETHIGHCONTRAST,
+                contrast.cb_size,
+                &mut contrast as *mut HighContrastW as *mut c_void,
+                0,
+            ) != 0
+            {
+                raw.high_contrast = Some(contrast.flags & HCF_HIGHCONTRASTON != 0);
+            }
+            // A screen reader that told the system (Narrator, NVDA and JAWS set it).
+            let mut reader: i32 = 0;
+            if (u32_lib.SystemParametersInfoW)(
+                SPI_GETSCREENREADER,
+                0,
+                &mut reader as *mut i32 as *mut c_void,
+                0,
+            ) != 0
+            {
+                raw.screen_reader = Some(reader != 0);
+            }
+            // "Show notifications for": the seconds a notification stays.
+            let mut seconds: u32 = 0;
+            if (u32_lib.SystemParametersInfoW)(
+                SPI_GETMESSAGEDURATION,
+                0,
+                &mut seconds as *mut u32 as *mut c_void,
+                0,
+            ) != 0
+            {
+                raw.message_duration_s = Some(seconds);
             }
         }
 
@@ -318,19 +370,15 @@ pub(crate) fn discover_timed(
     );
     startup.mark("style:language_read");
 
-    let rm = detect_windows_reduced_motion();
-    if rm == BoolCondition::True {
-        style.prefers_reduced_motion = BoolCondition::True;
-        style.accessibility.prefers_reduced_motion = true;
-    }
-    let hc = detect_windows_high_contrast();
-    if hc == BoolCondition::True {
-        style.prefers_high_contrast = BoolCondition::True;
-        style.accessibility.prefers_high_contrast = true;
-    }
+    // The registry half of the settings (the text size slider, the transparency effects, the pointer
+    // size, the colour filters, mono audio) and the fallbacks of the two `SystemParametersInfo`
+    // answers that did not come.
+    read_windows_registry_preferences(&mut raw);
+    let high_contrast = raw.high_contrast == Some(true);
+    style.set_preferences(raw.into_preferences());
 
     // GetSysColor stays light in dark mode; use the palette of the discovered theme (not under high contrast).
-    if hc != BoolCondition::True {
+    if !high_contrast {
         let theme = style.mode;
         azul_css::system::adopt_theme_palette(
             &mut style,
@@ -511,6 +559,42 @@ fn discover_windows_cli_extras(style: &mut azul_css::system::SystemStyle) {
     }
 }
 
+/// One `REG_DWORD` of the current user's hive, `None` when the key or the value is not there.
+fn registry_dword(subkey: &str, name: &str) -> Option<u32> {
+    let (value_type, bytes) = registry_value(HKEY_CURRENT_USER, subkey, name)?;
+    // 4 is REG_DWORD
+    if value_type != 4 {
+        return None;
+    }
+    Some(u32::from_le_bytes(bytes.get(..4)?.try_into().ok()?))
+}
+
+/// The settings Windows keeps in the registry, for the preferences: the "Text size" slider of
+/// Settings > Accessibility (`TextScaleFactor`, a percentage that is absent while the slider is at its
+/// default), "Transparency effects", the pointer size, the colour filters, mono audio. The two
+/// `SystemParametersInfo` answers (high contrast, screen reader) are asked first by the caller; a
+/// high contrast it could not ask is read from the registry value the system keeps.
+fn read_windows_registry_preferences(raw: &mut RawWindows) {
+    raw.text_scale_percent = registry_dword(r"SOFTWARE\Microsoft\Accessibility", "TextScaleFactor");
+    raw.transparency_effects = registry_dword(
+        r"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize",
+        "EnableTransparency",
+    )
+    .map(|value| value != 0);
+    raw.cursor_base_size = registry_dword(r"Control Panel\Cursors", "CursorBaseSize");
+    raw.color_filter_active =
+        registry_dword(r"Software\Microsoft\ColorFiltering", "Active").map(|value| value != 0);
+    raw.color_filter_type = registry_dword(r"Software\Microsoft\ColorFiltering", "FilterType");
+    raw.mono_audio = registry_dword(
+        r"Software\Microsoft\Multimedia\Audio",
+        "AccessibilityMonoMixState",
+    )
+    .map(|value| value != 0);
+    if raw.high_contrast.is_none() {
+        raw.high_contrast = Some(detect_windows_high_contrast() == BoolCondition::True);
+    }
+}
+
 /// Detect the Windows version by reading `CurrentBuildNumber` from the
 /// registry.  Returns a best-effort `OsVersion`; defaults to `WIN_10` when
 /// the build number cannot be determined.
@@ -556,17 +640,6 @@ fn detect_windows_version() -> OsVersion {
         2600 => OsVersion::WIN_XP,
         _ => OsVersion::WIN_10,
     }
-}
-
-/// Check the `MinAnimate` registry key to detect reduced-motion preference.
-fn detect_windows_reduced_motion() -> BoolCondition {
-    if let Ok(output) = native_reg_query(r"HKCU\Control Panel\Desktop\WindowMetrics", &["MinAnimate"]) {
-        // MinAnimate = "0" means animations are disabled
-        if output.contains("\"0\"") || output.contains("    0") {
-            return BoolCondition::True;
-        }
-    }
-    BoolCondition::False
 }
 
 /// Check the `HighContrast` Flags registry value (bit 0 = HCF_HIGHCONTRASTON).
