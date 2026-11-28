@@ -3023,7 +3023,7 @@ impl StyledDom {
             .node_data
             .as_container()
             .get(node)
-            .map(crate::dom::NodeData::get_node_type)
+            .map(NodeData::get_node_type)
         {
             if config.dock == crate::transient::TransientDock::Popup {
                 return None;
