@@ -176,12 +176,15 @@ fn the_words_are_there_in_german_too_and_name_the_same_keys() {
     let recording = words(State::Recording, 42_000);
     let held = words(State::Paused, 42_000);
     let stop = stop_name();
+    // the keys as the same language shows them: a PC's key names are translated (Strg+Umschalt+M), a Mac's symbols are not (the first version of
+    // this compared with the English ones and failed on Linux only)
+    let (toggle, pause) = (shown(KEYS_TOGGLE), shown(KEYS_PAUSE));
     azul_appkit::l10n::set_locale("en-US");
     assert_eq!(start.text, "Review starten");
     assert_eq!(recording.text, "Aufnahme 0:42");
     assert_eq!(held.text, "Pausiert 0:42");
-    assert!(start.name.contains(&shown(KEYS_TOGGLE)) && recording.name.contains(&shown(KEYS_PAUSE)) && held.name.contains(&shown(KEYS_PAUSE)), "{start:?} {recording:?} {held:?}");
-    assert!(stop.contains(&shown(KEYS_TOGGLE)), "{stop}");
+    assert!(start.name.contains(&toggle) && recording.name.contains(&pause) && held.name.contains(&pause), "{start:?} {recording:?} {held:?}");
+    assert!(stop.contains(&toggle), "{stop}");
 }
 
 #[test]
