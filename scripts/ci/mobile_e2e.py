@@ -681,7 +681,8 @@ def e2e_session(args):
         s.check("a real tap into the code raises the soft keyboard", up, "the window system says " + ("shown" if up else "hidden"))
         s.check("the tap placed the caret on its lift (AZCODE_CARET)", bool(carets), f"printed {carets}")
         # looked at, not tapped: the middle of the row is a key
-        row_box = find_key(srv.op("get_node_layout", selector="#__azcode_key-row", timeout=30), "screen_rect")
+        row_answer = srv.op("get_node_layout", selector="#__azcode_key-row", timeout=30)
+        row_box = find_key(row_answer, "screen_rect") or find_key(row_answer, "rect")
         s.check("the key row stands over the keyboard (the server names it with a box)", isinstance(row_box, dict) and row_box.get("height", 0) > 0, str(row_box))
         # a real pan over the code: the view scrolls, nothing is selected, the caret stays
         w, h = dev.dims
