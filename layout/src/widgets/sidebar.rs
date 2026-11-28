@@ -117,6 +117,8 @@ pub const SIDEBAR_BADGE_CLASS: &str = "__azul-native-sidebar-badge";
 pub const SIDEBAR_ROW_PIE_CLASS: &str = "__azul-native-sidebar-row-pie";
 /// A document row's collaboration icon.
 pub const SIDEBAR_COLLAB_CLASS: &str = "__azul-native-sidebar-collab";
+/// A row's state glyph at its end.
+pub const SIDEBAR_STATUS_ICON_CLASS: &str = "__azul-native-sidebar-status-icon";
 /// A button of the rail.
 pub const SIDEBAR_BUTTON_CLASS: &str = "__azul-native-sidebar-button";
 /// The hairline between the sections of the rail and over the foot.
@@ -301,6 +303,14 @@ pub struct SidebarRow {
     pub pie_tone: PieTone,
     /// The row's collaboration icon: none, off or on.
     pub collab: SidebarCollab,
+    /// A glyph at the row's end that says the row's own state (a cloud drive's: syncing, locked,
+    /// connected; a Material name); empty for none. APPENDED for ABI stability.
+    pub status_icon: AzString,
+    /// What the status glyph says: its accessible name.
+    pub status_tip: AzString,
+    /// Whether items dragged from elsewhere in the window can be dropped on the row: it accepts
+    /// the drag and reports [`SidebarEventKind::RowDropped`].
+    pub accepts_drops: bool,
 }
 
 impl_option!(SidebarRow, OptionSidebarRow, copy = false, [Debug, Clone, PartialEq]);
@@ -337,6 +347,9 @@ impl SidebarRow {
             pie_fraction: -1.0,
             pie_tone: PieTone::Accent,
             collab: SidebarCollab::None,
+            status_icon: AzString::from_const_str(""),
+            status_tip: AzString::from_const_str(""),
+            accepts_drops: false,
         }
     }
 
@@ -483,6 +496,31 @@ impl SidebarRow {
     #[must_use]
     pub const fn with_collab(mut self, collab: SidebarCollab) -> Self {
         self.set_collab(collab);
+        self
+    }
+
+    /// A glyph at the row's end that says its state, with what it says.
+    pub fn set_status(&mut self, icon: AzString, tip: AzString) {
+        self.status_icon = icon;
+        self.status_tip = tip;
+    }
+
+    /// [`Self::set_status`] for the builder chain.
+    #[must_use]
+    pub fn with_status(mut self, icon: AzString, tip: AzString) -> Self {
+        self.set_status(icon, tip);
+        self
+    }
+
+    /// Whether items dragged over the row can be dropped on it.
+    pub const fn set_accepts_drops(&mut self, accepts: bool) {
+        self.accepts_drops = accepts;
+    }
+
+    /// [`Self::set_accepts_drops`] for the builder chain.
+    #[must_use]
+    pub const fn with_accepts_drops(mut self, accepts: bool) -> Self {
+        self.set_accepts_drops(accepts);
         self
     }
 
@@ -711,6 +749,12 @@ pub enum SidebarEventKind {
     /// A row's collaboration icon: `index` and `tag` name the row, `expand` says whether
     /// collaboration should be on now.
     RowCollabToggled,
+    /// A right click on a row (or its rail button): the app opens the row's menu there
+    /// (`CallbackInfo::open_menu_for_hit_node`).
+    RowMenuRequested,
+    /// Items dragged in the window were dropped on a row that accepts drops
+    /// ([`SidebarRow::accepts_drops`]); `CallbackInfo::get_key_modifiers` says copy or move.
+    RowDropped,
 }
 
 /// One report of the sidebar.
@@ -1077,6 +1121,18 @@ extern "C" fn on_inner_click(mut data: RefAny, mut info: CallbackInfo) -> Update
     report(&mut data, info)
 }
 
+/// Items dragged over a row that takes them: the drag is accepted, so the drop reaches the row.
+extern "C" fn on_row_drag_over(_data: RefAny, mut info: CallbackInfo) -> Update {
+    info.accept_drop();
+    Update::DoNothing
+}
+
+/// A drop on a row: only that row's, not an ancestor's.
+extern "C" fn on_row_drop(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    info.stop_propagation();
+    report(&mut data, info)
+}
+
 /// The rail's tooltip: the name under the pointer.
 struct Tip(AzString);
 
@@ -1349,6 +1405,17 @@ fn row_dom(ctx: &Ctx, row: &SidebarRow, index: usize) -> Dom {
         );
     }
 
+    // the row's own state, a glyph at its end (a cloud drive's)
+    if !row.status_icon.as_str().is_empty() {
+        children.push(
+            icon(row.status_icon.as_str(), 16.0, ctx.look.quiet)
+                .with_ids_and_classes(classes(SIDEBAR_STATUS_ICON_CLASS, &[]))
+                .with_accessibility_info(AccessibilityInfo::named(
+                    row.status_tip.clone(),
+                    AccessibilityRole::Graphic,
+                )),
+        );
+    }
     // an open document: its own pie (sync) and its collaboration switch
     if row.has_pie() {
         let pie = styled(
@@ -1467,14 +1534,40 @@ fn row_dom(ctx: &Ctx, row: &SidebarRow, index: usize) -> Dom {
             ..Default::default()
         })
         .with_tab_index(roving::item_tab_index(index, ctx.stop));
-    on_all(
-        node,
-        alloc::vec![
-            callback(EventFilter::Hover(HoverEventFilter::Click), click, on_part_click),
-            callback(EventFilter::Hover(HoverEventFilter::LongPress), press, on_part_click),
-            callback(EventFilter::Focus(FocusEventFilter::VirtualKeyDown), keys, on_row_key),
-        ],
-    )
+    let mut list = alloc::vec![
+        callback(EventFilter::Hover(HoverEventFilter::Click), click, on_part_click),
+        callback(EventFilter::Hover(HoverEventFilter::LongPress), press, on_part_click),
+        callback(EventFilter::Focus(FocusEventFilter::VirtualKeyDown), keys, on_row_key),
+        callback(
+            EventFilter::Hover(HoverEventFilter::RightMouseUp),
+            ctx.part(row_event(ctx, SidebarEventKind::RowMenuRequested, row, index)),
+            on_part_click,
+        ),
+    ];
+    if row.accepts_drops {
+        list.push(callback(
+            EventFilter::Hover(HoverEventFilter::DragOver),
+            RefAny::new(()),
+            on_row_drag_over,
+        ));
+        list.push(callback(
+            EventFilter::Hover(HoverEventFilter::Drop),
+            ctx.part(row_event(ctx, SidebarEventKind::RowDropped, row, index)),
+            on_row_drop,
+        ));
+    }
+    on_all(node, list)
+}
+
+/// The event `kind` about row `row` at place `index`.
+fn row_event(ctx: &Ctx, kind: SidebarEventKind, row: &SidebarRow, index: usize) -> SidebarEvent {
+    SidebarEvent {
+        kind,
+        index,
+        tag: row.tag,
+        expand: false,
+        state: ctx.state,
+    }
 }
 
 /// A section's title row.
@@ -1587,16 +1680,31 @@ fn rail_button(ctx: &Ctx, row: &SidebarRow, index: usize) -> Dom {
         has_children: false,
         expanded: false,
     });
-    on_all(
-        node,
-        alloc::vec![
-            callback(EventFilter::Hover(HoverEventFilter::Click), click, on_part_click),
-            callback(EventFilter::Hover(HoverEventFilter::MouseEnter), RefAny::new(Tip(name.clone())), on_tip_show),
-            callback(EventFilter::Hover(HoverEventFilter::LongPress), RefAny::new(Tip(name)), on_tip_show),
-            callback(EventFilter::Hover(HoverEventFilter::MouseLeave), RefAny::new(()), on_tip_hide),
-            callback(EventFilter::Focus(FocusEventFilter::VirtualKeyDown), keys, on_row_key),
-        ],
-    )
+    let mut list = alloc::vec![
+        callback(EventFilter::Hover(HoverEventFilter::Click), click, on_part_click),
+        callback(EventFilter::Hover(HoverEventFilter::MouseEnter), RefAny::new(Tip(name.clone())), on_tip_show),
+        callback(EventFilter::Hover(HoverEventFilter::LongPress), RefAny::new(Tip(name)), on_tip_show),
+        callback(EventFilter::Hover(HoverEventFilter::MouseLeave), RefAny::new(()), on_tip_hide),
+        callback(EventFilter::Focus(FocusEventFilter::VirtualKeyDown), keys, on_row_key),
+        callback(
+            EventFilter::Hover(HoverEventFilter::RightMouseUp),
+            ctx.part(row_event(ctx, SidebarEventKind::RowMenuRequested, row, index)),
+            on_part_click,
+        ),
+    ];
+    if row.accepts_drops {
+        list.push(callback(
+            EventFilter::Hover(HoverEventFilter::DragOver),
+            RefAny::new(()),
+            on_row_drag_over,
+        ));
+        list.push(callback(
+            EventFilter::Hover(HoverEventFilter::Drop),
+            ctx.part(row_event(ctx, SidebarEventKind::RowDropped, row, index)),
+            on_row_drop,
+        ));
+    }
+    on_all(node, list)
 }
 
 /// A hairline across the column (between the sections of the rail, over the foot).
@@ -2021,3 +2129,7 @@ fn build(sb: Sidebar) -> Dom {
 #[cfg(test)]
 #[path = "sidebar_test.rs"]
 mod sidebar_test;
+
+#[cfg(test)]
+#[path = "sidebar_row_extras_test.rs"]
+mod sidebar_row_extras_test;
