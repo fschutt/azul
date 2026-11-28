@@ -48,7 +48,8 @@ const HELP: &str = "companion_sim: the AzReview phone companion in a window\n\
 /// keeps, and the client over azul's iroh endpoint: [`net`]). "Try it without a Mac" shows the rest of the screens. Runs until the app
 /// is closed.
 pub fn start() {
-    let mut config = AppConfig::create();
+    // Every Az app starts in flora.
+    let mut config = AppConfig::create().with_theme("flora");
     config.set_mode(azul::option::OptionDarkLightMode::Some(azul::css::DarkLightMode::Dark));
     let app = App::create(RefAny::new(phone_root()), config);
     app.run(glue::phone_window_options("AzReview Companion"));
@@ -148,7 +149,8 @@ pub fn run_sim(args: Vec<String>) {
     root.started = std::time::Instant::now().checked_sub(std::time::Duration::from_secs(60)).unwrap_or(root.started);
     root.sim = Some(extras);
     let mut data = RefAny::new(root);
-    let mut config = AppConfig::create();
+    // Every Az app starts in flora.
+    let mut config = AppConfig::create().with_theme("flora");
     config.set_mode(azul::option::OptionDarkLightMode::Some(azul::css::DarkLightMode::Dark));
     let app = App::create(data.clone(), config);
     // the screen the window opens on: the phone is drawn as big as it has room for
