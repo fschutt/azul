@@ -45,11 +45,12 @@ fn the_ladder_reads_back_what_it_draws_on_a_working_driver() {
     let gl = gles.gl();
     let framebuffer = Framebuffer::new(gl.clone(), 400, 560).expect("an offscreen window framebuffer");
     // The ladder binds the framebuffers twice over: as `GL_FRAMEBUFFER`, and the way WebRender's device does (draw and read apart).
-    for split in [false, true] {
+    for (split, external_unbind) in [(false, false), (true, false), (true, true)] {
         let target = Target {
             size: (400, 560),
             window: framebuffer.id(),
             split,
+            external_unbind,
         };
         let mut shown: Vec<&'static str> = Vec::new();
         let ladder = run_ladder(&gl, target, &mut |phase| shown.push(phase));

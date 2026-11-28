@@ -869,12 +869,13 @@ impl GlesGpu {
             return;
         }
         let size = session.surface_size().unwrap_or(self.size_px);
-        for split in [false, true] {
-            let target = gles_control::Target { size, window: 0, split };
+        for (split, external_unbind) in [(false, false), (true, false), (true, true)] {
+            let target = gles_control::Target { size, window: 0, split, external_unbind };
             log_info!(
                 LogCategory::Rendering,
-                "[render] control (split {}): the ladder starts on {}x{} px, {} phases twice, {} ms each",
+                "[render] control (split {}, external unbind {}): the ladder starts on {}x{} px, {} phases twice, {} ms each",
                 split,
+                external_unbind,
                 size.0,
                 size.1,
                 gles_control::PHASES.len(),

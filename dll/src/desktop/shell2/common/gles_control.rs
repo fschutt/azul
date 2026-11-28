@@ -47,6 +47,17 @@ pub struct Target {
     /// Bind the way WebRender's device does: `GL_DRAW_FRAMEBUFFER` to draw (and to attach and check) and `GL_READ_FRAMEBUFFER` to
     /// read, never `GL_FRAMEBUFFER`. Off: `GL_FRAMEBUFFER` for everything.
     pub split: bool,
+    /// Unbind `GL_TEXTURE_EXTERNAL_OES` before every binding of a `GL_TEXTURE_2D`, as the device does on the Android emulator
+    /// (`requires_texture_external_unbind`).
+    pub external_unbind: bool,
+}
+
+/// Binds the 2D texture `texture`, after the external unbind the emulator's quirk asks for when the target says so.
+fn bind_2d(gl: &GenericGlContext, target: Target, texture: u32) {
+    if target.external_unbind {
+        gl.bind_texture(glconst::TEXTURE_EXTERNAL_OES, 0);
+    }
+    gl.bind_texture(glconst::TEXTURE_2D, texture);
 }
 
 /// The target a framebuffer is bound to for drawing, attaching and checking.
@@ -330,7 +341,7 @@ fn phase_dummy_texture(gl: &GenericGlContext, target: Target, programs: &Program
     gl.clear(glconst::COLOR_BUFFER_BIT);
     let texture = gl.gen_textures(1).first().copied().unwrap_or(0);
     gl.active_texture(glconst::TEXTURE0);
-    gl.bind_texture(glconst::TEXTURE_2D, texture);
+    bind_2d(gl, target, texture);
     gl.tex_parameter_i(glconst::TEXTURE_2D, glconst::TEXTURE_MAG_FILTER, glconst::LINEAR as i32);
     gl.tex_parameter_i(glconst::TEXTURE_2D, glconst::TEXTURE_MIN_FILTER, glconst::LINEAR as i32);
     gl.tex_parameter_i(glconst::TEXTURE_2D, glconst::TEXTURE_WRAP_S, glconst::CLAMP_TO_EDGE as i32);
@@ -365,7 +376,7 @@ const TILE: i32 = 256;
 fn make_tile(gl: &GenericGlContext, target: Target) -> Tile {
     let texture = gl.gen_textures(1).first().copied().unwrap_or(0);
     gl.active_texture(glconst::TEXTURE0);
-    gl.bind_texture(glconst::TEXTURE_2D, texture);
+    bind_2d(gl, target, texture);
     gl.tex_parameter_i(glconst::TEXTURE_2D, glconst::TEXTURE_MIN_FILTER, glconst::NEAREST as i32);
     gl.tex_parameter_i(glconst::TEXTURE_2D, glconst::TEXTURE_MAG_FILTER, glconst::NEAREST as i32);
     gl.tex_parameter_i(glconst::TEXTURE_2D, glconst::TEXTURE_WRAP_S, glconst::CLAMP_TO_EDGE as i32);
@@ -431,7 +442,7 @@ fn phase_fbo_sample(gl: &GenericGlContext, target: Target, programs: &Programs) 
     gl.clear_color(0.2, 0.2, 0.2, 1.0);
     gl.clear(glconst::COLOR_BUFFER_BIT);
     gl.active_texture(glconst::TEXTURE0);
-    gl.bind_texture(glconst::TEXTURE_2D, tile.texture);
+    bind_2d(gl, target, tile.texture);
     gl.use_program(program);
     let sampler = gl.get_uniform_location(program, "sTex");
     gl.uniform_1i(sampler, 0);
@@ -524,7 +535,7 @@ fn phase_instanced(gl: &GenericGlContext, target: Target, programs: &Programs) -
     );
 
     gl.active_texture(glconst::TEXTURE0);
-    gl.bind_texture(glconst::TEXTURE_2D, tile.texture);
+    bind_2d(gl, target, tile.texture);
     gl.use_program(program);
     let sampler = gl.get_uniform_location(program, "sColor0");
     gl.uniform_1i(sampler, 0);
@@ -591,14 +602,14 @@ fn phase_data_textures(gl: &GenericGlContext, target: Target, programs: &Program
     ];
     let float_bytes: Vec<u8> = floats.iter().flat_map(|v| v.to_ne_bytes()).collect();
     gl.active_texture(glconst::TEXTURE0);
-    gl.bind_texture(glconst::TEXTURE_2D, float_texture);
+    bind_2d(gl, target, float_texture);
     gl.tex_parameter_i(glconst::TEXTURE_2D, glconst::TEXTURE_MIN_FILTER, glconst::NEAREST as i32);
     gl.tex_parameter_i(glconst::TEXTURE_2D, glconst::TEXTURE_MAG_FILTER, glconst::NEAREST as i32);
     gl.tex_storage_2d(glconst::TEXTURE_2D, 1, glconst::RGBA32F, 4, 1);
     gl.tex_sub_image_2d(glconst::TEXTURE_2D, 0, 0, 0, 4, 1, glconst::RGBA, glconst::FLOAT, &float_bytes);
     let ints: [i32; 16] = [255, 0, 0, 255, 0, 255, 0, 255, 0, 0, 255, 255, 255, 255, 255, 255];
     let int_bytes: Vec<u8> = ints.iter().flat_map(|v| v.to_ne_bytes()).collect();
-    gl.bind_texture(glconst::TEXTURE_2D, int_texture);
+    bind_2d(gl, target, int_texture);
     gl.tex_parameter_i(glconst::TEXTURE_2D, glconst::TEXTURE_MIN_FILTER, glconst::NEAREST as i32);
     gl.tex_parameter_i(glconst::TEXTURE_2D, glconst::TEXTURE_MAG_FILTER, glconst::NEAREST as i32);
     gl.tex_storage_2d(glconst::TEXTURE_2D, 1, glconst::RGBA32I, 4, 1);
@@ -606,14 +617,14 @@ fn phase_data_textures(gl: &GenericGlContext, target: Target, programs: &Program
 
     let (w, h) = (int(size.0), int(size.1));
     // The top half: floats.
-    gl.bind_texture(glconst::TEXTURE_2D, float_texture);
+    bind_2d(gl, target, float_texture);
     gl.viewport(0, h / 2, w, h - h / 2);
     gl.use_program(float_program);
     let location = gl.get_uniform_location(float_program, "sData");
     gl.uniform_1i(location, 0);
     full_screen(gl, float_program, 0.0);
     // The bottom half: integers.
-    gl.bind_texture(glconst::TEXTURE_2D, int_texture);
+    bind_2d(gl, target, int_texture);
     gl.viewport(0, 0, w, h / 2);
     gl.use_program(int_program);
     let location = gl.get_uniform_location(int_program, "sData");
@@ -673,7 +684,7 @@ fn phase_vertex_fetch(gl: &GenericGlContext, target: Target, programs: &Programs
     put(&mut cache, 1035, [0.0, 0.0, 1.0, 1.0]); // blue
     let cache_bytes: Vec<u8> = cache.iter().flat_map(|v| v.to_ne_bytes()).collect();
     gl.active_texture(glconst::TEXTURE0);
-    gl.bind_texture(glconst::TEXTURE_2D, cache_texture);
+    bind_2d(gl, target, cache_texture);
     gl.tex_parameter_i(glconst::TEXTURE_2D, glconst::TEXTURE_MIN_FILTER, glconst::NEAREST as i32);
     gl.tex_parameter_i(glconst::TEXTURE_2D, glconst::TEXTURE_MAG_FILTER, glconst::NEAREST as i32);
     gl.tex_storage_2d(glconst::TEXTURE_2D, 1, glconst::RGBA32F, 1024, 2);
@@ -682,7 +693,7 @@ fn phase_vertex_fetch(gl: &GenericGlContext, target: Target, programs: &Programs
     let headers: [i32; 8] = [1030, 0, 0, 0, 1034, 0, 0, 0];
     let header_bytes: Vec<u8> = headers.iter().flat_map(|v| v.to_ne_bytes()).collect();
     gl.active_texture(glconst::TEXTURE0 + 1);
-    gl.bind_texture(glconst::TEXTURE_2D, header_texture);
+    bind_2d(gl, target, header_texture);
     gl.tex_parameter_i(glconst::TEXTURE_2D, glconst::TEXTURE_MIN_FILTER, glconst::NEAREST as i32);
     gl.tex_parameter_i(glconst::TEXTURE_2D, glconst::TEXTURE_MAG_FILTER, glconst::NEAREST as i32);
     gl.tex_storage_2d(glconst::TEXTURE_2D, 1, glconst::RGBA32I, 2, 1);
@@ -769,7 +780,7 @@ fn phase_scatter(gl: &GenericGlContext, target: Target, programs: &Programs) -> 
     let size = target.size;
     let texture = gl.gen_textures(1).first().copied().unwrap_or(0);
     gl.active_texture(glconst::TEXTURE0);
-    gl.bind_texture(glconst::TEXTURE_2D, texture);
+    bind_2d(gl, target, texture);
     gl.tex_parameter_i(glconst::TEXTURE_2D, glconst::TEXTURE_MIN_FILTER, glconst::NEAREST as i32);
     gl.tex_parameter_i(glconst::TEXTURE_2D, glconst::TEXTURE_MAG_FILTER, glconst::NEAREST as i32);
     gl.tex_storage_2d(glconst::TEXTURE_2D, 1, glconst::RGBA32F, 16, 4);
@@ -861,7 +872,7 @@ fn phase_scatter(gl: &GenericGlContext, target: Target, programs: &Programs) -> 
     gl.clear_color(0.2, 0.2, 0.2, 1.0);
     gl.clear(glconst::COLOR_BUFFER_BIT);
     gl.active_texture(glconst::TEXTURE0);
-    gl.bind_texture(glconst::TEXTURE_2D, texture);
+    bind_2d(gl, target, texture);
     gl.use_program(fetch);
     let sampler = gl.get_uniform_location(fetch, "sData");
     gl.uniform_1i(sampler, 0);
@@ -906,7 +917,7 @@ fn phase_depth(gl: &GenericGlContext, target: Target, programs: &Programs) -> Ro
     let size = target.size;
     let texture = gl.gen_textures(1).first().copied().unwrap_or(0);
     gl.active_texture(glconst::TEXTURE0);
-    gl.bind_texture(glconst::TEXTURE_2D, texture);
+    bind_2d(gl, target, texture);
     gl.tex_parameter_i(glconst::TEXTURE_2D, glconst::TEXTURE_MIN_FILTER, glconst::NEAREST as i32);
     gl.tex_parameter_i(glconst::TEXTURE_2D, glconst::TEXTURE_MAG_FILTER, glconst::NEAREST as i32);
     gl.tex_storage_2d(glconst::TEXTURE_2D, 1, glconst::RGBA8, 128, 128);
@@ -959,7 +970,7 @@ fn phase_depth(gl: &GenericGlContext, target: Target, programs: &Programs) -> Ro
     gl.clear_color(0.2, 0.2, 0.2, 1.0);
     gl.clear(glconst::COLOR_BUFFER_BIT);
     gl.active_texture(glconst::TEXTURE0);
-    gl.bind_texture(glconst::TEXTURE_2D, texture);
+    bind_2d(gl, target, texture);
     gl.use_program(textured);
     let sampler = gl.get_uniform_location(textured, "sTex");
     gl.uniform_1i(sampler, 0);
@@ -1004,7 +1015,7 @@ fn phase_depth_fine(gl: &GenericGlContext, target: Target, programs: &Programs) 
     gl.renderbuffer_storage(glconst::RENDERBUFFER, glconst::DEPTH_COMPONENT24, 128, 128);
     let texture = gl.gen_textures(1).first().copied().unwrap_or(0);
     gl.active_texture(glconst::TEXTURE0);
-    gl.bind_texture(glconst::TEXTURE_2D, texture);
+    bind_2d(gl, target, texture);
     gl.tex_parameter_i(glconst::TEXTURE_2D, glconst::TEXTURE_MIN_FILTER, glconst::NEAREST as i32);
     gl.tex_parameter_i(glconst::TEXTURE_2D, glconst::TEXTURE_MAG_FILTER, glconst::NEAREST as i32);
     gl.tex_storage_2d(glconst::TEXTURE_2D, 1, glconst::RGBA8, 128, 128);
@@ -1089,7 +1100,7 @@ fn phase_shared_depth(gl: &GenericGlContext, target: Target, programs: &Programs
         let texture = textures.get(pass).copied().unwrap_or(0);
         let framebuffer = framebuffers.get(pass).copied().unwrap_or(0);
         gl.active_texture(glconst::TEXTURE0);
-        gl.bind_texture(glconst::TEXTURE_2D, texture);
+        bind_2d(gl, target, texture);
         gl.tex_parameter_i(glconst::TEXTURE_2D, glconst::TEXTURE_MIN_FILTER, glconst::NEAREST as i32);
         gl.tex_parameter_i(glconst::TEXTURE_2D, glconst::TEXTURE_MAG_FILTER, glconst::NEAREST as i32);
         gl.tex_storage_2d(glconst::TEXTURE_2D, 1, glconst::RGBA8, 128, 128);
