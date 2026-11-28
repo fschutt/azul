@@ -675,6 +675,84 @@ fn a_drag_extends_the_selection_from_the_press() {
 }
 
 #[test]
+fn a_tap_places_the_caret_and_holds_nothing_for_a_drag_or_a_thumb() {
+    // A finger's lift: the same caret a mouse press places, but no selection follows the finger (its pan is the
+    // wheel's, it scrolls) and a hit on the scroll bar carries no thumb.
+    let text = "abcdef\nghijkl";
+    let lines = VecLines::of(text);
+    let mut cv = over(text);
+    cv.view.char_width = 8.0;
+    let geo = geometry(&cv);
+    let mouse = press_event(&cv, &geo, &lines, Hit::Text(p(1, 2)), NONE, 0.0);
+    assert_eq!(mouse.view.drag, CodeViewDragKind::Select, "a mouse press starts a selection drag");
+    let tap = tap_event(&cv, &geo, &lines, Hit::Text(p(1, 2)), 0.0);
+    assert_eq!(tap.view.cursors.as_slice(), &[CodeViewCursor::create(p(1, 2))], "the caret is where the finger lifted");
+    assert_eq!(tap.view.drag, CodeViewDragKind::None, "a finger's tap leaves no drag to follow");
+    assert_eq!(tap.kind, CodeViewEventKind::Move);
+    // A tap on a line number selects the line, still without a drag.
+    let tap = tap_event(&cv, &geo, &lines, Hit::Gutter(0), 0.0);
+    assert_eq!(tap.view.primary(), CodeViewCursor::create_selection(p(0, 0), p(1, 0)));
+    assert_eq!(tap.view.drag, CodeViewDragKind::None);
+    // And one on the thumb: nothing to carry.
+    let text = hundred_lines();
+    let lines = VecLines::of(&text);
+    let mut cv = over(&text);
+    cv.view.char_width = 8.0;
+    let geo = geometry(&cv);
+    let bar = geo.vbar.expect("a scroll bar");
+    let tap = tap_event(&cv, &geo, &lines, Hit::Thumb, bar.thumb_start + 1.0);
+    assert_eq!(tap.view.drag, CodeViewDragKind::None, "a thumb is no handle for a finger");
+}
+
+#[test]
+fn a_finger_waits_for_its_lift_before_it_moves_the_caret_and_a_mouse_never_waits() {
+    // Landing: remembered; a pan never lifts as a tap (the shell cancels it), so the next press replaces what it
+    // left; the lift gives the landing place once.
+    let mut finger = Finger::default();
+    assert_eq!(finger.lifted(), None, "nothing landed");
+    finger = Finger::pressed(true, (30.0, 40.0));
+    assert!(finger.touch);
+    assert_eq!(finger.lifted(), Some((30.0, 40.0)), "the lift of a tap: where it landed");
+    assert_eq!(finger.lifted(), None, "once");
+    assert!(finger.touch, "a double tap after the lift still knows a finger pressed");
+
+    // A pan leaves its landing behind; the next finger replaces it, a mouse press clears it.
+    finger = Finger::pressed(true, (1.0, 2.0));
+    finger = Finger::pressed(true, (5.0, 6.0));
+    assert_eq!(finger.landed, Some((5.0, 6.0)));
+    finger = Finger::pressed(false, (7.0, 8.0));
+    assert_eq!(finger, Finger::default(), "a mouse press takes effect at once: nothing waits for a lift");
+
+    // The second tap of a double tap does not move the caret back when it lifts.
+    finger = Finger::pressed(true, (9.0, 9.0));
+    finger.doubled();
+    assert_eq!(finger.lifted(), None);
+    assert!(finger.touch);
+}
+
+#[test]
+fn the_view_listens_to_the_mouse_for_the_finger_too_and_registers_its_eight_handlers_once() {
+    // The shells map the first finger to the mouse's left button: the view's press, move and release handlers
+    // are its finger's too (no Touch filter: a second listener would run the same lift twice).
+    let dom = sample().dom();
+    let events: Vec<EventFilter> = dom.root.callbacks.as_ref().iter().map(|c| c.event).collect();
+    assert_eq!(events.len(), 8);
+    for filter in [
+        HoverEventFilter::LeftMouseDown,
+        HoverEventFilter::MouseMove,
+        HoverEventFilter::MouseUp,
+        HoverEventFilter::DoubleClick,
+        HoverEventFilter::Scroll,
+    ] {
+        assert_eq!(events.iter().filter(|e| **e == EventFilter::Hover(filter)).count(), 1, "{filter:?}");
+    }
+    assert!(
+        !events.iter().any(|e| matches!(e, EventFilter::Hover(HoverEventFilter::TouchStart | HoverEventFilter::TouchEnd))),
+        "no second path for a touch"
+    );
+}
+
+#[test]
 fn a_double_click_selects_the_word() {
     let text = "let answer = 42;";
     let cv = over(text);

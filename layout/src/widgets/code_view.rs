@@ -2448,6 +2448,55 @@ pub(crate) fn drag_event(cv: &CodeView, geo: &Geometry, lines: &dyn Lines, x: f3
     }
 }
 
+/// A finger's tap at `hit`: what a press there does, but nothing keeps hold of the pointer - no selection
+/// to drag (the finger's pan is the wheel's: it scrolls) and no scroll-bar thumb to carry.
+pub(crate) fn tap_event(
+    cv: &CodeView,
+    geo: &Geometry,
+    lines: &dyn Lines,
+    hit: Hit,
+    y: f32,
+) -> CodeViewEvent {
+    let mut event = press_event(cv, geo, lines, hit, Mods::default(), y);
+    event.view.drag = CodeViewDragKind::None;
+    event
+}
+
+/// What a finger on the view has done so far. A touchscreen reaches the view as the mouse's left button (the
+/// shells map the first finger to it; a pan is cancelled as a click and scrolls through the wheel's path
+/// instead), so the view tells a finger's press from a mouse's by the touch points the window has at that
+/// moment, and keeps what a mouse press does at once - the caret, the drag - for the finger's LIFT: a finger
+/// that has just landed has not yet chosen between a tap and a pan.
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub(crate) struct Finger {
+    /// The last press was a finger's: a double tap raises the keyboard as a tap does.
+    pub touch: bool,
+    /// Where it landed (px in the view) and has not lifted as a tap yet. A pan never lifts as one (the shell
+    /// cancels it), so the next press replaces what a pan left here.
+    pub landed: Option<(f32, f32)>,
+}
+
+impl Finger {
+    /// A press: a finger's lands (`touch`), a mouse's clears what a finger left.
+    pub(crate) const fn pressed(touch: bool, at: (f32, f32)) -> Self {
+        if touch {
+            Self { touch: true, landed: Some(at) }
+        } else {
+            Self { touch: false, landed: None }
+        }
+    }
+
+    /// The finger lifted: where it landed when that was a tap, `None` for anything else.
+    pub(crate) const fn lifted(&mut self) -> Option<(f32, f32)> {
+        self.landed.take()
+    }
+
+    /// A double tap selects a word: the tap that began it must not move the caret again on its lift.
+    pub(crate) const fn doubled(&mut self) {
+        self.landed = None;
+    }
+}
+
 /// The drag ended.
 pub(crate) fn drag_end(cv: &CodeView) -> Option<CodeViewEvent> {
     if cv.view.drag == CodeViewDragKind::None {
@@ -2803,7 +2852,7 @@ pub(crate) fn build(resolved: CodeViewResolved, look: &CodeViewLook) -> Dom {
     // also when they are rendered again without a rebuild of the window (a
     // scroll), where no window pass has entered one.
     let theme = azul_core::app_theme::current_theme();
-    let shared = RefAny::new(CodeViewShared { cv, geo, theme });
+    let shared = RefAny::new(CodeViewShared { cv, geo, theme, finger: Finger::default() });
     Dom::create_div()
         .with_ids_and_classes(IdOrClassVec::from_vec(classes))
         .with_id(id)
@@ -3040,6 +3089,8 @@ pub(crate) struct CodeViewShared {
     /// The app theme the view node was built under (the lines are built
     /// under it).
     pub theme: AzString,
+    /// What a finger on the view has done so far.
+    pub finger: Finger,
 }
 
 /// A copy of the view and its geometry from a handler's payload.
@@ -3053,6 +3104,19 @@ fn store_view(data: &mut RefAny, view: &CodeViewView) {
     if let Some(mut s) = data.downcast_mut::<CodeViewShared>() {
         s.cv.view = view.clone();
     }
+}
+
+/// Records what the finger did in the payload.
+fn store_finger(data: &mut RefAny, finger: Finger) {
+    if let Some(mut s) = data.downcast_mut::<CodeViewShared>() {
+        s.finger = finger;
+    }
+}
+
+/// The finger lifted: where it landed when that was a tap (and whether the last press was a finger's).
+fn finger_lifted(data: &mut RefAny) -> (bool, Option<(f32, f32)>) {
+    data.downcast_mut::<CodeViewShared>()
+        .map_or((false, None), |mut s| (s.finger.touch, s.finger.lifted()))
 }
 
 /// Hands `event` to the app.
@@ -3297,6 +3361,15 @@ extern "C" fn on_mouse_down(mut data: RefAny, mut info: CallbackInfo) -> Update 
     let Some((x, y)) = crate::widgets::cell_grid::cursor_in(&info) else {
         return Update::DoNothing;
     };
+    let node = info.get_hit_node();
+    // A finger: the view takes the focus now, the caret (and the keyboard) wait for the lift - a pan is for
+    // scrolling, not for a selection, and must not raise the keyboard on its way.
+    let touch = info.get_current_window_state().touch_state.num_touches > 0;
+    store_finger(&mut data, Finger::pressed(touch, (x, y)));
+    if touch {
+        info.set_focus(azul_core::callbacks::FocusTarget::Id(node));
+        return Update::DoNothing;
+    }
     measure(&mut cv, &mut geo, &info);
     let ks = info.get_current_keyboard_state();
     let mods = Mods {
@@ -3309,7 +3382,6 @@ extern "C" fn on_mouse_down(mut data: RefAny, mut info: CallbackInfo) -> Update 
         let hit = hit_test(&cv, &geo, &lines, x, y);
         press_event(&cv, &geo, &lines, hit, mods, y)
     };
-    let node = info.get_hit_node();
     info.set_focus(azul_core::callbacks::FocusTarget::Id(node));
     if event.view.drag != CodeViewDragKind::None {
         info.capture_pointer(node);
@@ -3337,9 +3409,20 @@ extern "C" fn on_mouse_move(mut data: RefAny, info: CallbackInfo) -> Update {
 
 /// The drag ends.
 extern "C" fn on_mouse_up(mut data: RefAny, mut info: CallbackInfo) -> Update {
-    let Some((cv, _)) = shared_of(&mut data) else {
+    let Some((mut cv, mut geo)) = shared_of(&mut data) else {
         return Update::DoNothing;
     };
+    // A finger that lifts where it landed is a tap: the caret goes there and the keyboard comes up.
+    if let (_, Some((x, y))) = finger_lifted(&mut data) {
+        measure(&mut cv, &mut geo, &info);
+        let event = {
+            let lines = lines_of(&cv);
+            let hit = hit_test(&cv, &geo, &lines, x, y);
+            tap_event(&cv, &geo, &lines, hit, y)
+        };
+        info.request_soft_keyboard(true);
+        return deliver(&mut data, &cv, info, event);
+    }
     let Some(event) = drag_end(&cv) else {
         return Update::DoNothing;
     };
@@ -3348,13 +3431,21 @@ extern "C" fn on_mouse_up(mut data: RefAny, mut info: CallbackInfo) -> Update {
 }
 
 /// A double-click selects the word under the pointer.
-extern "C" fn on_double_click(mut data: RefAny, info: CallbackInfo) -> Update {
+extern "C" fn on_double_click(mut data: RefAny, mut info: CallbackInfo) -> Update {
     let Some((cv, geo)) = shared_of(&mut data) else {
         return Update::DoNothing;
     };
     let Some((x, y)) = crate::widgets::cell_grid::cursor_in(&info) else {
         return Update::DoNothing;
     };
+    // The second tap of a double tap lifts after this: it must not move the caret back.
+    let touch = data.downcast_mut::<CodeViewShared>().is_some_and(|mut s| {
+        s.finger.doubled();
+        s.finger.touch
+    });
+    if touch {
+        info.request_soft_keyboard(true);
+    }
     let event = {
         let lines = lines_of(&cv);
         let hit = hit_test(&cv, &geo, &lines, x, y);
