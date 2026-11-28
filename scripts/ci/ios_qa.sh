@@ -102,6 +102,12 @@ if [ "$session" = matrix ]; then
   # (space separated; the app of this session when unset)
   apps=()
   for z in ${AZ_QA_MATRIX_APPS:-$app}; do apps+=(--app "$z"); done
+  # AZ_QA_MATRIX_RECORD=1: the Simulator's screen recording of the whole matrix run ($out/matrix.mp4): what the engine's frames do not show (the soft keyboard, a system sheet)
+  rec=""
+  if [ "${AZ_QA_MATRIX_RECORD:-}" = 1 ]; then
+    xcrun simctl io "$udid" recordVideo --codec=h264 --force "$out/matrix.mp4" >"$out/matrix-record.log" 2>&1 &
+    rec=$!
+  fi
   if [ -n "${AZ_QA_TEXT_SIZES:-}" ]; then
     # AZ_QA_TEXT_SIZES="large accessibility-extra-extra-extra-large": the same files once per system text size (simctl ui content_size), each in its own folder
     # (the matrix of the first size is the plain matrix of a normal run; the default size `large` is put back at the end). AzMail's text_size.json asks for it.
@@ -113,6 +119,7 @@ if [ "$session" = matrix ]; then
   else
     python3 "$here/e2e_matrix.py" ios --repo . --out "$out" --udid "$udid" --shots "$out/shots" ${AZ_QA_MATRIX_ONLY:+--only "$AZ_QA_MATRIX_ONLY"} ${apps[@]+"${apps[@]}"} 2>&1 | tee "$out/e2e-matrix.log"
   fi
+  if [ -n "$rec" ]; then kill -INT "$rec" 2>/dev/null; wait "$rec" 2>/dev/null; fi
 fi
 if [ "$session" = tabs ]; then
   # THE TAB STRIP on the phone: per orientation (1) the device's own pictures of a plain start, light and dark, (2) per file of AZ_QA_TABS_FILES a

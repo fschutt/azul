@@ -5,10 +5,10 @@
 //! padding on each side, `left: 50%` and a negative margin - so on a 411 dp phone the banner ran 24 dp out of the
 //! screen on the left and 56 dp on the right, the bar 74 and 98 dp: the End key and the first switch were off the
 //! screen. On a phone (a window narrower than
-//! `COMPACT_WIDTH`) they are as wide as the screen less 8 px each side; a desktop window keeps the boxes it had.
+//! `flow::WIDE_WIDTH`) they are as wide as the screen less 8 px each side; a desktop window keeps the boxes it had.
 //!
 //! The app is an example crate this one cannot link, so this reads its SOURCE, the way
-//! `azul_maps_sidebar_is_a_sheet_on_a_phone.rs` does: the styles are the constants of
+//! `azul_maps_floating_layout_fits_a_phone.rs` does: the styles are the constants of
 //! `examples/azul-maps/src/drive_ui.rs` and `lib.rs`, the keys are the engine's own buttons in the Android
 //! style, the root is the map's own root inside the bars of the emulator.
 
@@ -31,9 +31,10 @@ use azul_layout::{
 };
 use rust_fontconfig::FcFontCache;
 
-/// `examples/azul-maps/src/drive_ui.rs` and `lib.rs`, verbatim, at compile time.
+/// `examples/azul-maps/src/drive_ui.rs`, `lib.rs` and `flow.rs`, verbatim, at compile time.
 const DRIVE: &str = include_str!("../../examples/azul-maps/src/drive_ui.rs");
 const MAPS: &str = include_str!("../../examples/azul-maps/src/lib.rs");
+const FLOW: &str = include_str!("../../examples/azul-maps/src/flow.rs");
 
 /// The value of `const <name>: &str = "...";` in `source` as the compiler reads it: a `\` at the end of a line
 /// continues the literal on the next one without its indentation.
@@ -62,7 +63,9 @@ fn const_css(source: &str, name: &str) -> String {
     panic!("the literal of {name} does not end");
 }
 
-const COMPACT_WIDTH: f32 = 560.0;
+/// The width from which the app has the panel at the left (a desktop, a tablet, a phone on its side): a narrower window is a phone
+/// upright.
+const WIDE_WIDTH: f32 = 560.0;
 
 /// The words of a manoeuvre that is long in German.
 const INSTRUCTION: &str = "In 300 m rechts abbiegen auf die Bismarckstrasse Richtung Hechingen und Reutlingen";
@@ -72,7 +75,7 @@ const SUMMARY: &str = "Ankunft 14:32 \u{b7} 18 min \u{b7} 8,4 km";
 /// body > root > [banner > [icon, words > [distance, instruction]], bar > [summary, three switches, End]] in a
 /// window `width` x `height` with the Android style and the emulator's bars.
 fn lay_out(width: f32, height: f32) -> LayoutWindow {
-    let phone = width < COMPACT_WIDTH;
+    let phone = width < WIDE_WIDTH;
     let banner_spot = const_css(DRIVE, if phone { "BANNER_SPOT_PHONE" } else { "BANNER_SPOT" });
     let bar_spot = const_css(DRIVE, if phone { "BAR_SPOT_PHONE" } else { "BAR_SPOT" });
 
@@ -170,9 +173,9 @@ fn rect_of_id(w: &LayoutWindow, id: &str) -> LogicalRect {
 }
 
 #[test]
-fn the_compact_width_is_the_one_the_app_uses() {
+fn the_wide_width_is_the_one_the_app_uses() {
     assert!(
-        MAPS.contains(&format!("const COMPACT_WIDTH: f32 = {COMPACT_WIDTH:.1};")),
+        FLOW.contains(&format!("pub const WIDE_WIDTH: f32 = {WIDE_WIDTH:.1};")),
         "the app's width under which the screen is a phone's changed: update this test"
     );
 }

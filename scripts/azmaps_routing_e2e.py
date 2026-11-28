@@ -134,10 +134,19 @@ def road(app, mode):
     return out
 
 
+def open_way(app, to):
+    """Shows the way to `to`: its coordinates typed into the search open the place, Route shows the way with it as the
+    destination (the panel's start stays empty: where you are)."""
+    app.text_input("#__azmaps_search", "%.4f, %.4f" % to)
+    app.until("the place of the destination", lambda: app.has_id("__azmaps_place"))
+    app.click(selector="#__azmaps_place-route")
+    app.until("the way", lambda: app.has_id("__azmaps_travel-from"))
+
+
 def ask(app, frm, to):
-    """Types the travel panel's ends as coordinates."""
+    """The travel panel's ends as coordinates: the destination through the search and Route, the start typed into its field."""
+    open_way(app, to)
     app.text_input("#__azmaps_travel-from", "%.4f, %.4f" % frm)
-    app.text_input("#__azmaps_travel-to", "%.4f, %.4f" % to)
 
 
 def body(args, logs, out):
