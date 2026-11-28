@@ -1119,6 +1119,15 @@ impl Renderer {
             .unwrap_or(0);
         let state_after_a = self.device.debug_sampler_state(program_id, "sColor0");
         let a = self.probe_composite_pixels(&target);
+        // The program's attribute locations as the driver says (the vertex array assumes aPosition 0 and the instance attributes in order).
+        let attribute_locations = {
+            let ctx = self.device.gl();
+            ["aPosition", "aDeviceRect", "aDeviceClipRect", "aColor", "aParams", "aFlip", "aUvRect0"]
+                .iter()
+                .map(|name| format!("{name}={}", ctx.get_attrib_location(program_id, name)))
+                .collect::<Vec<_>>()
+                .join(" ")
+        };
 
         // B. the same instanced draw, the texture bound by hand.
         self.device.bind_draw_target(DrawTarget::from_texture(&target, false));
@@ -1136,6 +1145,53 @@ impl Renderer {
             self.device.draw_indexed_triangles_instanced_u16(6, 1);
         }
         let b = self.probe_composite_pixels(&target);
+
+        // What the driver says the composite program's uniforms are (a sampler it takes for external reports GL_SAMPLER_EXTERNAL_OES = 0x8d66, a plain
+        // one GL_SAMPLER_2D = 0x8b5e) and what its link said.
+        let uniforms = {
+            let ctx = self.device.gl();
+            let mut count = [0_i32];
+            unsafe { ctx.get_program_iv(program_id, gl::ACTIVE_UNIFORMS, &mut count) };
+            let mut list: Vec<String> = Vec::new();
+            for index in 0..count[0].max(0) as u32 {
+                let (size, kind, name) = ctx.get_active_uniform(program_id, index);
+                list.push(format!("{}:{}:0x{:x}", name.trim_end_matches('\0'), size, kind));
+            }
+            format!(
+                "uniforms {}; link log {:?}",
+                list.join(" "),
+                ctx.get_program_info_log(program_id).chars().take(200).collect::<String>()
+            )
+        };
+
+        // E. WebRender's own draw with the sampler uniform set again right before it (what the ladder does before every draw).
+        self.device.bind_draw_target(DrawTarget::from_texture(&target, false));
+        self.device.clear_target(Some([0.0, 0.0, 0.0, 0.0]), None, None);
+        {
+            let ctx = self.device.gl();
+            ctx.use_program(program_id);
+            let location = ctx.get_uniform_location(program_id, "sColor0");
+            ctx.uniform_1i(location, 0);
+        }
+        self.draw_instanced_batch(&[instance.clone()], VertexArrayKind::Composite, &textures, &mut stats);
+        let e = self.probe_composite_pixels(&target);
+
+        // F. WebRender's own draw with every piece of state the draw depends on set by hand: scissor, depth, stencil, blend, culling off, the colour mask
+        // open, the viewport the size of the target.
+        self.device.bind_draw_target(DrawTarget::from_texture(&target, false));
+        self.device.clear_target(Some([0.0, 0.0, 0.0, 0.0]), None, None);
+        {
+            let ctx = self.device.gl();
+            ctx.disable(gl::SCISSOR_TEST);
+            ctx.disable(gl::DEPTH_TEST);
+            ctx.disable(gl::STENCIL_TEST);
+            ctx.disable(gl::BLEND);
+            ctx.disable(gl::CULL_FACE);
+            ctx.color_mask(true, true, true, true);
+            ctx.viewport(0, 0, 128, 128);
+        }
+        self.draw_instanced_batch(&[instance.clone()], VertexArrayKind::Composite, &textures, &mut stats);
+        let f = self.probe_composite_pixels(&target);
 
         // C. a plain program of the device's own.
         self.device.bind_draw_target(DrawTarget::from_texture(&target, false));
@@ -1184,7 +1240,7 @@ impl Renderer {
         self.device.delete_texture(target);
         self.device.end_frame();
         format!(
-            "composite probe: the tile holds {tile_content} at its centre (expect #ff0000ff); A. WebRender's own draw: {a}; {state_after_a}; B. the same draw, the texture bound by hand: {b}; C. a plain program of the device's own: {c}; D. solid green over the dummy texture (expect #00ff00ff inside): {d}; draw calls {}",
+            "composite probe: the tile holds {tile_content} at its centre (expect #ff0000ff); A. WebRender's own draw: {a}; {state_after_a}; attribute locations {attribute_locations}; {uniforms}; E. the same with the sampler uniform set again before the draw: {e}; F. the same with the state set by hand: {f}; B. the same draw, the texture bound by hand: {b}; C. a plain program of the device's own: {c}; D. solid green over the dummy texture (expect #00ff00ff inside): {d}; draw calls {}",
             stats.total_draw_calls
         )
     }
