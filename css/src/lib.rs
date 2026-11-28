@@ -143,6 +143,8 @@ pub mod accessibility;
 /// UIKit, the Android framework, the registry, gsettings, AppKit: the mappings, pure and tested on
 /// every host.
 pub mod accessibility_raw;
+/// What the user's contrast and transparency settings do to a colour about to be painted.
+pub mod presentation;
 /// Native OS theme discovery: system colors, fonts, and DPI.
 pub mod system;
 /// The theme chain (`xyz:pink -> xyz -> flat`): which app themes are live.
