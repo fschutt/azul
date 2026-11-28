@@ -929,7 +929,7 @@ fn ground(surface: SidebarSurface) -> String {
 }
 
 /// A (?) button: a small icon button that opens `content` as a short popover next to it.
-fn help_button(
+pub(crate) fn help_button(
     label: &AzString,
     icon: &str,
     content: Dom,

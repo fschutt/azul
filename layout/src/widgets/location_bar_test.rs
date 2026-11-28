@@ -197,6 +197,69 @@ fn the_more_button_does_not_need_a_pen_and_goes_while_the_field_is_open() {
     assert!(first(&editing, LOCATION_MORE_CLASS).is_none(), "the field takes the line");
 }
 
+// ---- the (?) buttons beside the name ----
+
+fn detail(label: &str) -> PreviewDetail {
+    PreviewDetail::create(AzString::from(label), Dom::create_div().with_id(AzString::from(format!("popover-{label}"))))
+}
+
+#[test]
+fn nothing_is_dumped_by_default_no_question_mark_beside_the_name() {
+    let dom = bar().with_more(true).dom();
+    assert!(first(&dom, LOCATION_DETAIL_CLASS).is_none());
+    assert!(first(&dom, crate::widgets::preview::PREVIEW_HELP_CLASS).is_none());
+}
+
+#[test]
+fn each_detail_is_one_named_question_mark_after_the_name_the_pen_and_the_more_button() {
+    let dom = bar()
+        .with_more(true)
+        .with_detail(detail("Page info"))
+        .with_detail(detail("Tags").with_icon(AzString::from("sell")))
+        .dom();
+    let boxes = all(&dom, LOCATION_DETAIL_CLASS);
+    assert_eq!(boxes.len(), 2, "one per detail");
+    let mut buttons = Vec::new();
+    for b in &boxes {
+        collect(b, crate::widgets::preview::PREVIEW_HELP_CLASS, &mut buttons);
+    }
+    let names: Vec<String> = buttons
+        .iter()
+        .map(|b| {
+            let a11y = b.root.get_accessibility_info().expect("an a11y info");
+            assert_eq!(a11y.role, AccessibilityRole::PushButton);
+            assert!(b.root.get_tab_index() == Some(TabIndex::Auto), "a tab stop");
+            a11y.accessibility_name.as_ref().map(|n| n.as_str().to_string()).unwrap_or_default()
+        })
+        .collect();
+    assert_eq!(names, vec!["Page info".to_string(), "Tags".to_string()]);
+    // they stand in the name's line, after the name, the pen and the "..."
+    let line = first(&dom, LOCATION_NAME_ROW_CLASS).expect("the name's line");
+    let kids = line.children.as_ref();
+    assert!(has_class(&kids[0], LOCATION_NAME_CLASS));
+    assert!(has_class(&kids[1], LOCATION_PEN_CLASS));
+    assert!(has_class(&kids[2], LOCATION_MORE_CLASS));
+    assert!(has_class(&kids[3], LOCATION_DETAIL_CLASS) && has_class(&kids[4], LOCATION_DETAIL_CLASS));
+}
+
+#[test]
+fn the_question_marks_go_while_the_field_is_open_and_need_no_pen() {
+    let editing = bar().with_detail(detail("Page info")).with_editing(true, AzString::from("Fo")).dom();
+    assert!(first(&editing, LOCATION_DETAIL_CLASS).is_none(), "the field takes the line");
+    let plain = bar().with_editable(false).with_detail(detail("Page info")).dom();
+    assert!(first(&plain, LOCATION_PEN_CLASS).is_none() && first(&plain, LOCATION_DETAIL_CLASS).is_some());
+}
+
+#[test]
+fn the_details_past_the_limit_are_dropped_and_the_first_are_kept() {
+    let many: Vec<PreviewDetail> = (0..MAX_DETAILS + 3).map(|i| detail(&format!("d{i}"))).collect();
+    let kept = limited_details(many);
+    assert_eq!(kept.len(), MAX_DETAILS);
+    assert_eq!(kept[0].label.as_str(), "d0");
+    let dom = bar().with_details(PreviewDetailVec::from_vec((0..MAX_DETAILS + 3).map(|i| detail(&format!("d{i}"))).collect())).dom();
+    assert_eq!(all(&dom, LOCATION_DETAIL_CLASS).len(), MAX_DETAILS);
+}
+
 #[test]
 fn a_block_with_nothing_to_edit_has_no_pen() {
     let dom = bar().with_editable(false).dom();

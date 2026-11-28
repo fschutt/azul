@@ -13,6 +13,9 @@
 #                with the zero-test guard
 #   apps_clippy  clippy -D warnings (--no-deps: the path dependencies are not these apps' to lint) of the three apps and azul-appkit
 #   layout       the widget family's tests in azul-layout that the apps lean on (location_bar, preview, sidebar, app_frame, ribbon)
+#   autofix      api.json through azul-doc for the functions this work added (LocationBar's (?) buttons), a second round that must change
+#                nothing: upload api.json and api.diff
+#   doc_check    azul-doc check (the double-drop invariant, the guide links) and azul-doc check layout
 #   scenarios    the apps' own scenario files (examples/azul-*/e2e/*.json) through the engine's executor on the QA builds, one test per
 #                file, the pictures of their take_screenshot steps kept in demo-out/wp-b/scenarios/<app>/
 # A step that fails does not stop the ones after it; the last lines are one `STEP <name> <exit>` each, and the exit code of the script is 0
@@ -126,6 +129,70 @@ layout() {
   return "${PIPESTATUS[0]}"
 }
 run layout layout
+
+# api.json: `autofix add` stages the functions (a plain `autofix` syncs TYPES only), the patches are applied until the scan finds none, and
+# the tree is normalized. The functions are the ones this work added to the API (LocationBar's (?) buttons); upload api.json and api.diff
+# (--artifacts 'api.json
+# api.diff') and commit api.json as it comes back (the stamp lines untouched).
+api_functions=(
+  LocationBar.add_detail
+  LocationBar.with_detail
+  LocationBar.set_details
+  LocationBar.with_details
+)
+autofix_round() {
+  local out code=0
+  out=$(cargo run -r -p azul-doc -- autofix 2>&1) || code=$?
+  echo "$out" | grep -E "Types to add|Type modifications|Path fixes|Generated|^  [+~] " | head -40
+  if [ "$code" -ne 0 ]; then
+    echo "$out" | grep -A 40 "critical FFI safety errors" | head -80
+    echo "$out" | tail -8
+  fi
+  if echo "$out" | grep -q "Generated 0 patches"; then
+    return "$code"
+  fi
+  cargo run -r -p azul-doc -- autofix explain >/dev/null 2>&1
+  cargo run -r -p azul-doc -- patch safe target/autofix/patches || return 1
+  cargo run -r -p azul-doc -- patch target/autofix/patches || return 1
+  return 0
+}
+autofix() {
+  if ! cargo run -r -p azul-doc -- autofix add "${api_functions[@]}"; then
+    echo "autofix add of the whole list failed: one function at a time"
+    local f
+    for f in "${api_functions[@]}"; do
+      cargo run -r -p azul-doc -- autofix add "$f" || echo "ADD FAILED: $f"
+    done
+  fi
+  cargo run -r -p azul-doc -- autofix apply || return 1
+  local i
+  for i in 1 2 3 4 5 6; do
+    autofix_round || return 1
+  done
+  cargo run -r -p azul-doc -- normalize || return 1
+  git diff api.json > api.diff
+  echo "api.json: $(git diff --stat api.json | tail -1)"
+  cp api.json api.round1.json
+  autofix_round || return 1
+  cargo run -r -p azul-doc -- normalize || return 1
+  if ! cmp -s api.json api.round1.json; then
+    echo "autofix round 2 changed api.json"
+    diff api.round1.json api.json | head -40
+    return 1
+  fi
+  echo "autofix round 2 changed nothing"
+  return 0
+}
+run autofix autofix
+
+doc_check() {
+  local code=0
+  cargo run -r -p azul-doc -- codegen all || return 1
+  cargo run -r -p azul-doc -- check || code=1
+  cargo run -r -p azul-doc -- check layout || code=1
+  return "$code"
+}
+run doc_check doc_check
 
 # the scenario files of the three apps on the desktop QA builds: each file is ONE test (a file plays all its tests in one process)
 scenarios() {

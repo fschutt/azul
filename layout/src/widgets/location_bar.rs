@@ -18,6 +18,12 @@
 //! and rebuilds. A trail too long for its line folds its leading folders into a "..." link that
 //! goes to the nearest folder it hides.
 //!
+//! A (?) beside the name holds what is ABOUT the item and would be an info dump by default: an
+//! app that has such things (AzNotes: the page's info, its tags, its links) gives them as
+//! [`PreviewDetail`]s ([`LocationBar::with_detail`]), the same pieces the Preview's header has; each
+//! is one small named button after the name that opens its content as a short popover (on a phone
+//! too). With none given there is no button.
+//!
 //! The same block serves every app whose first tab names a place: a drive's folder, a mail
 //! account and its folder ("Outlook Privat / Inbox"), a calendar's year and month, a document's
 //! name. An app with nothing to edit leaves the pen out ([`LocationBar::with_editable`]).
@@ -32,6 +38,7 @@ use azul_core::{
     callbacks::{CoreCallback, CoreCallbackData, FocusTarget, Update},
     dom::{ComponentEventFilter, Dom, DomVec, EventFilter, HoverEventFilter, IdOrClass, IdOrClassVec, TabIndex},
     refany::{OptionRefAny, RefAny},
+    transient::TransientAnchor,
     window::VirtualKeyCode,
 };
 use azul_css::{
@@ -42,6 +49,7 @@ use azul_css::{
 };
 
 use super::{
+    preview::{help_button, PreviewDetail, PreviewDetailVec, MAX_DETAILS},
     sidebar_layout::{chrome_text_cap, FormFactor, TOUCH_PLATFORM},
     text_input::{
         OnTextInputReturn, TextInput, TextInputOnFocusLostCallbackType,
@@ -72,6 +80,9 @@ pub const LOCATION_PEN_CLASS: &str = "__azul-native-location-pen";
 pub const LOCATION_MORE_CLASS: &str = "__azul-native-location-more";
 /// The box round the text field while the name is edited.
 pub const LOCATION_EDIT_CLASS: &str = "__azul-native-location-edit";
+/// A (?) button beside the name: the item's page info, tags and links open from it as a short popover
+/// (the box that holds the button and its popover; the button is the same node the Preview's (?) is).
+pub const LOCATION_DETAIL_CLASS: &str = "__azul-native-location-detail";
 
 /// The most characters of the trail one line shows on a desktop, and on a phone: a trail longer
 /// than this folds its leading folders into "...". (A count of characters, not of pixels: the
@@ -177,6 +188,10 @@ pub struct LocationBar {
     pub on_event: OptionLocationOnEvent,
     /// The parent folders, outermost first.
     pub parents: LocationCrumbVec,
+    /// What sits behind the (?) buttons beside the name (held to the Preview's `MAX_DETAILS`): the
+    /// page's info, its tags, its links; each is one small button that opens its content as a short
+    /// popover, nothing is dumped by default. None: no button.
+    pub details: PreviewDetailVec,
     /// The current name, big and bold ("Fonts").
     pub name: AzString,
     /// The text of the field while `editing`; empty: the name.
@@ -205,6 +220,7 @@ impl LocationBar {
     pub const fn create(name: AzString) -> Self {
         Self {
             parents: LocationCrumbVec::from_const_slice(&[]),
+            details: PreviewDetailVec::from_const_slice(&[]),
             name,
             editable: true,
             editing: false,
@@ -241,6 +257,32 @@ impl LocationBar {
     #[must_use]
     pub fn with_parents(mut self, parents: LocationCrumbVec) -> Self {
         self.set_parents(parents);
+        self
+    }
+
+    /// Appends a (?) button beside the name: `detail`'s label names it, its content is the popover.
+    pub fn add_detail(&mut self, detail: PreviewDetail) {
+        let mut v = self.details.clone().into_library_owned_vec();
+        v.push(detail);
+        self.details = PreviewDetailVec::from_vec(v);
+    }
+
+    /// [`Self::add_detail`] for the builder chain.
+    #[must_use]
+    pub fn with_detail(mut self, detail: PreviewDetail) -> Self {
+        self.add_detail(detail);
+        self
+    }
+
+    /// Replaces the (?) buttons.
+    pub fn set_details(&mut self, details: PreviewDetailVec) {
+        self.details = details;
+    }
+
+    /// [`Self::set_details`] for the builder chain.
+    #[must_use]
+    pub fn with_details(mut self, details: PreviewDetailVec) -> Self {
+        self.set_details(details);
         self
     }
 
@@ -521,6 +563,7 @@ fn separator(text: &str) -> Dom {
 fn build(bar: LocationBar) -> Dom {
     let LocationBar {
         parents,
+        details,
         name,
         editable,
         editing,
@@ -676,6 +719,16 @@ fn build(bar: LocationBar) -> Dom {
             row.push(click(button, more_data));
         }
     }
+    // the (?) buttons: one per detail, after the name, the pen and the "..."; the field takes the line while the name is edited
+    if !editing {
+        for detail in limited_details(details.into_library_owned_vec()) {
+            let PreviewDetail { content, label, icon } = detail;
+            row.push(
+                help_button(&label, icon.as_str(), content, TransientAnchor::Bottom, theme)
+                    .with_ids_and_classes(classes(&[LOCATION_DETAIL_CLASS])),
+            );
+        }
+    }
     let name_row = styled(
         Dom::create_div().with_children(DomVec::from_vec(row)),
         "display: flex; flex-direction: row; align-items: center; gap: 8px; flex-shrink: 0; min-width: 0px;",
@@ -693,6 +746,18 @@ fn build(bar: LocationBar) -> Dom {
         ),
     )
     .with_ids_and_classes(classes(&[LOCATION_CLASS]))
+}
+
+/// The most (?) buttons the block shows (with one diagnostic): the Preview's limit.
+fn limited_details(mut details: Vec<PreviewDetail>) -> Vec<PreviewDetail> {
+    if details.len() > MAX_DETAILS {
+        let extra = details.len() - MAX_DETAILS;
+        details.truncate(MAX_DETAILS);
+        azul_core::diagnostics::emit_once(0x10ca_7102, || {
+            format!("LocationBar: {extra} detail button(s) past the limit of {MAX_DETAILS} were dropped")
+        });
+    }
+    details
 }
 
 /// The text of a string for tests that read what a block says.
