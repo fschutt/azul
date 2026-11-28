@@ -100,7 +100,7 @@ autofix_round() {
   out=$(cargo run -r -p azul-doc -- autofix 2>&1) || code=$?
   echo "$out" | grep -E "Types to add|Type modifications|Path fixes|Generated|^  [+~] " | head -40
   if [ "$code" -ne 0 ]; then
-    echo "$out" | grep -A 40 "critical FFI safety errors" | head -80
+    echo "$out" | grep -A 160 "critical FFI safety errors" | head -400
     echo "$out" | tail -8
   fi
   if echo "$out" | grep -q "Generated 0 patches"; then
