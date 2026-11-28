@@ -69,6 +69,16 @@ fn the_window_controls_overhang_the_rail_they_do_not_widen_it() {
     assert!(near(header_left_pad(78.0, RAIL_WIDTH), 60.0));
 }
 
+#[test]
+fn a_drag_inward_of_24_px_that_is_mostly_horizontal_opens_the_drawer() {
+    assert!(swipe_opens(24.0, 0.0));
+    assert!(swipe_opens(40.0, 15.0));
+    assert!(!swipe_opens(23.9, 0.0), "too short");
+    assert!(!swipe_opens(40.0, 25.0), "mostly vertical: that is a scroll of the rail");
+    assert!(!swipe_opens(-40.0, 0.0), "outward opens nothing");
+    assert!(!swipe_opens(f32::NAN, 0.0) && !swipe_opens(40.0, f32::INFINITY));
+}
+
 // what is drawn is 18 px with 13 px icons; what is hit reaches 18 px further inward, and a drag
 // inward of 24 px opens the drawer: checked when this compiles
 const _: () = assert!(RAIL_ICON_PX >= 12.0 && RAIL_ICON_PX <= 14.0);

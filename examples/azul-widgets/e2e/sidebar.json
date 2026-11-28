@@ -832,7 +832,7 @@
   },
   {
     "name": "azul_widgets_the_phones_bottom_pane_resizes_by_its_grip_keys_and_a_key_toggles_the_peek",
-    "description": "The Preview as a phone's bottom pane: a split with a grip bar (not an overlay), resized by the keys on the focused grip: Up and Down by 16 px from the 130 px peek, Home to the collapsed bar (30 px), Return and Space toggle the peek and the half. Each is reported to the app (the line under the frame).",
+    "description": "The Preview as a phone's bottom pane: a split with a grip bar (not an overlay), resized by the keys on the focused grip: Up and Down by 16 px from the 130 px peek, Home to the collapsed bar (30 px), Return and Space toggle the peek and the half. Each is reported to the app (the line under the frame). A tap (a click) on the grip bar toggles them too: the half is 50 % of the container above the footer.",
     "only_on": [
       "linux",
       "windows",
@@ -982,6 +982,47 @@
       {
         "op": "assert_response",
         "contains": "\"found\":true"
+      },
+      {
+        "op": "assert_layout",
+        "selector": ".__azul-native-preview-pane",
+        "property": "height",
+        "expected": 130,
+        "tolerance": 1.5
+      },
+      {
+        "op": "click",
+        "selector": ".__azul-native-preview-grip"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "assert_layout",
+        "selector": ".__azul-native-preview-pane",
+        "property": "height",
+        "expected": 289,
+        "tolerance": 12
+      },
+      {
+        "op": "click",
+        "selector": ".__azul-native-preview-grip"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "assert_layout",
+        "selector": ".__azul-native-preview-pane",
+        "property": "height",
+        "expected": 130,
+        "tolerance": 1.5
       }
     ]
   },
