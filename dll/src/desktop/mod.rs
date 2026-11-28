@@ -173,6 +173,9 @@ pub mod notifications;
 pub mod loop_waker;
 /// The App's services for the platform code that has no handle to it.
 pub mod process_app;
+/// The app's life (paused, resumed, short of memory, about to end): where a shell
+/// hands the system's lifecycle callbacks to the handler the app installed.
+pub mod lifecycle;
 /// The app-level event collector: tray, notification and hotkey callbacks,
 /// run against the most recently focused window, else the oldest.
 pub(crate) mod app_events;

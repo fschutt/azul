@@ -21,6 +21,7 @@ use super::{
     global_hotkey::{SharedGlobalHotkeys, WindowHotkeys},
     hid::HidChannel,
     keyring::KeyringChannels,
+    lifecycle::LifecycleEvents,
     media_keys::MediaKeyQueues,
     notification::NotificationChannels,
     permission::AsyncPermissionResults,
@@ -56,6 +57,9 @@ pub struct AppServices {
     pub raise: RaiseRequests,
     /// The tray's events and the one whose delivery runs now.
     pub tray: TrayEvents,
+    /// The app's life: the lifecycle events the shells raise, the app's handler, and the event whose delivery
+    /// runs now.
+    pub lifecycle: LifecycleEvents,
     /// The session changes (lock, sleep) the platform reports.
     pub session: SessionLog,
     /// The native notifications: requests, events, deliveries, the app handler.
