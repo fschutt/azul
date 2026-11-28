@@ -157,6 +157,51 @@ class RunRecordTests(unittest.TestCase):
             run.step("a", "x", lambda s: (s.check("must", True), s.check("nice", False, required=False)))
             self.assertTrue(run.steps[0].ok)
 
+    def test_an_informational_check_that_failed_shows_in_the_table_of_the_passing_step(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            run = q.Run(d, "android", {})
+            run.step("a", "x", lambda s: (s.check("must", True), s.check("the page reacts", False, "differs 0.000", required=False), s.note("a note")))
+            row = next(l for l in (Path(d) / "qa.md").read_text().splitlines() if l.startswith("| a |"))
+            self.assertIn("| PASS |", row)
+            self.assertIn("INFO FAILED: the page reacts (differs 0.000); a note", row)
+
+    def test_an_informational_check_that_passed_adds_nothing(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            run = q.Run(d, "android", {})
+            run.step("a", "x", lambda s: (s.check("nice", True, required=False), s.note("a note")))
+            row = next(l for l in (Path(d) / "qa.md").read_text().splitlines() if l.startswith("| a |"))
+            self.assertNotIn("INFO FAILED", row)
+            self.assertIn("a note", row)
+
+
+class StartupMetricNoteTests(unittest.TestCase):
+    """WP-S's startup fix moves the system's launch metric (Displayed, TotalTime) from the blank window to the first Azul picture: the QA says so
+    under every table that shows it and keeps both metrics in the table, so that old and new runs stay comparable."""
+
+    def test_the_note_stands_under_the_render_table_and_both_metrics_stay_in_it(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            run = q.Run(d, "android", {"label": "t"})
+            run.render_table = [{"requested": "cpu", "ran": "cpu", "device": "software", "displayed": 1304, "first": 1.5,
+                                 "median": "n/a", "p95": "n/a", "n": "n/a"}]
+            run.write()
+            text = (Path(d) / "qa.md").read_text()
+        self.assertIn("| Displayed ms | first frame seen s |", text)
+        self.assertIn(q.STARTUP_METRIC_NOTE, text)
+
+    def test_the_note_names_the_metric_the_jump_and_what_to_compare_instead(self):
+        for words in ("TotalTime", "Displayed", "first Azul picture", "blank window", "jumps by the first-layout time", "not a regression",
+                      "first_present", "black frames after the starting window", "both metrics stay in the table"):
+            self.assertIn(words, q.STARTUP_METRIC_NOTE)
+
+    def test_the_cold_start_series_has_its_own_section_for_it(self):
+        src = Path(q.__file__).read_text(encoding="utf-8")
+        self.assertIn('"## How to read the startup numbers", "", STARTUP_METRIC_NOTE', src)
+        self.assertIn("system Displayed", src)          # the series keeps the system's number next to the engine's first present
+        self.assertIn("first full present of the engine", src)
+
 
 def bmp_v5(w, h, rgba_rows_top_down, top_down=True):
     """The BMP `sips -s format bmp` writes: 32 bit, BITMAPV5HEADER, BI_BITFIELDS with B,G,R,A byte order, top-down."""
@@ -1118,6 +1163,60 @@ class RunFolderTests(unittest.TestCase):
                 self.assertTrue(str(run.logs_dir).endswith("demo-out/qa/logs"))
             finally:
                 os.chdir(old)
+
+
+class TextSizeNoteTests(unittest.TestCase):
+    """An informational check that fails (the page does not follow the system text size) must show in qa.md: as a step note, because the step still passes."""
+
+    TEXT = (Path(__file__).resolve().parent / "mobile_qa.py").read_text(encoding="utf-8")
+
+    def test_both_text_size_steps_note_a_page_that_did_not_change(self):
+        self.assertEqual(self.TEXT.count("s.note(TEXT_SIZE_IGNORED.format("), 2)
+        self.assertIn("THE PAGE DID NOT CHANGE", q.TEXT_SIZE_IGNORED)
+        self.assertIn("ignores the system text size", q.TEXT_SIZE_IGNORED)
+
+    def test_the_note_lands_in_the_table_of_a_passing_step(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            run = q.Run(d, "ios", {"label": "t"})
+
+            def step(s):
+                s.check("the page reacts to the text size", False, "differs 0.000", required=False)
+                s.note(q.TEXT_SIZE_IGNORED.format(what="the largest accessibility text size", diff=0.0))
+            run.step("06-text-size", "x", step)
+            self.assertTrue(run.steps[0].ok)
+            self.assertIn("THE PAGE DID NOT CHANGE", (Path(d) / "qa.md").read_text())
+
+
+class MapsScriptTests(unittest.TestCase):
+    """The audit script of AzMaps (mobile_e2e.py s_script_maps) drives the refactored app (WP-E2: the layers key, the style popover, the chips, the search
+    field and its keyboard, the pin of a double tap) and still the sidebar app before it."""
+
+    TEXT = (Path(__file__).resolve().parent / "mobile_e2e.py").read_text(encoding="utf-8")
+    LOG = """\
+11-28 09:10:07.400  3000  3020 I RustStdoutStderr: AZMAPS_VIEW 48.5216 9.0576 14
+11-28 09:10:08.500  3000  3020 I RustStdoutStderr: AZMAPS_STYLE satellite
+11-28 09:10:09.600  3000  3020 I RustStdoutStderr: AZMAPS_CHIP 0 restaurants cafes
+11-28 09:10:10.700  3000  3020 I RustStdoutStderr: AZMAPS_PLACE 3
+11-28 09:10:10.800  3000  3020 I RustStdoutStderr: AZMAPS_PANEL open
+"""
+
+    def test_the_new_markers_are_read_as_values(self):
+        self.assertEqual(q.marker_values(self.LOG, "AZMAPS_STYLE"), ["satellite"])
+        self.assertEqual(q.marker_values(self.LOG, "AZMAPS_CHIP"), ["0 restaurants cafes"])
+        self.assertEqual(q.marker_values(self.LOG, "AZMAPS_PLACE"), ["3"])
+        self.assertEqual(q.marker_values(self.LOG, "AZMAPS_PANEL"), ["open"])
+
+    def test_the_script_presses_the_keys_of_the_refactored_app(self):
+        for needle in ("#__azmaps_layers", "#__azmaps_style-1", "#__azmaps_chip-0", "#__azmaps_search", '"AZMAPS_STYLE"', '"AZMAPS_CHIP"', '"AZMAPS_PLACE"', "dev.ime_shown()"):
+            self.assertIn(needle, self.TEXT)
+
+    def test_the_sidebar_app_before_the_refactor_is_still_driven(self):
+        self.assertIn("#__azmaps_sidebar-toggle", self.TEXT)
+        self.assertIn('"AZMAPS_SIDEBAR"', self.TEXT)
+
+    def test_the_new_keys_come_first_and_decide_which_app_it_is(self):
+        self.assertLess(self.TEXT.index('tap_node(s, "#__azmaps_layers")'), self.TEXT.index('for selector in ("#__azmaps_sidebar-toggle"'))
 
 
 class MarkerTests(unittest.TestCase):
