@@ -195,6 +195,10 @@ fn a_worker_asks_once_and_waits_for_the_answer() {
     let probe = ensure.rfind("probe_status(capability)").expect("and reports what the system says then");
     assert!(gate < ask && ask < wait && wait < probe);
     assert!(
+        ensure[gate..ask].contains("park(capability,state);returnstate;"),
+        "a state that was settled before the worker came is told to the manager too"
+    );
+    assert!(
         ensure.contains("started.elapsed()<patience"),
         "a dialog nobody answers does not hold the worker for ever"
     );
