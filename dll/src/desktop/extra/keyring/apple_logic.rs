@@ -9,39 +9,39 @@
 //! gone = `Invalidated` (the OS deletes a `biometryCurrentSet` item when the enrolled set changes), not `NotFound`.
 
 // ---- OSStatus codes (`<Security/SecBase.h>`) ---------------------------------------------------------------------
-pub const ERR_SEC_SUCCESS: i32 = 0;
-pub const ERR_SEC_PARAM: i32 = -50;
-pub const ERR_SEC_USER_CANCELED: i32 = -128;
-pub const ERR_SEC_NOT_AVAILABLE: i32 = -25291;
-pub const ERR_SEC_AUTH_FAILED: i32 = -25293;
-pub const ERR_SEC_DUPLICATE_ITEM: i32 = -25299;
-pub const ERR_SEC_ITEM_NOT_FOUND: i32 = -25300;
-pub const ERR_SEC_INTERACTION_NOT_ALLOWED: i32 = -25308;
+pub(crate) const ERR_SEC_SUCCESS: i32 = 0;
+pub(crate) const ERR_SEC_PARAM: i32 = -50;
+pub(crate) const ERR_SEC_USER_CANCELED: i32 = -128;
+pub(crate) const ERR_SEC_NOT_AVAILABLE: i32 = -25291;
+pub(crate) const ERR_SEC_AUTH_FAILED: i32 = -25293;
+pub(crate) const ERR_SEC_DUPLICATE_ITEM: i32 = -25299;
+pub(crate) const ERR_SEC_ITEM_NOT_FOUND: i32 = -25300;
+pub(crate) const ERR_SEC_INTERACTION_NOT_ALLOWED: i32 = -25308;
 /// A data-protection keychain call from a binary without the `keychain-access-groups` entitlement (an unsigned or
 /// ad-hoc macOS build): the item cannot be bound there.
-pub const ERR_SEC_MISSING_ENTITLEMENT: i32 = -34018;
+pub(crate) const ERR_SEC_MISSING_ENTITLEMENT: i32 = -34018;
 
 // ---- LAError codes (`<LocalAuthentication/LAError.h>`, domain LAErrorDomain) -----------------------------------------
-pub const LA_AUTHENTICATION_FAILED: i64 = -1;
-pub const LA_USER_CANCEL: i64 = -2;
-pub const LA_USER_FALLBACK: i64 = -3;
-pub const LA_SYSTEM_CANCEL: i64 = -4;
-pub const LA_PASSCODE_NOT_SET: i64 = -5;
-pub const LA_BIOMETRY_NOT_AVAILABLE: i64 = -6;
-pub const LA_BIOMETRY_NOT_ENROLLED: i64 = -7;
-pub const LA_BIOMETRY_LOCKOUT: i64 = -8;
-pub const LA_APP_CANCEL: i64 = -9;
-pub const LA_INVALID_CONTEXT: i64 = -10;
+pub(crate) const LA_AUTHENTICATION_FAILED: i64 = -1;
+pub(crate) const LA_USER_CANCEL: i64 = -2;
+pub(crate) const LA_USER_FALLBACK: i64 = -3;
+pub(crate) const LA_SYSTEM_CANCEL: i64 = -4;
+pub(crate) const LA_PASSCODE_NOT_SET: i64 = -5;
+pub(crate) const LA_BIOMETRY_NOT_AVAILABLE: i64 = -6;
+pub(crate) const LA_BIOMETRY_NOT_ENROLLED: i64 = -7;
+pub(crate) const LA_BIOMETRY_LOCKOUT: i64 = -8;
+pub(crate) const LA_APP_CANCEL: i64 = -9;
+pub(crate) const LA_INVALID_CONTEXT: i64 = -10;
 /// `LAErrorNotInteractive`: the context forbids a sheet (`interactionNotAllowed`).
-pub const LA_NOT_INTERACTIVE: i64 = -1004;
+pub(crate) const LA_NOT_INTERACTIVE: i64 = -1004;
 
 /// `SecAccessControlCreateFlags` (`<Security/SecAccessControl.h>`): the constraints of a protection level.
-pub const ACCESS_USER_PRESENCE: usize = 1 << 0;
-pub const ACCESS_BIOMETRY_CURRENT_SET: usize = 1 << 3;
+pub(crate) const ACCESS_USER_PRESENCE: usize = 1 << 0;
+pub(crate) const ACCESS_BIOMETRY_CURRENT_SET: usize = 1 << 3;
 
 /// The protection levels that bind an item to a user check (`DeviceUnlocked` binds nothing).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Level {
+pub(crate) enum Level {
     /// Biometric OR the device passcode, on every read; survives an enrolment change.
     UserPresence,
     /// Biometric only, on every read; invalidated when the enrolled set changes.
@@ -51,7 +51,7 @@ pub enum Level {
 /// The access-control constraint of a level: what `SecAccessControlCreateWithFlags` is asked for. (The accessibility
 /// of such an item is `kSecAttrAccessibleWhenPasscodeSetThisDeviceOnly`: no passcode, no item, never a weaker one.)
 #[must_use]
-pub const fn access_flags(level: Level) -> usize {
+pub(crate) const fn access_flags(level: Level) -> usize {
     match level {
         Level::UserPresence => ACCESS_USER_PRESENCE,
         Level::Biometric => ACCESS_BIOMETRY_CURRENT_SET,
@@ -60,7 +60,7 @@ pub const fn access_flags(level: Level) -> usize {
 
 /// What `LAContext.canEvaluatePolicy` says about the device for a level, from the `LAError` code of a refusal.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum DeviceState {
+pub(crate) enum DeviceState {
     /// The device can do the user check.
     Ready,
     /// Too many failures: locked until the passcode is entered.
@@ -73,7 +73,7 @@ pub enum DeviceState {
 
 /// The state of the device from a `canEvaluatePolicy:error:` outcome: `None` = it can, `Some(code)` = the `LAError` code.
 #[must_use]
-pub const fn device_state(refusal: Option<i64>) -> DeviceState {
+pub(crate) const fn device_state(refusal: Option<i64>) -> DeviceState {
     match refusal {
         None => DeviceState::Ready,
         Some(LA_BIOMETRY_LOCKOUT) => DeviceState::LockedOut,
@@ -84,7 +84,7 @@ pub const fn device_state(refusal: Option<i64>) -> DeviceState {
 
 /// An answer of the keyring (the values of `azul_core::keyring::KeyringResult` this backend produces).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Outcome {
+pub(crate) enum Outcome {
     /// The call worked.
     Ok,
     /// The user dismissed the sheet.
@@ -112,7 +112,7 @@ pub enum Outcome {
 /// A read of a protected item WITH the user check (`keyring_unlock`): the status the keychain answered after the
 /// sheet, the device's own state (asked after a failure) and whether the meta record is there.
 #[must_use]
-pub const fn after_unlock(status: i32, device: DeviceState, meta_present: bool) -> Outcome {
+pub(crate) const fn after_unlock(status: i32, device: DeviceState, meta_present: bool) -> Outcome {
     match status {
         ERR_SEC_SUCCESS => Outcome::Ok,
         ERR_SEC_USER_CANCELED => Outcome::Cancelled,
@@ -143,7 +143,7 @@ pub const fn after_unlock(status: i32, device: DeviceState, meta_present: bool) 
 /// A read WITHOUT any user check (`keyring_get`, the quiet statics) of an item the caller holds no secret for: the
 /// secret came (`Ok`), or the keychain wanted a sheet it was not allowed to show (`WouldPrompt`), or the item is gone.
 #[must_use]
-pub const fn after_plain_read(status: i32, meta_present: bool) -> Outcome {
+pub(crate) const fn after_plain_read(status: i32, meta_present: bool) -> Outcome {
     match status {
         ERR_SEC_SUCCESS => Outcome::Ok,
         ERR_SEC_ITEM_NOT_FOUND => {
@@ -162,7 +162,7 @@ pub const fn after_plain_read(status: i32, meta_present: bool) -> Outcome {
 
 /// A write of an item (`Store`): `protected` = bound to a user check.
 #[must_use]
-pub const fn after_store(status: i32, protected: bool, device: DeviceState) -> Outcome {
+pub(crate) const fn after_store(status: i32, protected: bool, device: DeviceState) -> Outcome {
     match status {
         ERR_SEC_SUCCESS => Outcome::Ok,
         ERR_SEC_MISSING_ENTITLEMENT | ERR_SEC_NOT_AVAILABLE => Outcome::Unavailable,
@@ -180,7 +180,7 @@ pub const fn after_store(status: i32, protected: bool, device: DeviceState) -> O
 /// What `Keyring::needs_prompt` answers (the values of `KeyringNeed` this backend produces), from the quiet facts: the
 /// level in the meta record (when there is one) and whether the protected item (its attributes, no secret) is there.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Need {
+pub(crate) enum Need {
     NotFound,
     Nothing,
     UserPresence,
@@ -190,13 +190,13 @@ pub enum Need {
 
 /// Whether the item is there: asked WITHOUT its secret (the attributes of an item behind a user check are readable).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ItemState {
+pub(crate) enum ItemState {
     Present,
     Absent,
 }
 
 #[must_use]
-pub const fn need_of(meta: Option<Level>, item: ItemState) -> Need {
+pub(crate) const fn need_of(meta: Option<Level>, item: ItemState) -> Need {
     match (meta, item) {
         (None, ItemState::Present) => Need::Nothing,
         (None, ItemState::Absent) => Need::NotFound,
@@ -208,7 +208,7 @@ pub const fn need_of(meta: Option<Level>, item: ItemState) -> Need {
 
 /// What the biometric gate (`request_biometric_auth`) answers, from an `LAError` code.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum GateOutcome {
+pub(crate) enum GateOutcome {
     Authenticated,
     Failed,
     Cancelled,
@@ -222,7 +222,7 @@ pub enum GateOutcome {
 /// The `LAError` code of a failed `evaluatePolicy` as the gate's answer. `userFallback` is the user choosing the
 /// fallback button ("Enter password"), which the gate reports as such; a biometric that does not match is `Failed`.
 #[must_use]
-pub const fn gate_outcome(code: i64) -> GateOutcome {
+pub(crate) const fn gate_outcome(code: i64) -> GateOutcome {
     match code {
         LA_USER_CANCEL | LA_SYSTEM_CANCEL | LA_APP_CANCEL => GateOutcome::Cancelled,
         LA_USER_FALLBACK => GateOutcome::FellBackToPasscode,
@@ -241,7 +241,7 @@ pub const fn gate_outcome(code: i64) -> GateOutcome {
 const META_PREFIX: &str = "AZM1:";
 
 #[must_use]
-pub fn encode_meta(level: Level, stamp: Option<&str>) -> Vec<u8> {
+pub(crate) fn encode_meta(level: Level, stamp: Option<&str>) -> Vec<u8> {
     let letter = match level {
         Level::UserPresence => 'U',
         Level::Biometric => 'B',
@@ -255,7 +255,7 @@ pub fn encode_meta(level: Level, stamp: Option<&str>) -> Vec<u8> {
 /// The level (and the stamp) of a meta record; `None` for anything that is not one (the item is then no protected
 /// item of ours).
 #[must_use]
-pub fn decode_meta(bytes: &[u8]) -> Option<(Level, Option<String>)> {
+pub(crate) fn decode_meta(bytes: &[u8]) -> Option<(Level, Option<String>)> {
     let text = core::str::from_utf8(bytes).ok()?;
     let rest = text.strip_prefix(META_PREFIX)?;
     let (letter, stamp) = match rest.split_once(':') {
@@ -272,7 +272,7 @@ pub fn decode_meta(bytes: &[u8]) -> Option<(Level, Option<String>)> {
 
 /// The service of the meta item of `service`.
 #[must_use]
-pub fn meta_service(service: &str) -> String {
+pub(crate) fn meta_service(service: &str) -> String {
     format!("{service}.azul-meta")
 }
 
