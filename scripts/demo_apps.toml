@@ -315,8 +315,10 @@ weight = 3
 package = "AzERP"
 dir = "examples/azul-erp"
 description = "asset management: records, depreciation schedules and a maintenance log"
-platforms = ["linux", "macos-arm64", "macos-intel", "windows"]
+platforms = ["linux", "macos-arm64", "macos-intel", "windows", "android", "ios"]
 weight = 2
+mobile_lib = "mobile"
+e2e = true   # the QA variant too (desktop and phones): the audit pictures and the scenario files of the UI refactor (an artifact, never shipped)
 
 [[app]]
 package = "AzInstallManager"
