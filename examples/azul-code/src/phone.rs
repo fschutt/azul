@@ -36,6 +36,7 @@ pub fn window(app: &RefAny, st: &AppState) -> Dom {
     let lift = st.insets.lift();
     let has_file = st.tabs.active().is_some();
     let mut root = Dom::create_div()
+        .with_id(ids::PHONE_ROOT)
         .with_css(format!(
             "display: flex; flex-direction: column; flex-grow: 1; min-height: 0px; min-width: 0px; position: relative; \
              box-sizing: border-box; padding-bottom: {lift}px;"

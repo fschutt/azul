@@ -67,6 +67,34 @@
       },
       {
         "op": "assert_layout",
+        "selector": "#__azcode_phone-root",
+        "property": "x",
+        "expected": 0.0,
+        "tolerance": 1.5
+      },
+      {
+        "op": "assert_layout",
+        "selector": "#__azcode_phone-root",
+        "property": "y",
+        "expected": 59.0,
+        "tolerance": 1.5
+      },
+      {
+        "op": "assert_layout",
+        "selector": "#__azcode_phone-root",
+        "property": "width",
+        "expected": 402.0,
+        "tolerance": 1.5
+      },
+      {
+        "op": "assert_layout",
+        "selector": "#__azcode_phone-root",
+        "property": "height",
+        "expected": 781.0,
+        "tolerance": 1.5
+      },
+      {
+        "op": "assert_layout",
         "selector": "#__azcode_top-bar",
         "property": "x",
         "expected": 0.0,
@@ -340,6 +368,20 @@
       },
       {
         "op": "take_screenshot"
+      },
+      {
+        "op": "assert_layout",
+        "selector": "#__azcode_sheet",
+        "property": "y",
+        "expected": 449.5,
+        "tolerance": 1.5
+      },
+      {
+        "op": "assert_layout",
+        "selector": "#__azcode_sheet",
+        "property": "height",
+        "expected": 390.5,
+        "tolerance": 1.5
       },
       {
         "op": "focus_node",

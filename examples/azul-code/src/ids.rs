@@ -162,6 +162,8 @@ pub const KEY_ROW: AzString = AzString::from_const_str("__azcode_key-row");
 pub const DRAWER_SAMPLE: AzString = AzString::from_const_str("__azcode_drawer-sample");
 /// The phone's go-to bar's close button.
 pub const GOTO_CLOSE: AzString = AzString::from_const_str("__azcode_goto-close");
+/// The phone's window root: the positioned box the panel's sheet lies over (the sheet's container).
+pub const PHONE_ROOT: AzString = AzString::from_const_str("__azcode_phone-root");
 /// The phone's bottom sheet (the panel).
 pub const SHEET: AzString = AzString::from_const_str("__azcode_sheet");
 /// The phone's status bar.

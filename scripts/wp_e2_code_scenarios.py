@@ -175,6 +175,8 @@ def phone_steps(first_start, width=None, height=None, bars=None):
     s += missing("#__azcode_drawer", "#__azcode_panel", "#__azcode_key-row", "#__azcode_activity-explorer")
     if bars:
         top, bottom, left, right = bars
+        # the root the engine insets: the sheet's container (the box the sheet lies over) is exactly it
+        s += layout_is("#__azcode_phone-root", x=left, y=top, width=width - left - right, height=height - top - bottom)
         s += layout_is("#__azcode_top-bar", x=left, y=top, width=width - left - right, height=TOP_BAR)
         s += layout_is("#__azcode_status-bar", y=height - bottom - STATUS_BAR, height=STATUS_BAR)
     if first_start:
@@ -202,6 +204,9 @@ def phone_steps(first_start, width=None, height=None, bars=None):
         s += click("#__azcode_key-2") + shot()                         # 4b braces typed by the key row
     s += click("#__azcode_status-problems") + exists("#__azcode_sheet", "#__azcode_panel-tab-problems")
     s += shot()                                                        # 5 the panel as a sheet, at its detent
+    if bars:
+        # Half: half the root (the container is the root, not the window)
+        s += layout_is("#__azcode_sheet", y=top + (height - top - bottom) / 2.0, height=(height - top - bottom) / 2.0)
     s += grip_keys("Up") + shot()                                      # 6 the sheet drawn up
     if bars:
         # drawn up, the sheet stops under the top bar: its top is the root's top and the top bar's height under the window's top, its
