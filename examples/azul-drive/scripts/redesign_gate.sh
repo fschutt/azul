@@ -10,7 +10,7 @@
 #   check       codegen of the bindings from the api.json as it stands, then `cargo check -p AzDrive --lib --tests`
 #   build       the desktop QA build of AzDrive (scripts/ci/desktop_e2e_build.sh linux AzDrive): the shipped libazul with the debug
 #               server, the e2e executor and the test hooks, and the app linked against it (demo-out/apps/AzDrive-e2e-linux)
-#   tests       the tests of the redesign's modules in AzDrive's lib, linked against that libazul
+#   tests       the tests of the redesign's modules in AzDrive's lib, linked against the libazul of the bindings (a debug build-dll)
 #   scenarios   examples/azul-drive/e2e/redesign.json and redesign_phone.json (examples/azul-drive/scripts/e2e_redesign.sh), the
 #               pictures in demo-out/azdrive-shots
 # A step that fails does not stop the ones after it; the last lines are one `STEP <name> <exit>` each, and the exit code of the script is
@@ -42,9 +42,20 @@ autofix() {
 }
 run autofix autofix
 
-check() {
+# the real libazul of the bindings as they stand (an app built over the generated bindings links it; the build script of azul-dll
+# refuses `cargo check` into a target folder that holds it, so a COPY of the library is what AZ_LINK_PATH names)
+LIBDIR="$PWD/demo-out/azdrive-lib"
+dll() {
   cargo run -r -p azul-doc -- codegen all 2>&1 | tail -3
-  cargo check -p AzDrive --lib --tests --message-format short > azdrive-check.txt 2>&1
+  cargo build -p azul-dll --features build-dll 2>&1 | tail -3
+  local code=${PIPESTATUS[0]}
+  mkdir -p "$LIBDIR"
+  cp target/debug/libazul.so "$LIBDIR/" || code=1
+  return "$code"
+}
+check() {
+  dll || return 1
+  AZ_LINK_PATH="$LIBDIR" cargo check -p AzDrive --lib --tests --message-format short > azdrive-check.txt 2>&1
   local code=$?
   echo "AZDRIVE check exit $code: $(grep -c 'error' azdrive-check.txt) lines with error, $(grep -c 'warning' azdrive-check.txt) with warning"
   grep -E 'error(\[|:)' azdrive-check.txt | sort -u | head -300
@@ -62,15 +73,12 @@ run build build
 
 # the tests of the redesign's modules (and what they sit beside), over the QA library
 tests() {
-  local lib
-  lib=$(ls -d "$PWD"/demo-out/libs/demolib-linux-desktop-e2e 2>/dev/null | head -1)
-  if [ -z "$lib" ]; then
-    echo "no QA library in demo-out/libs (the build step has not run here)"
-    return 2
+  if [ ! -f "$LIBDIR/libazul.so" ]; then
+    dll || return 1
   fi
-  AZ_LINK_PATH="$lib/libazul.so" LD_LIBRARY_PATH="$lib" \
+  AZ_LINK_PATH="$LIBDIR" \
     cargo test -p AzDrive --lib --no-fail-fast -- \
-    ui_sidebar ui_pies ui_sheet ui_location ui_preview ui_more ui_status ui_frame ui_ribbon \
+    follow ui_sidebar ui_pies ui_sheet ui_location ui_preview ui_more ui_status ui_frame ui_ribbon \
     command_line model_sidebar args_form args:: model:: look:: l10n 2>&1 | tee azdrive-tests.txt | tail -150
   return "${PIPESTATUS[0]}"
 }
