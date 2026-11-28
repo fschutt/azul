@@ -33,7 +33,7 @@ echo "FEATURES $variant: $features"
 start=$(date +%s)
 bash scripts/demo_lib.sh android "$target" "$features" "demo-out/libs/demolib-$col-$variant" || { echo "LIB $variant FAILED"; exit 3; }
 echo "LIB $variant SECONDS: $(( $(date +%s) - start ))"
-python3 scripts/demo_build.py android --target "$target" --apps AzWidgets --libs demo-out/libs --out demo-out/apps --results demo-out/results --variant "$variant" \
+python3 scripts/demo_build.py android --target "$target" --apps "AzWidgets AzWriter" --libs demo-out/libs --out demo-out/apps --results demo-out/results --variant "$variant" \
   || echo "demo_build.py returned non-zero"
 ls -la demo-out/apps
 apk="demo-out/apps/AzWidgets-e2e-$col.apk"
@@ -56,6 +56,9 @@ if [ -n "${AZ_TABS_AZMAIL_RUN:-}" ]; then
     echo "the artifact of run $AZ_TABS_AZMAIL_RUN could not be downloaded"
   fi
 fi
+
+# the AzWriter ribbon: its QA build gets a first look on the same phone (the tab strip's other home)
+[ -e "demo-out/apps/AzWriter-e2e-$col.apk" ] && export AZ_QA_TABS_EXTRA_APKS="demo-out/apps/AzWriter-e2e-$col.apk"
 
 # the emulator: Pixel 8 (its profile), the hole overlay; portrait and landscape inside the session
 AZ_ANDROID_DEVICE=pixel_8 AZ_ANDROID_OVERLAYS=com.android.internal.display.cutout.emulation.hole \
