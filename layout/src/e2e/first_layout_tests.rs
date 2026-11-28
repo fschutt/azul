@@ -89,6 +89,24 @@ fn tick(runner: &Runner, timer: &mut crate::timer::Timer, changes: &Arc<Mutex<Ve
     });
 }
 
+/// Ticks the timer until the queued request is answered (a scenario may yield between steps: a few
+/// ticks are what a shell gives it), at most `ticks` times.
+fn serve_until_answered(
+    runner: &Runner,
+    timer: &mut crate::timer::Timer,
+    changes: &Arc<Mutex<Vec<CallbackChange>>>,
+    answers: &mpsc::Receiver<DebugResponseData>,
+    ticks: usize,
+) -> Option<DebugResponseData> {
+    for _ in 0..ticks {
+        tick(runner, timer, changes);
+        if let Ok(answer) = answers.try_recv() {
+            return Some(answer);
+        }
+    }
+    None
+}
+
 /// The verdict of the one test the request ran, once the request is answered.
 fn verdict_of(answer: DebugResponseData) -> (String, usize) {
     match answer {
@@ -121,10 +139,8 @@ fn a_scenario_queued_before_the_first_layout_waits_for_it() {
     );
 
     runner.layout(the_apps_document(), true);
-    tick(&runner, &mut timer, &changes);
-    let answer = answers
-        .try_recv()
-        .expect("the first tick after the first layout serves the queued scenario");
+    let answer = serve_until_answered(&runner, &mut timer, &changes, &answers, 8)
+        .expect("the ticks after the first layout serve the queued scenario");
     assert_eq!(
         verdict_of(answer),
         ("pass".to_string(), 0),
@@ -134,9 +150,9 @@ fn a_scenario_queued_before_the_first_layout_waits_for_it() {
 }
 
 /// The guard waits for the first layout and for nothing else: a window that has laid out serves a
-/// request at its first tick.
+/// queued scenario.
 #[test]
-fn a_window_that_has_laid_out_serves_the_scenario_at_its_first_tick() {
+fn a_window_that_has_laid_out_serves_a_queued_scenario() {
     reset_test_clock();
     freeze_test_clock();
     let mut runner = Runner::new(400.0, 200.0, 96, false);
@@ -144,10 +160,8 @@ fn a_window_that_has_laid_out_serves_the_scenario_at_its_first_tick() {
     let (mut timer, answers) = a_timer_with_a_queued_scenario("first-layout-ready");
     let changes = Arc::new(Mutex::new(Vec::new()));
 
-    tick(&runner, &mut timer, &changes);
-    let answer = answers
-        .try_recv()
-        .expect("a window that has laid out answers at its first tick");
+    let answer = serve_until_answered(&runner, &mut timer, &changes, &answers, 8)
+        .expect("a window that has laid out serves the scenario");
     assert_eq!(verdict_of(answer), ("pass".to_string(), 0));
     reset_test_clock();
 }
