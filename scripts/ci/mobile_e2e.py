@@ -721,6 +721,34 @@ def e2e_session(args):
                 dev.tap(*found)
                 dev.settle(1.5)
                 device_shot(s, shot)
+        hit_slop(s)
+
+    def hit_slop(s):
+        """The engine's touch hit-slop with real touches: a finger that lands beside the 36 x 20 dp track of an alarm's switch (inside the 48 dp
+        square round it, outside the track) presses it (the app prints AZCLOCK_ALARM_SWITCH); one far from it presses nothing. The sample has
+        three alarms (the app's e2e op: a phone has no command line); the first alarm's switch is the one the server names."""
+        srv.op("azclock_load_sample", timeout=60)
+        dev.settle(2.0)
+        sw = box_of(".__azclock_alarm-switch")
+        s.check("the server names an alarm's switch with a box", bool(sw), str(sw))
+        if not sw:
+            return
+        scale = state.get("scale") or 1.0
+        cx = int((sw["x"] + sw["width"] / 2) * scale)
+        top, bottom = sw["y"], sw["y"] + sw["height"]
+        for what, y, pressed in (("10 dp above the track", top - 10, True), ("10 dp under the track", bottom + 10, True),
+                                 ("30 dp above the track (outside the 48 dp square)", top - 30, False)):
+            mark = dev.now_mark()
+            dev.tap(cx, int(y * scale))
+            dev.settle(1.0)
+            switched = q.marker_values(dev.adb("logcat", "-d", "-v", "threadtime", timeout=60), "AZCLOCK_ALARM_SWITCH", since=mark)
+            s.check(f"a touch {what} {'presses the switch (the touch hit-slop)' if pressed else 'presses nothing'}", bool(switched) == pressed,
+                    f"printed {switched}", required=pressed)
+            if pressed and switched:
+                # put it back for the next touch
+                dev.tap(cx, int((top + sw["height"] / 2) * scale))
+                dev.settle(1.0)
+        device_shot(s, "clock-hit-slop")
 
     def s_script_calculator(s):
         """AzCalculator with real touches: 7 x 6 = on the keypad (the app prints AZCALC_DISPLAY), the Convert tab and its value field with
