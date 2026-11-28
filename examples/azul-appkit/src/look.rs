@@ -72,9 +72,11 @@ pub fn row(label_text: &str, control: Dom) -> Dom {
     };
     Dom::create_div()
         .with_class("appkit-row")
+        // A control that does not fit beside its label goes under it (a phone's pane is 250 px wide
+        // and a three-choice `Segmented` is 180 px at the least: it was cut at the pane's edge).
         .with_css(
-            "display: flex; flex-direction: row; align-items: center; padding: 4px 0px; \
-             min-width: 0px;",
+            "display: flex; flex-direction: row; flex-wrap: wrap; align-items: center; row-gap: 2px; \
+             padding: 4px 0px; min-width: 0px;",
         )
         .with_child(
             Dom::create_div()
