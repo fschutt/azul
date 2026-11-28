@@ -117,6 +117,9 @@ glean = "60.5.0"
 gleam = "0.15.1"
 
 [patch.crates-io]
+# EXPERIMENT (the Android GPU root-cause hunt, never for master): the loader crate with a runtime-switchable trace of every GL call
+# (scripts/dev/gl_trace_crate.py makes it from the crates.io source).
+gl-context-loader = { path = "third_party/gl-context-loader-trace" }
 # NOTE: the former `libudev-sys` and `gpu-video` git patches are GONE — they are
 # now real published crates that dll/ depends on directly by a `package =` rename
 # (cargo `[patch]` cannot rename a crate; a git patch also trips the "no [patch]

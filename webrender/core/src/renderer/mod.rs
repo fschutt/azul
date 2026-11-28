@@ -970,9 +970,16 @@ impl Renderer {
                 ));
             }
         }
+        let dummy = self
+            .device
+            .debug_read_texture_pixel(&self.texture_resolver.dummy_cache_texture, 0, 0);
         self.device.end_frame();
         format!(
-            "texture cache: {} atlases, {} standalone, {} picture tiles, {} render targets; tiles: {}",
+            "dummy texture reads #{:02x}{:02x}{:02x}{:02x} (expect #ffffffff); texture cache: {} atlases, {} standalone, {} picture tiles, {} render targets; tiles: {}",
+            dummy[0],
+            dummy[1],
+            dummy[2],
+            dummy[3],
             counts[0],
             counts[1],
             counts[2],

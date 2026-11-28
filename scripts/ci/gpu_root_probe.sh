@@ -72,7 +72,7 @@ act="$(echo "$badging" | sed -n "s/^launchable-activity: name='\([^']*\)'.*/\1/p
 echo "apk: $apk package=$pkg activity=${act:-?}"
 
 modes="${AZ_PROBE_MODES:-swiftshader_indirect,swangle_indirect}"
-variants="${AZ_PROBE_VARIANTS:-control=AZ_BACKEND=gpu;AZ_GPU_CONTROL=1|plain=AZ_BACKEND=gpu|cpu=AZ_BACKEND=cpu}"
+variants="${AZ_PROBE_VARIANTS:-control=AZ_BACKEND=gpu;AZ_GPU_CONTROL=1|plain=AZ_BACKEND=gpu|trace=AZ_BACKEND=gpu;AZ_GL_TRACE=2:/data/data/@PKG@/files/gltrace.txt|cpu=AZ_BACKEND=cpu}"
 seconds="${AZ_PROBE_SECONDS:-45}"
 
 IFS=',' read -r -a mode_list <<<"$modes"
@@ -103,6 +103,9 @@ for mode in "${mode_list[@]}"; do
   echo "emulator booted: $(adb shell getprop ro.product.cpu.abi | tr -d '\r'), API $(adb shell getprop ro.build.version.sdk | tr -d '\r')"
   sleep 20
   { adb shell getprop ro.hardware.egl; adb shell getprop ro.kernel.qemu.gles; adb shell getprop ro.opengles.version; adb shell getprop ro.hardware.vulkan; } 2>&1 | tr -d '\r' >"$d/gl-props.txt"
+  # a root adbd (the default image is a userdebug build): the trace file of the app is read from its private folder
+  adb root >"$d/adb-root.txt" 2>&1 || true
+  sleep 3; adb wait-for-device
   adb install -r -t "$apk" >"$d/install.log" 2>&1 || { echo "install failed"; cat "$d/install.log"; }
   adb logcat -G 64M >/dev/null 2>&1 || true
   adb shell setprop debug.egl.trace error
@@ -112,7 +115,7 @@ for mode in "${mode_list[@]}"; do
 
   IFS='|' read -r -a variant_list <<<"$variants"
   for item in "${variant_list[@]}"; do
-    name="${item%%=*}"; env="${item#*=}"
+    name="${item%%=*}"; env="${item#*=}"; env="${env//@PKG@/$pkg}"
     echo "---- $mode / $name: debug.az.env=AZ_LOG=info;$env"
     adb shell am force-stop "$pkg"; sleep 2
     adb shell "setprop debug.az.env 'AZ_LOG=info;$env'"
@@ -126,6 +129,13 @@ for mode in "${mode_list[@]}"; do
       i=$((i+1))
     done
     adb logcat -d -v threadtime >"$d/logs/logcat-$name.txt" 2>&1
+    # the trace file of the loader crate (AZ_GL_TRACE=<level>:<file>), when the variant asked for one
+    if adb shell "test -f /data/data/$pkg/files/gltrace.txt" 2>/dev/null; then
+      adb exec-out "cat /data/data/$pkg/files/gltrace.txt" | gzip -c >"$d/logs/gltrace-$name.txt.gz" || true
+      adb shell "cat /dev/null > /data/data/$pkg/files/gltrace.txt" || true
+    elif adb exec-out run-as "$pkg" cat files/gltrace.txt 2>/dev/null | head -c 1 | grep -q .; then
+      adb exec-out run-as "$pkg" cat files/gltrace.txt | gzip -c >"$d/logs/gltrace-$name.txt.gz" || true
+    fi
     gzip -f "$d/logs/logcat-$name.txt" || true
     adb shell dumpsys SurfaceFlinger --list >"$d/logs/sf-layers-$name.txt" 2>&1 || true
     adb shell dumpsys SurfaceFlinger 2>&1 | gzip -c >"$d/logs/sf-full-$name.txt.gz" || true

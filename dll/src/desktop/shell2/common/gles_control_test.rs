@@ -18,7 +18,7 @@ fn a_row_is_wrong_when_a_pixel_is_off_or_an_error_is_left() {
 
 #[test]
 fn the_phases_have_the_names_the_log_and_the_report_use() {
-    assert_eq!(PHASES, ["clear", "shader", "fbo_sample", "instanced", "data_textures", "depth"]);
+    assert_eq!(PHASES, ["clear", "shader", "dummy_texture", "fbo_sample", "instanced", "data_textures", "depth"]);
 }
 
 #[test]
@@ -29,21 +29,30 @@ fn the_ladder_reads_back_what_it_draws_on_a_working_driver() {
     };
     let gl = gles.gl();
     let framebuffer = Framebuffer::new(gl.clone(), 400, 560).expect("an offscreen window framebuffer");
-    let target = Target {
-        size: (400, 560),
-        window: framebuffer.id(),
-    };
-    let mut shown: Vec<&'static str> = Vec::new();
-    let ladder = run_ladder(&gl, target, &mut |phase| shown.push(phase));
-    for row in &ladder.rows {
-        eprintln!("control {}: {} ({})", row.name, if row.ok { "ok" } else { "WRONG" }, row.detail);
+    // The ladder binds the framebuffers twice over: as `GL_FRAMEBUFFER`, and the way WebRender's device does (draw and read apart).
+    for split in [false, true] {
+        let target = Target {
+            size: (400, 560),
+            window: framebuffer.id(),
+            split,
+        };
+        let mut shown: Vec<&'static str> = Vec::new();
+        let ladder = run_ladder(&gl, target, &mut |phase| shown.push(phase));
+        for row in &ladder.rows {
+            eprintln!(
+                "control (split {split}) {}: {} ({})",
+                row.name,
+                if row.ok { "ok" } else { "WRONG" },
+                row.detail
+            );
+        }
+        assert!(ladder.program_problems.is_empty(), "programs that did not build: {:?}", ladder.program_problems);
+        for row in &ladder.rows {
+            assert!(row.ok, "split {split}, {}: {}", row.name, row.detail);
+        }
+        assert_eq!(ladder.rows.len(), PHASES.len());
+        // Every phase is shown twice (drawn, swapped, drawn again, swapped), in the order of the ladder.
+        let expected: Vec<&str> = PHASES.iter().flat_map(|p| [*p, *p]).collect();
+        assert_eq!(shown, expected);
     }
-    assert!(ladder.program_problems.is_empty(), "programs that did not build: {:?}", ladder.program_problems);
-    for row in &ladder.rows {
-        assert!(row.ok, "{}: {}", row.name, row.detail);
-    }
-    assert_eq!(ladder.rows.len(), PHASES.len());
-    // Every phase is shown twice (drawn, swapped, drawn again, swapped), in the order of the ladder.
-    let expected: Vec<&str> = PHASES.iter().flat_map(|p| [*p, *p]).collect();
-    assert_eq!(shown, expected);
 }

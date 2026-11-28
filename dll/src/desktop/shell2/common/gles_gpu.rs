@@ -92,6 +92,18 @@ fn control_requested() -> bool {
         .is_some_and(|value| !value.is_empty() && value != "0")
 }
 
+/// EXPERIMENT: `AZ_GL_TRACE=<level>[:<file>]` starts the loader crate's trace of every GL call (level 1: only the calls that left a GL
+/// error, 2: every call) once the function table is loaded.
+fn gl_trace_spec() -> Option<(u8, Option<String>)> {
+    let value = azul_css::env::EnvSource::var(&crate::env::ProcessEnv::new(), "AZ_GL_TRACE")?;
+    let (level, path) = match value.split_once(':') {
+        Some((level, path)) => (level, Some(path.to_owned())),
+        None => (value.as_str(), None),
+    };
+    let level: u8 = level.trim().parse().ok()?;
+    (level > 0).then_some((level, path))
+}
+
 /// How long the control ladder holds each picture on the window after a swap.
 const CONTROL_HOLD: std::time::Duration = std::time::Duration::from_millis(700);
 
@@ -712,14 +724,19 @@ impl GlesGpu {
         };
         let reports_damage = session.info().caps.buffer_age;
         log_info!(LogCategory::Rendering, "[render] {}", gles_trace::extensions_line(&gl));
+        if let Some((level, path)) = gl_trace_spec() {
+            gl_context_loader::trace::start(level, path.as_deref());
+        }
         if let Some(functions) = self.functions.as_ref() {
             self.log_function_table(functions);
         }
         // The first surface is shown before WebRender is made (its programs compile in the first frame, seconds on a cold start).
         self.prime_surface(ctx);
+        gl_context_loader::trace::mark("the control ladder, if asked for, begins");
         if control_requested() {
             self.run_control(&gl);
         }
+        gl_context_loader::trace::mark("WebRender's bring-up begins");
         // A renderer made before had keys of its own: the window's registries are cleared for the new one.
         if self.renderers_made > 0 {
             gpu_renderer::forget_renderer_state(ctx.common);
@@ -820,7 +837,8 @@ impl GlesGpu {
         }
     }
 
-    /// EXPERIMENT: the control ladder on the window's surface: GL with no WebRender, each phase swapped and held (`gles_control`).
+    /// EXPERIMENT: the control ladder on the window's surface: GL with no WebRender, each phase swapped and held (`gles_control`), once
+    /// binding the framebuffers as `GL_FRAMEBUFFER` and once the way WebRender's device binds them.
     fn run_control(&self, gl: &gl_context_loader::GenericGlContext) {
         let Some(session) = self.session.as_ref() else {
             return;
@@ -830,35 +848,45 @@ impl GlesGpu {
             return;
         }
         let size = session.surface_size().unwrap_or(self.size_px);
-        let target = gles_control::Target { size, window: 0 };
-        log_info!(
-            LogCategory::Rendering,
-            "[render] control: the ladder starts on {}x{} px, {} phases twice, {} ms each",
-            size.0,
-            size.1,
-            gles_control::PHASES.len(),
-            CONTROL_HOLD.as_millis()
-        );
-        let ladder = gles_control::run_ladder(gl, target, &mut |name| {
-            match session.swap(None, size.1) {
-                Ok(()) => log_info!(LogCategory::Rendering, "[render] control: presented {}", name),
-                Err(error) => log_warn!(LogCategory::Rendering, "[render] control: the swap of {} failed: {:?}", name, error),
-            }
-            std::thread::sleep(CONTROL_HOLD);
-        });
-        for problem in &ladder.program_problems {
-            log_warn!(LogCategory::Rendering, "[render] control: {}", problem);
-        }
-        for row in &ladder.rows {
+        for split in [false, true] {
+            let target = gles_control::Target { size, window: 0, split };
             log_info!(
                 LogCategory::Rendering,
-                "[render] control {}: {} ({})",
-                row.name,
-                if row.ok { "ok" } else { "WRONG" },
-                row.detail
+                "[render] control (split {}): the ladder starts on {}x{} px, {} phases twice, {} ms each",
+                split,
+                size.0,
+                size.1,
+                gles_control::PHASES.len(),
+                CONTROL_HOLD.as_millis()
             );
+            let ladder = gles_control::run_ladder(gl, target, &mut |name| {
+                match session.swap(None, size.1) {
+                    Ok(()) => log_info!(LogCategory::Rendering, "[render] control (split {}): presented {}", split, name),
+                    Err(error) => log_warn!(
+                        LogCategory::Rendering,
+                        "[render] control (split {}): the swap of {} failed: {:?}",
+                        split,
+                        name,
+                        error
+                    ),
+                }
+                std::thread::sleep(CONTROL_HOLD);
+            });
+            for problem in &ladder.program_problems {
+                log_warn!(LogCategory::Rendering, "[render] control (split {}): {}", split, problem);
+            }
+            for row in &ladder.rows {
+                log_info!(
+                    LogCategory::Rendering,
+                    "[render] control (split {}) {}: {} ({})",
+                    split,
+                    row.name,
+                    if row.ok { "ok" } else { "WRONG" },
+                    row.detail
+                );
+            }
         }
-        log_info!(LogCategory::Rendering, "[render] control: the ladder is done");
+        log_info!(LogCategory::Rendering, "[render] control: the ladders are done");
     }
 
     /// Renders the frame WebRender built and swaps it to the window.
@@ -902,7 +930,13 @@ impl GlesGpu {
                 );
             }
         }
+        gl_context_loader::trace::mark(&format!("frame {} begins", self.presents + 1));
         let outcome = gpu_renderer::render_frame(ctx.common, size, age)?;
+        gl_context_loader::trace::mark(&format!("frame {} drawn", self.presents + 1));
+        if self.presents >= DESCRIBED_PRESENTS {
+            // After the first frames only the calls that left a GL error are kept.
+            gl_context_loader::trace::set_level(gl_context_loader::trace::level().min(1));
+        }
         if self.presents < DESCRIBED_PRESENTS {
             if let Some(renderer) = ctx.common.renderer.as_mut() {
                 log_info!(

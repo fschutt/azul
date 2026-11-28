@@ -3,6 +3,7 @@
 //!
 //! 1. `clear`: a clear of the window's framebuffer;
 //! 2. `shader`: a full-screen triangle with a shader and a uniform;
+//! 2b. `dummy_texture`: WebRender's 1 x 1 dummy texture (the source of every solid colour tile), sampled over the window;
 //! 3. `fbo_sample`: a texture (`glTexStorage2D`, RGBA8) as the colour of a framebuffer, four scissored clears into it, then the window's
 //!    framebuffer drawn with a shader that samples the texture: the picture cache tile and the composite;
 //! 4. `instanced`: a VAO with a vertex buffer, an index buffer and a per-instance buffer holding a `vec4` and an `ivec4` (integer
@@ -40,6 +41,25 @@ pub struct Target {
     pub size: (u32, u32),
     /// The framebuffer object of the window (0 for the default framebuffer).
     pub window: u32,
+    /// Bind the way WebRender's device does: `GL_DRAW_FRAMEBUFFER` to draw (and to attach and check) and `GL_READ_FRAMEBUFFER` to
+    /// read, never `GL_FRAMEBUFFER`. Off: `GL_FRAMEBUFFER` for everything.
+    pub split: bool,
+}
+
+/// The target a framebuffer is bound to for drawing, attaching and checking.
+const fn draw_target(target: Target) -> u32 {
+    if target.split {
+        glconst::DRAW_FRAMEBUFFER
+    } else {
+        glconst::FRAMEBUFFER
+    }
+}
+
+/// Makes `fbo` the framebuffer the next `px` reads (a split target binds it as the read framebuffer; a joint one has it bound already).
+fn read_from(gl: &GenericGlContext, target: Target, fbo: u32) {
+    if target.split {
+        gl.bind_framebuffer(glconst::READ_FRAMEBUFFER, fbo);
+    }
 }
 
 const RED: [u8; 4] = [255, 0, 0, 255];
@@ -223,7 +243,8 @@ fn int(v: u32) -> i32 {
 
 /// The window's framebuffer, the whole surface, no scissor and no depth test or blending.
 fn window_target(gl: &GenericGlContext, target: Target) {
-    gl.bind_framebuffer(glconst::FRAMEBUFFER, target.window);
+    gl.bind_framebuffer(draw_target(target), target.window);
+    read_from(gl, target, target.window);
     gl.viewport(0, 0, int(target.size.0), int(target.size.1));
     gl.disable(glconst::SCISSOR_TEST);
     gl.disable(glconst::DEPTH_TEST);
@@ -276,6 +297,41 @@ fn phase_shader(gl: &GenericGlContext, target: Target, programs: &Programs) -> R
     row("shader", &[("centre", BLUE, found)], gl.get_error(), "")
 }
 
+/// 2b. WebRender's dummy texture, the one every solid colour tile of a page is composited from: a 1 x 1 RGBA8 texture with linear
+/// filters, made with `glTexStorage2D` and filled with four 0xff bytes by `glTexSubImage2D` from client memory, then sampled over the
+/// whole window.
+fn phase_dummy_texture(gl: &GenericGlContext, target: Target, programs: &Programs) -> Row {
+    let program = match &programs.texture {
+        Ok(program) => *program,
+        Err(why) => return failed("dummy_texture", format!("the program did not build: {why}")),
+    };
+    let size = target.size;
+    window_target(gl, target);
+    gl.clear_color(0.2, 0.2, 0.2, 1.0);
+    gl.clear(glconst::COLOR_BUFFER_BIT);
+    let texture = gl.gen_textures(1).first().copied().unwrap_or(0);
+    gl.active_texture(glconst::TEXTURE0);
+    gl.bind_texture(glconst::TEXTURE_2D, texture);
+    gl.tex_parameter_i(glconst::TEXTURE_2D, glconst::TEXTURE_MAG_FILTER, glconst::LINEAR as i32);
+    gl.tex_parameter_i(glconst::TEXTURE_2D, glconst::TEXTURE_MIN_FILTER, glconst::LINEAR as i32);
+    gl.tex_parameter_i(glconst::TEXTURE_2D, glconst::TEXTURE_WRAP_S, glconst::CLAMP_TO_EDGE as i32);
+    gl.tex_parameter_i(glconst::TEXTURE_2D, glconst::TEXTURE_WRAP_T, glconst::CLAMP_TO_EDGE as i32);
+    gl.bind_buffer(glconst::PIXEL_UNPACK_BUFFER, 0);
+    gl.tex_storage_2d(glconst::TEXTURE_2D, 1, glconst::RGBA8, 1, 1);
+    gl.pixel_store_i(glconst::UNPACK_ALIGNMENT, 1);
+    gl.tex_sub_image_2d(glconst::TEXTURE_2D, 0, 0, 0, 1, 1, glconst::RGBA, glconst::UNSIGNED_BYTE, &[0xff, 0xff, 0xff, 0xff]);
+    gl.use_program(program);
+    let sampler = gl.get_uniform_location(program, "sTex");
+    gl.uniform_1i(sampler, 0);
+    full_screen(gl, program, 0.0);
+    gl.finish();
+    let found = px(gl, size.0 / 2, size.1 / 2);
+    let error = gl.get_error();
+    gl.bind_texture(glconst::TEXTURE_2D, 0);
+    gl.delete_textures(&[texture]);
+    row("dummy_texture", &[("centre", WHITE, found)], error, "")
+}
+
 /// A 256 x 256 RGBA8 texture (`glTexStorage2D`) as the colour of a framebuffer with four scissored clears in it: bottom left red,
 /// bottom right green, top left blue, top right yellow. The texture, the framebuffer and the four read-backs from the framebuffer.
 struct Tile {
@@ -297,15 +353,15 @@ fn make_tile(gl: &GenericGlContext, target: Target) -> Tile {
     gl.tex_parameter_i(glconst::TEXTURE_2D, glconst::TEXTURE_WRAP_T, glconst::CLAMP_TO_EDGE as i32);
     gl.tex_storage_2d(glconst::TEXTURE_2D, 1, glconst::RGBA8, TILE, TILE);
     let framebuffer = gl.gen_framebuffers(1).first().copied().unwrap_or(0);
-    gl.bind_framebuffer(glconst::FRAMEBUFFER, framebuffer);
+    gl.bind_framebuffer(draw_target(target), framebuffer);
     gl.framebuffer_texture_2d(
-        glconst::FRAMEBUFFER,
+        draw_target(target),
         glconst::COLOR_ATTACHMENT0,
         glconst::TEXTURE_2D,
         texture,
         0,
     );
-    let status = gl.check_frame_buffer_status(glconst::FRAMEBUFFER);
+    let status = gl.check_frame_buffer_status(draw_target(target));
     gl.viewport(0, 0, TILE, TILE);
     gl.enable(glconst::SCISSOR_TEST);
     let half = TILE / 2;
@@ -322,8 +378,10 @@ fn make_tile(gl: &GenericGlContext, target: Target) -> Tile {
     gl.disable(glconst::SCISSOR_TEST);
     gl.finish();
     let q = TILE as u32 / 4;
+    read_from(gl, target, framebuffer);
     let quadrants = [px(gl, q, q), px(gl, 3 * q, q), px(gl, q, 3 * q), px(gl, 3 * q, 3 * q)];
-    gl.bind_framebuffer(glconst::FRAMEBUFFER, target.window);
+    gl.bind_framebuffer(draw_target(target), target.window);
+    read_from(gl, target, target.window);
     Tile {
         texture,
         framebuffer,
@@ -333,7 +391,8 @@ fn make_tile(gl: &GenericGlContext, target: Target) -> Tile {
 }
 
 fn free_tile(gl: &GenericGlContext, target: Target, tile: &Tile) {
-    gl.bind_framebuffer(glconst::FRAMEBUFFER, target.window);
+    gl.bind_framebuffer(draw_target(target), target.window);
+    read_from(gl, target, target.window);
     gl.bind_texture(glconst::TEXTURE_2D, 0);
     gl.delete_framebuffers(&[tile.framebuffer]);
     gl.delete_textures(&[tile.texture]);
@@ -587,21 +646,21 @@ fn phase_depth(gl: &GenericGlContext, target: Target, programs: &Programs) -> Ro
     gl.bind_renderbuffer(glconst::RENDERBUFFER, depth);
     gl.renderbuffer_storage(glconst::RENDERBUFFER, glconst::DEPTH_COMPONENT24, 128, 128);
     let framebuffer = gl.gen_framebuffers(1).first().copied().unwrap_or(0);
-    gl.bind_framebuffer(glconst::FRAMEBUFFER, framebuffer);
+    gl.bind_framebuffer(draw_target(target), framebuffer);
     gl.framebuffer_texture_2d(
-        glconst::FRAMEBUFFER,
+        draw_target(target),
         glconst::COLOR_ATTACHMENT0,
         glconst::TEXTURE_2D,
         texture,
         0,
     );
     gl.framebuffer_renderbuffer(
-        glconst::FRAMEBUFFER,
+        draw_target(target),
         glconst::DEPTH_ATTACHMENT,
         glconst::RENDERBUFFER,
         depth,
     );
-    let status = gl.check_frame_buffer_status(glconst::FRAMEBUFFER);
+    let status = gl.check_frame_buffer_status(draw_target(target));
     gl.viewport(0, 0, 128, 128);
     gl.disable(glconst::SCISSOR_TEST);
     gl.disable(glconst::BLEND);
@@ -623,6 +682,7 @@ fn phase_depth(gl: &GenericGlContext, target: Target, programs: &Programs) -> Ro
     set_colour(gl, flat, [1.0, 0.0, 0.0, 1.0]);
     full_screen(gl, flat, 0.5);
     gl.finish();
+    read_from(gl, target, framebuffer);
     let in_tile = px(gl, 64, 64);
     gl.disable(glconst::DEPTH_TEST);
 
@@ -648,7 +708,8 @@ fn phase_depth(gl: &GenericGlContext, target: Target, programs: &Programs) -> Ro
     );
     result.ok &= status == glconst::FRAMEBUFFER_COMPLETE;
 
-    gl.bind_framebuffer(glconst::FRAMEBUFFER, target.window);
+    gl.bind_framebuffer(draw_target(target), target.window);
+    read_from(gl, target, target.window);
     gl.bind_texture(glconst::TEXTURE_2D, 0);
     gl.delete_framebuffers(&[framebuffer]);
     gl.delete_renderbuffers(&[depth]);
@@ -657,7 +718,7 @@ fn phase_depth(gl: &GenericGlContext, target: Target, programs: &Programs) -> Ro
 }
 
 /// The phases, by name, in the order the ladder runs them.
-pub const PHASES: [&str; 6] = ["clear", "shader", "fbo_sample", "instanced", "data_textures", "depth"];
+pub const PHASES: [&str; 7] = ["clear", "shader", "dummy_texture", "fbo_sample", "instanced", "data_textures", "depth"];
 
 /// What the ladder found: the rows of the first drawing of every phase, and the programs that did not build.
 #[derive(Debug, Clone)]
@@ -678,6 +739,7 @@ pub fn run_ladder(gl: &GenericGlContext, target: Target, show: &mut dyn FnMut(&'
         match name {
             "clear" => phase_clear(gl, target),
             "shader" => phase_shader(gl, target, &programs),
+            "dummy_texture" => phase_dummy_texture(gl, target, &programs),
             "fbo_sample" => phase_fbo_sample(gl, target, &programs),
             "instanced" => phase_instanced(gl, target, &programs),
             "data_textures" => phase_data_textures(gl, target, &programs),

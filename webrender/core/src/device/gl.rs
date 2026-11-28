@@ -3403,6 +3403,22 @@ impl Device {
         );
     }
 
+    /// EXPERIMENT (the Android GPU root-cause hunt, never for master): one pixel of any texture, read through a framebuffer that is made
+    /// for the read and deleted again.
+    pub fn debug_read_texture_pixel(&mut self, texture: &Texture, x: i32, y: i32) -> [u8; 4] {
+        let fbo = self.create_fbo_for_external_texture(texture.id);
+        self.bind_read_target_impl(fbo, DeviceIntPoint::zero());
+        let rect = FramebufferIntRect::from_origin_and_size(
+            FramebufferIntPoint::new(x, y),
+            FramebufferIntSize::new(1, 1),
+        );
+        let mut pixel = [0_u8; 4];
+        self.read_pixels_into(rect, ImageFormat::RGBA8, &mut pixel);
+        self.reset_read_target();
+        self.delete_fbo(fbo);
+        pixel
+    }
+
     /// Get texels of a texture into the specified output slice.
     pub fn get_tex_image_into(
         &mut self,
