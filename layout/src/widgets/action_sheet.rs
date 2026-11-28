@@ -186,7 +186,7 @@ azul_core::impl_managed_callback! {
 #[derive(Debug, Clone)]
 #[repr(C)]
 pub struct ActionSheet {
-    /// The subject ("report_2026.pdf"); empty for a sheet of rows only.
+    /// The subject ("`report_2026.pdf`"); empty for a sheet of rows only.
     pub title: AzString,
     /// The line under the subject ("last modified 18 Jun"); empty for none.
     pub subtitle: AzString,
@@ -207,7 +207,7 @@ pub struct ActionSheet {
 impl ActionSheet {
     /// A closed sheet with no rows.
     #[must_use]
-    pub fn create() -> Self {
+    pub const fn create() -> Self {
         Self {
             title: AzString::from_const_str(""),
             subtitle: AzString::from_const_str(""),

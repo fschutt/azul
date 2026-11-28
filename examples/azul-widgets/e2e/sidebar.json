@@ -314,12 +314,31 @@
         "op": "wait_frame"
       },
       {
+        "op": "click",
+        "selector": "#sidebar-state-expanded"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "scroll_into_view",
+        "selector": "#sidebar-demo-frame",
+        "block": "center",
+        "behavior": "instant"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
         "op": "assert_exists",
         "selector": ".__azul-native-sidebar-status"
       },
       {
         "op": "click",
-        "selector": ".__azul-native-sidebar-status"
+        "text": "64 % full"
       },
       {
         "op": "wait_frame"
@@ -332,7 +351,7 @@
       },
       {
         "op": "find_node_by_text",
-        "text": "3 files waiting"
+        "text": "64 GB of 100 GB used, 36 GB free."
       },
       {
         "op": "assert_response",
@@ -436,7 +455,7 @@
       },
       {
         "op": "click",
-        "text": "File"
+        "text": "Fonts"
       },
       {
         "op": "wait_frame"
@@ -1028,12 +1047,43 @@
         "op": "wait_frame"
       },
       {
+        "op": "key_down",
+        "key": "x",
+        "text": "x"
+      },
+      {
+        "op": "key_up",
+        "key": "x"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "find_node_by_text",
+        "text": "Last report: typed: x"
+      },
+      {
+        "op": "assert_response",
+        "contains": "\"found\":true"
+      },
+      {
         "op": "find_node_by_text",
         "text": "specimen.png"
       },
       {
         "op": "assert_response",
         "contains": "\"found\":false"
+      },
+      {
+        "op": "find_node_by_text",
+        "text": "LICENSE.txt"
+      },
+      {
+        "op": "assert_response",
+        "contains": "\"found\":true"
       }
     ]
   }

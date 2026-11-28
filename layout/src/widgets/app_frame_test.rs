@@ -178,3 +178,107 @@ fn a_frame_is_one_node_tall_and_wide() {
     let said = format!("{:?}", dom.root.style);
     assert!(said.contains("100"), "{said}");
 }
+
+// ---- the label convention: no state on a bare text node (the family's own copy of
+// `widgets::label_convention`, which lists the older widgets) ----
+
+use azul_core::dom::NodeType;
+
+/// What a text node carries that only a real box can honour.
+fn state_on_text(node: &Dom) -> Vec<&'static str> {
+    let mut found = Vec::new();
+    if !node.root.style.rules.as_ref().is_empty() {
+        found.push("css props");
+    }
+    if !node.css.as_ref().is_empty() {
+        found.push("subtree css");
+    }
+    if !node.root.get_callbacks().as_ref().is_empty() {
+        found.push("callbacks");
+    }
+    if node.root.get_tab_index().is_some() {
+        found.push("tab_index");
+    }
+    if node.root.get_dataset().is_some() {
+        found.push("dataset");
+    }
+    if !node.children.as_ref().is_empty() {
+        found.push("children");
+    }
+    found
+}
+
+fn walk_text(node: &Dom, what: &str, bad: &mut Vec<String>) {
+    if let NodeType::Text(text) = node.root.get_node_type() {
+        let found = state_on_text(node);
+        if !found.is_empty() {
+            bad.push(format!("{what}: text {:?} carries {}", text.as_ref().as_str(), found.join(" + ")));
+        }
+    }
+    for child in node.children.as_ref() {
+        walk_text(child, what, bad);
+    }
+}
+
+#[test]
+fn no_widget_of_the_family_puts_state_on_a_bare_text_node() {
+    use crate::widgets::{
+        action_sheet::{ActionSheet, ActionSheetItem},
+        inspector::Inspector,
+        location_bar::{LocationBar, LocationCrumb},
+        pie_marker::PieTone,
+        sidebar::{SidebarCollab, SidebarStatus},
+    };
+    let rich = |state: SidebarState, form: FormFactor| {
+        sidebar(state)
+            .with_form(form)
+            .with_help(AzString::from("Help"))
+            .with_header(id_div("header"))
+            .with_status(SidebarStatus::create(AzString::from("Sync"), 0.5, PieTone::Busy).with_text(AzString::from("50 %")))
+            .with_section(
+                SidebarSection::create(AzString::from("Docs"))
+                    .with_collapsible(true)
+                    .with_row(
+                        SidebarRow::create(AzString::from("a.xlsx"))
+                            .with_icon(AzString::from("table_chart"))
+                            .with_badge(AzString::from("3"))
+                            .with_pie(0.4, PieTone::Good)
+                            .with_collab(SidebarCollab::On)
+                            .with_disclosure(true),
+                    ),
+            )
+    };
+    let location = |editing: bool| {
+        LocationBar::create(AzString::from("Fonts"))
+            .with_parent(LocationCrumb::create(AzString::from("azul"), 1))
+            .with_editing(editing, AzString::from("Fo"))
+    };
+    let sheet = ActionSheet::create()
+        .with_title(AzString::from("a.pdf"), AzString::from("today"))
+        .with_item(ActionSheetItem::create(AzString::from("Rename"), AzString::from("edit"), 1))
+        .with_open(true)
+        .with_form(FormFactor::Phone);
+    let mut doms: Vec<(&str, Dom)> = Vec::new();
+    for (name, state, form) in [
+        ("sidebar expanded", SidebarState::Expanded, FormFactor::Desktop),
+        ("sidebar rail", SidebarState::Rail, FormFactor::Desktop),
+        ("sidebar handle", SidebarState::Handle, FormFactor::Desktop),
+        ("sidebar drawer", SidebarState::Expanded, FormFactor::Phone),
+    ] {
+        doms.push((name, rich(state, form).dom()));
+    }
+    doms.push(("inspector right", Inspector::create(id_div("b"), id_div("p")).with_form(FormFactor::Desktop).dom()));
+    doms.push(("inspector bottom", Inspector::create(id_div("b"), id_div("p")).with_form(FormFactor::Phone).dom()));
+    doms.push(("location", location(false).dom()));
+    doms.push(("location editing", location(true).dom()));
+    doms.push(("sheet", sheet.dom()));
+    doms.push((
+        "frame",
+        frame().with_sidebar(rich(SidebarState::Expanded, FormFactor::Desktop)).with_footer(id_div("f")).dom(),
+    ));
+    let mut bad = Vec::new();
+    for (name, dom) in &doms {
+        walk_text(dom, name, &mut bad);
+    }
+    assert!(bad.is_empty(), "{}", bad.join("\n"));
+}

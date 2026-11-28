@@ -36,7 +36,7 @@ pub enum FormFactor {
     /// A desktop whatever the platform and the window say: a left sidebar and a right Inspector.
     Desktop,
     /// A phone whatever the platform and the window say: a left sidebar with a drawer and a
-    /// bottom pane. What a desktop window shows to try the phone's layout (AzWidgets), and what
+    /// bottom pane. What a desktop window shows to try the phone's layout (`AzWidgets`), and what
     /// a test builds.
     Phone,
 }

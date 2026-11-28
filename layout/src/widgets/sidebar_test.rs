@@ -244,7 +244,7 @@ fn the_selected_row_is_marked_for_the_eye_and_for_a_screen_reader() {
     assert_eq!(selected.len(), 1);
     assert!(text_of(selected[0]).contains("Inbox"));
     let states = &selected[0].root.get_accessibility_info().expect("an a11y info").states;
-    assert!(states.as_ref().iter().any(|s| *s == AccessibilityState::Selected));
+    assert!(states.as_ref().contains(&AccessibilityState::Selected));
 }
 
 #[test]
@@ -670,4 +670,13 @@ fn a_row_has_no_pie_unless_it_is_given_a_fraction() {
     assert!(SidebarRow::create(AzString::from("a")).with_pie(0.0, PieTone::Accent).has_pie());
     assert!(!SidebarRow::create(AzString::from("a")).with_pie(f32::NAN, PieTone::Accent).has_pie());
     assert!(!SidebarRow::create(AzString::from("a")).with_pie(-0.5, PieTone::Accent).has_pie());
+}
+
+#[test]
+fn the_tab_row_keeps_clear_of_the_controls_only_where_the_sidebar_is_narrower_than_they_are() {
+    let controls = |state: SidebarState| mail().with_state(state).with_window_controls(78.0, 28.0).header_left_pad();
+    assert!((controls(SidebarState::Rail) - 0.0).abs() < 0.001, "the rail is as wide as the controls");
+    assert!((controls(SidebarState::Expanded) - 0.0).abs() < 0.001);
+    assert!((controls(SidebarState::Handle) - 62.0).abs() < 0.001, "the 16 px handle covers 16 of the 78");
+    assert!((mail().with_state(SidebarState::Handle).header_left_pad() - 0.0).abs() < 0.001, "no controls at the left");
 }
