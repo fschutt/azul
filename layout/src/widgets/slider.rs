@@ -21,10 +21,11 @@ use azul_css::{
         CssPropertyWithConditions, CssPropertyWithConditionsVec, OptionCssPropertyWithConditionsVec,
     },
     props::{
-        basic::{color::ColorU, *},
+        basic::{color::ColorU, length::FloatValue, *},
         layout::{
-            LayoutAlignItems, LayoutAlignSelf, LayoutDisplay, LayoutFlexDirection, LayoutFlexGrow,
-            LayoutHeight, LayoutMarginLeft, LayoutWidth,
+            LayoutAlignItems, LayoutAlignSelf, LayoutBoxSizing, LayoutDisplay, LayoutFlexDirection,
+            LayoutFlexGrow, LayoutFlexShrink, LayoutHeight, LayoutMarginLeft, LayoutPaddingRight,
+            LayoutWidth,
         },
         property::{CssProperty, *},
         style::{
@@ -182,6 +183,14 @@ static SLIDER_TRACK_STYLE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::align_self(LayoutAlignSelf::Start)),
     CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
     CssPropertyWithConditions::simple(CssProperty::const_width(LayoutWidth::const_px(TRACK_WIDTH))),
+    // `border-box` and a thumb's width of padding at the right end: the room the thumb travels in
+    // (the content box) is the track's width less the thumb's, whatever width the track has. The
+    // thumb's `margin-left` is a percentage of that room, so a track an app stretches (`width:
+    // 100%`: a page scrubber under a phone's page) has its thumb at the value's fraction of it.
+    CssPropertyWithConditions::simple(CssProperty::const_box_sizing(LayoutBoxSizing::BorderBox)),
+    CssPropertyWithConditions::simple(CssProperty::const_padding_right(
+        LayoutPaddingRight::const_px(THUMB_SIZE),
+    )),
     CssPropertyWithConditions::simple(CssProperty::const_height(LayoutHeight::const_px(
         TRACK_HEIGHT,
     ))),
@@ -212,22 +221,18 @@ fn value_to_fraction(value: f32, min: f32, max: f32) -> f32 {
 
 /// Builds the thumb style; the `margin-left` is the only position-dependent
 /// property and slides the thumb between the left (`min`) and right (`max`) ends.
-#[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss)] // bounded layout/render
-                                                                        // numeric cast
+///
+/// The margin is a PERCENTAGE of the room the thumb has: the track's content box, its width less
+/// the thumb's ([`SLIDER_TRACK_STYLE`]: `border-box` with a thumb of padding at the right). On the
+/// 200 px design track that is `fraction * 184` px, as it was written in px, and on a track an app
+/// gave another width it is the same fraction of that width. The thumb does not shrink at the
+/// right end, where margin and width fill the room exactly.
 fn build_thumb_style(fraction: f32) -> CssPropertyWithConditionsVec {
-    // `fraction` is a bare `f32` with no type-level guard. Its only caller feeds
-    // it `value_to_fraction`'s already-clamped output, but the helper must be
-    // safe on its own terms: `const_px` encodes the margin as `isize * 1000`
-    // (`FloatValue::const_new`), so any |margin| above `isize::MAX / 1000`
-    // overflows that multiply — a panic in an overflow-checked build, a wrapped
-    // and wildly-wrong margin in release. `as isize` already saturates NaN to 0
-    // and ±inf to isize::MIN/MAX, so the only thing missing is the clamp into
-    // what the fixed-point encoding can actually hold. Clamping the ENCODED px
-    // rather than the fraction keeps every in-contract and out-of-contract-but-
-    // representable result (including negative fractions) bit-for-bit unchanged.
-    const MAX_ENCODABLE_PX: isize = isize::MAX / 1000;
-    let margin = ((fraction * (TRACK_WIDTH - THUMB_SIZE) as f32).round() as isize)
-        .clamp(-MAX_ENCODABLE_PX, MAX_ENCODABLE_PX);
+    // `PixelValue::percent` saturates (it is `FloatValue`'s rounded, saturating cast), so a NaN
+    // or an out-of-range fraction pins the thumb at an end of the encoding instead of panicking.
+    let margin = LayoutMarginLeft {
+        inner: PixelValue::percent(fraction * 100.0),
+    };
     CssPropertyWithConditionsVec::from_vec(alloc::vec![
         CssPropertyWithConditions::simple(CssProperty::const_width(LayoutWidth::const_px(
             THUMB_SIZE,
@@ -238,6 +243,9 @@ fn build_thumb_style(fraction: f32) -> CssPropertyWithConditionsVec {
         CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(
             0,
         ))),
+        CssPropertyWithConditions::simple(CssProperty::const_flex_shrink(LayoutFlexShrink {
+            inner: FloatValue::const_new(0),
+        })),
         CssPropertyWithConditions::simple(CssProperty::const_border_top_left_radius(
             StyleBorderTopLeftRadius::const_px(THUMB_RADIUS),
         )),
@@ -251,9 +259,7 @@ fn build_thumb_style(fraction: f32) -> CssPropertyWithConditionsVec {
             StyleBorderBottomRightRadius::const_px(THUMB_RADIUS),
         )),
         CssPropertyWithConditions::simple(CssProperty::const_background_content(THUMB_BG)),
-        CssPropertyWithConditions::simple(CssProperty::const_margin_left(
-            LayoutMarginLeft::const_px(margin),
-        )),
+        CssPropertyWithConditions::simple(CssProperty::const_margin_left(margin)),
     ])
 }
 
@@ -748,10 +754,26 @@ mod autotest_generated {
         pv.number.get()
     }
 
-    /// The declared `margin-left` of a style vec — the thumb's position.
+    /// The declared `margin-left` of a style vec — the thumb's position — as the pixels it is at on
+    /// the design-width track: a built thumb declares a PERCENTAGE of the room it has (`TRAVEL`),
+    /// what a drag writes is a length in px.
     fn margin_left(v: &CssPropertyWithConditionsVec) -> Option<f32> {
         v.as_ref().iter().find_map(|p| match &p.property {
-            CssProperty::MarginLeft(m) => m.get_property().map(|m| px(m.inner)),
+            CssProperty::MarginLeft(m) => m.get_property().map(|m| match m.inner.metric {
+                SizeMetric::Percent => m.inner.number.get() * TRAVEL / 100.0,
+                _ => px(m.inner),
+            }),
+            _ => None,
+        })
+    }
+
+    /// The percentage a built thumb declares as its `margin-left`.
+    fn margin_percent(v: &CssPropertyWithConditionsVec) -> Option<f32> {
+        v.as_ref().iter().find_map(|p| match &p.property {
+            CssProperty::MarginLeft(m) => m.get_property().map(|m| {
+                assert_eq!(m.inner.metric, SizeMetric::Percent, "a built thumb sits by a percentage");
+                m.inner.number.get()
+            }),
             _ => None,
         })
     }
@@ -1239,23 +1261,27 @@ mod autotest_generated {
     }
 
     #[test]
-    fn build_thumb_style_rounds_to_whole_pixels() {
-        // The margin is an `isize` of logical px: fractional positions must round
-        // (not truncate), else the thumb drifts left by up to a pixel.
+    fn build_thumb_style_is_a_percentage_of_the_room_the_thumb_has() {
+        // The margin is the fraction in per cent (of the track's content box: its width less the
+        // thumb's), so the same style puts the thumb at the same fraction of a track of any width. On
+        // the 200 px design track that is the pixel it was written as before (92 at one half).
         for (fraction, expected) in [
-            (0.5_f32, 92.0_f32),
-            (0.25, 46.0),
-            (0.75, 138.0),
-            (0.1, 18.0),  // 18.4 -> 18
-            (0.9, 166.0), // 165.6 -> 166
-            (0.001, 0.0), // 0.184 -> 0
+            (0.5_f32, 50.0_f32),
+            (0.25, 25.0),
+            (0.75, 75.0),
+            (0.1, 10.0),
+            (0.9, 90.0),
+            (0.001, 0.1),
+            (1.0, 100.0),
+            (0.0, 0.0),
         ] {
-            assert_eq!(
-                margin_left(&build_thumb_style(fraction)),
-                Some(expected),
-                "fraction {fraction} landed on the wrong pixel",
+            let got = margin_percent(&build_thumb_style(fraction)).expect("a margin-left");
+            assert!(
+                (got - expected).abs() < 1.0e-3,
+                "fraction {fraction} landed on {got} per cent, not {expected}",
             );
         }
+        assert_eq!(margin_left(&build_thumb_style(0.5)), Some(92.0));
     }
 
     #[test]
@@ -1291,7 +1317,7 @@ mod autotest_generated {
     #[test]
     fn build_thumb_style_declares_the_full_thumb_geometry_exactly_once() {
         let props = properties(&build_thumb_style(0.5));
-        assert_eq!(props.len(), 9, "the thumb style changed shape: {props:?}");
+        assert_eq!(props.len(), 10, "the thumb style changed shape: {props:?}");
         let mut seen = Vec::new();
         for p in &props {
             let d = discriminant(p);
@@ -1577,7 +1603,7 @@ mod autotest_generated {
                 "the track style leaked a dependency on [{min}, {max}]",
             );
         }
-        assert_eq!(reference.len(), 13, "the track style changed shape");
+        assert_eq!(reference.len(), 15, "the track style changed shape");
     }
 
     #[test]
