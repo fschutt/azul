@@ -1,6 +1,7 @@
-//! The open document: azul's shared rich-text model (`RichTextDoc`, the one
+//! An open document: azul's shared rich-text model (`RichTextDoc`, the one
 //! AzNotes and AzMail's compose window edit too) in the editor's state - its
-//! ONE undo history - plus what AzWriter knows about the file.
+//! ONE undo history - plus what AzWriter knows about the file and about the
+//! document's row in the sidebar (its pages, its save, its collaboration switch).
 //!
 //! A document is a Markdown file in the data tree, `writer/<uuid>.md`
 //! (`crate::storage`), read with `RichTextDoc::create_from_markdown` and
@@ -9,12 +10,12 @@
 
 use azul::widgets::{RichBlockKind, RichTextDoc, RichTextEditorState};
 
-use crate::ids;
+use crate::{ids, paginate::Pages};
 
 /// The name a document has before it has a title of its own.
 pub const UNTITLED: &str = "Document1";
 
-/// The document AzWriter has open.
+/// A document AzWriter has open.
 #[derive(Debug, Clone, PartialEq)]
 pub struct DocumentModel {
     /// The file's id in the data tree (`writer/<id>.md`); minted from
@@ -24,9 +25,18 @@ pub struct DocumentModel {
     pub editor: RichTextEditorState,
     /// The Markdown the file holds on disk ("" before the first save).
     pub saved: String,
-    /// Bumped on every change of the document: the pagination of an older
-    /// generation is stale.
+    /// Counts the changes of the document: the pagination of an older
+    /// generation is stale. Every open document counts its own, from 1.
     pub generation: u64,
+    /// Where the pages of the print layout start, for `pages.generation`.
+    pub pages: Pages,
+    /// The generation a pagination thread is working on for this document.
+    pub paginating: Option<u64>,
+    /// Collaboration is switched on for this document (the sidebar row's icon). UI only: the
+    /// sync kit that would connect it is a TODO.
+    pub collab: bool,
+    /// The last write of this document failed; cleared by the next write that lands.
+    pub save_failed: bool,
 }
 
 impl DocumentModel {
@@ -55,7 +65,11 @@ impl DocumentModel {
             id,
             editor,
             saved,
-            generation: next_generation(),
+            generation: 1,
+            pages: Pages::default(),
+            paginating: None,
+            collab: false,
+            save_failed: false,
         }
     }
 
@@ -81,13 +95,18 @@ impl DocumentModel {
         self.markdown() != self.saved
     }
 
+    /// The document changed: its pages are stale.
+    pub fn touch(&mut self) {
+        self.generation += 1;
+    }
+
     /// The editor's new state (after typing, a command, an undo): kept,
     /// and the pagination starts over when the document changed.
     pub fn adopt(&mut self, state: RichTextEditorState) {
         let changed = state.doc != self.editor.doc;
         self.editor = state;
         if changed {
-            self.generation = next_generation();
+            self.touch();
         }
     }
 
@@ -137,13 +156,6 @@ pub fn title_of(doc: &RichTextDoc) -> String {
     }
 }
 
-/// A new pagination generation (process-wide, never repeats).
-pub fn next_generation() -> u64 {
-    use std::sync::atomic::{AtomicU64, Ordering};
-    static G: AtomicU64 = AtomicU64::new(1);
-    G.fetch_add(1, Ordering::Relaxed)
-}
-
 /// A new document id: a v4 UUID from a seed that differs in every process
 /// (`azul::uuid::Uuid::v4` is a process-local sequence - the first id of
 /// every launch would be the same, and the new file would overwrite the
@@ -156,48 +168,5 @@ pub fn new_document_id() -> String {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    const SAMPLE: &str = "# Quarterly report\n\nSales grew **12%** in the *third* quarter.\n\n- North\n- South\n\n| Region | Sales |\n| --- | --- |\n| North | 120 |\n\n---\n\nThe end.\n";
-
-    #[test]
-    fn a_document_reads_its_markdown_and_writes_the_same_back() {
-        let doc = DocumentModel::from_markdown("id".to_string(), SAMPLE);
-        assert_eq!(doc.title(), "Quarterly report");
-        let again = DocumentModel::from_markdown("id".to_string(), &doc.markdown());
-        assert_eq!(again.doc(), doc.doc(), "Markdown -> document -> Markdown -> the same document");
-        assert!(doc.word_count() >= 12);
-    }
-
-    #[test]
-    fn a_document_is_dirty_when_it_differs_from_its_file() {
-        let fresh = DocumentModel::untitled("a".to_string());
-        assert!(!fresh.is_dirty(), "an empty new document has nothing to save");
-        assert_eq!(fresh.title(), UNTITLED);
-        let mut doc = DocumentModel::from_markdown("b".to_string(), SAMPLE);
-        let saved = doc.markdown();
-        doc.saved = saved;
-        assert!(!doc.is_dirty());
-        let mut edited = doc.editor.clone();
-        edited.doc = RichTextDoc::create_from_markdown("# Other\n");
-        let before = doc.generation;
-        doc.adopt(edited);
-        assert!(doc.is_dirty());
-        assert_ne!(doc.generation, before, "a change re-paginates");
-        assert_eq!(doc.title(), "Other");
-    }
-
-    #[test]
-    fn the_editor_of_a_document_is_named_with_the_apps_prefix() {
-        let doc = DocumentModel::untitled("c".to_string());
-        assert!(doc.editor.host_id.as_str().starts_with("__azwriter_"));
-    }
-
-    #[test]
-    fn a_new_document_id_is_a_uuid() {
-        let id = new_document_id();
-        assert_eq!(id.len(), 36, "{id}");
-        assert_eq!(id.matches('-').count(), 4);
-    }
-}
+#[path = "model_test.rs"]
+mod model_test;

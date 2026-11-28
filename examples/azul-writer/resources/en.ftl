@@ -2,13 +2,14 @@
 
 ## AzWriter
 
-azwriter-about-summary = A document editor with A4 pages: headings, lists, tables, page breaks, Word import and PDF export. Every document is a Markdown file in your data folder.
+azwriter-about-summary = A document editor whose text flows like a Markdown editor (A4 pages are a View option): headings, lists, tables, page breaks, Word import and PDF export. Every document is a Markdown file in your data folder.
 azwriter-shortcut-document = Document
 azwriter-group-editing = Editing
 azwriter-group-window = Window
 azwriter-new-document = New document
 azwriter-open-document = Open a document
 azwriter-save = Save
+azwriter-close-document = Close the document
 azwriter-export-pdf = Export as PDF
 azwriter-undo = Undo
 azwriter-redo = Redo
@@ -38,6 +39,8 @@ azwriter-page-close = Close
 azwriter-tab-file = FILE
 azwriter-tab-home = HOME
 azwriter-tab-insert = INSERT
+azwriter-tab-layout = LAYOUT
+azwriter-tab-review = REVIEW
 azwriter-tab-view = VIEW
 azwriter-file = File: { $path }
 azwriter-no-doc-open = No document is open.
@@ -57,7 +60,7 @@ azwriter-no-documents = There are no documents yet.
 azwriter-doc-row = { $title }  ({ $words } words)
 azwriter-your-documents = Your documents, in { $folder }
 azwriter-save-what = Documents are saved as Markdown files in your data folder.
-azwriter-export-what = A PDF keeps the A4 layout; Markdown keeps the text and its structure.
+azwriter-export-what = A PDF keeps the A4 layout; Markdown keeps the text and its structure. Both are written into your data folder.
 azwriter-exports-go-to = Exports go to { $folder }
 azwriter-export-markdown = Export as Markdown
 azwriter-empty = No document is open
@@ -102,11 +105,20 @@ azwriter-group-styles = Styles
 azwriter-group-tables = Tables
 azwriter-table = Table
 azwriter-group-pages = Pages
+azwriter-group-indent = Indent
+azwriter-group-breaks = Breaks
+azwriter-group-proofing = Proofing
+azwriter-group-comments = Comments
 azwriter-page-break = Page Break
 azwriter-line = Line
+azwriter-word-count-button = Word count
+azwriter-spelling = Spelling
+azwriter-no-spelling = Spell checking needs a dictionary, which AzWriter does not have yet.
+azwriter-new-comment = New comment
+azwriter-no-comments = Comments need the sync kit, which is not part of this version yet.
 azwriter-group-views = Views
-azwriter-print-layout = Print Layout
-azwriter-web-layout = Web Layout
+azwriter-flow-layout = Flow
+azwriter-page-layout = Page layout
 azwriter-group-zoom = Zoom
 azwriter-zoom-in = Zoom In
 azwriter-zoom-out = Zoom Out
@@ -123,3 +135,23 @@ azwriter-importing = Importing { $path }...
 azwriter-not-importable = { $path } is not a file that can be imported.
 azwriter-import-dialog = Import a document
 azwriter-pdf-failed = The PDF could not be made.
+azwriter-word-count = { $words } words, { $characters } characters, { $pages ->
+    [one] 1 page
+   *[other] { $pages } pages
+ }
+azwriter-location-documents = Documents
+azwriter-sidebar-label = Documents, outline and styles
+azwriter-outline-title = Outline
+azwriter-outline-more = { $count } more headings
+azwriter-pages-title = Pages
+azwriter-page-row = Page { $page }
+azwriter-styles-title = Styles
+azwriter-status-pages-label = Pages
+azwriter-status-pages-detail = { $pages ->
+    [one] The document has 1 page.
+   *[other] The document has { $pages } pages.
+ }
+azwriter-sheet-show = Show
+azwriter-sheet-close = Close
+azwriter-sheet-collab-on = Switch collaboration on
+azwriter-sheet-collab-off = Switch collaboration off

@@ -1,5 +1,5 @@
 //! What the commands do. Every button carries a [`CommandRef`]
-//! ([`on_command`]); keys and menus call [`run`].
+//! ([`on_command`]); keys, menus and the sidebar call [`run`].
 //!
 //! Durable writes (saves, exports, deletes) are azul-appkit file jobs on an
 //! azul `Thread` against the data tree; their answers arrive in
@@ -14,7 +14,7 @@ use azul::{
     pdf::Pdf,
     str::String as AzString,
 };
-use azul_appkit::{ui as kit, FileJob};
+use azul_appkit::{docs, flow, ui as kit, FileJob};
 
 use crate::{
     app::{AppState, BackstagePage, Command, CommandRef, Screen, ZOOM_MAX, ZOOM_MIN},
@@ -33,11 +33,12 @@ pub extern "C" fn on_command(mut data: RefAny, mut info: CallbackInfo) -> Update
     run(&mut app, cmd, &mut info)
 }
 
-/// Folds what was typed and not reported yet into the open document.
+/// Folds what was typed and not reported yet into the shown document. (The other open documents
+/// were folded when they were left.)
 pub fn sync_doc(st: &mut AppState, info: &mut CallbackInfo) {
-    if let Some(doc) = st.doc.as_mut() {
+    if let Some(doc) = st.doc_mut() {
         if doc.editor.sync(*info) {
-            doc.generation = model::next_generation();
+            doc.touch();
         }
     }
 }
@@ -52,11 +53,17 @@ pub fn list_documents(st: &AppState, info: &mut CallbackInfo, app: &RefAny) {
     spawn(st, info, app, vec![storage::list_job()], storage::tag::LIST);
 }
 
-/// Saves the open document (the Markdown it is now) under its key; `tag`
-/// says what follows the save.
+/// Saves the shown document (the Markdown it is now) under its key; `tag` says what follows the
+/// save.
 pub fn save(st: &mut AppState, info: &mut CallbackInfo, app: &RefAny, tag: u64) {
     sync_doc(st, info);
-    let Some(doc) = st.doc.as_ref() else {
+    let index = st.active;
+    save_at(st, info, app, index, tag);
+}
+
+/// Saves open document `index` (the Markdown it is now) under its key.
+fn save_at(st: &mut AppState, info: &mut CallbackInfo, app: &RefAny, index: usize, tag: u64) {
+    let Some(doc) = st.open.get(index) else {
         return;
     };
     let markdown = doc.markdown();
@@ -65,28 +72,86 @@ pub fn save(st: &mut AppState, info: &mut CallbackInfo, app: &RefAny, tag: u64) 
     spawn(st, info, app, vec![job], tag);
 }
 
-/// The app left the foreground (or is about to end): the open document is written when it has changes. A phone ends a
-/// background process without another word, so this is the last chance to keep an edit (`lib.rs`: `on_lifecycle`).
-pub fn save_on_pause(st: &mut AppState, info: &mut CallbackInfo, app: &RefAny) {
-    save_if_dirty(st, info, app);
-}
-
-/// The open document saved first when it has changes (switching documents
-/// never loses an edit).
-fn save_if_dirty(st: &mut AppState, info: &mut CallbackInfo, app: &RefAny) {
+/// Writes every open document that has changes and is not being written already; `tag` says what
+/// follows each write (the window closes after the last when it is `SAVE_AND_CLOSE`).
+pub fn save_all(st: &mut AppState, info: &mut CallbackInfo, app: &RefAny, tag: u64) {
     sync_doc(st, info);
-    if st.is_dirty() {
-        save(st, info, app, storage::tag::SAVE);
+    let dirty: Vec<usize> = (0..st.open.len())
+        .filter(|&i| st.open[i].is_dirty() && !st.is_saving_doc(&st.open[i].id))
+        .collect();
+    for index in dirty {
+        save_at(st, info, app, index, tag);
     }
 }
 
-/// `doc` becomes the open document.
-pub fn show_document(st: &mut AppState, doc: DocumentModel) {
+/// The app left the foreground (or is about to end): every document with changes is written. A
+/// phone ends a background process without another word, so this is the last chance to keep an
+/// edit (`lib.rs`: `on_lifecycle`).
+pub fn save_on_pause(st: &mut AppState, info: &mut CallbackInfo, app: &RefAny) {
+    save_all(st, info, app, storage::tag::SAVE);
+}
+
+/// The shown document saved first when it has changes (switching documents
+/// never loses an edit).
+fn save_if_dirty(st: &mut AppState, info: &mut CallbackInfo, app: &RefAny) {
+    sync_doc(st, info);
+    let index = st.active;
+    if st.is_dirty() && !st.doc().is_some_and(|d| st.is_saving_doc(&d.id)) {
+        save_at(st, info, app, index, storage::tag::SAVE);
+    }
+}
+
+/// An untouched new document: never saved, nothing typed. Opening another document replaces it
+/// rather than leaving an empty tab behind.
+#[must_use]
+pub fn is_pristine(doc: &DocumentModel) -> bool {
+    doc.saved.is_empty() && doc.editor.doc.is_blank()
+}
+
+/// `doc` becomes a new open document right after the shown one and takes the screen. A document
+/// with this id that is open already is replaced by it (it was read again from its file). `false`
+/// when [`docs::MAX_OPEN_DOCS`] are open: nothing opens, the notice says so.
+pub fn show_document(st: &mut AppState, doc: DocumentModel) -> bool {
+    // the untouched blank document of a new window makes room for the document that replaces it
+    if let Some(at) = st.open.iter().position(|d| d.id == doc.id) {
+        st.open[at] = doc;
+        st.active = at;
+        st.screen = Screen::Editor;
+        return true;
+    }
+    if st.open.len() == 1 && st.doc().is_some_and(is_pristine) {
+        st.open.clear();
+        st.active = 0;
+    }
+    if !st.can_open_more() {
+        st.notice = azul_appkit::l10n::t_args(
+            "kit-doc-too-many",
+            &[("count", azul_appkit::l10n::Arg::from(docs::MAX_OPEN_DOCS))],
+        );
+        return false;
+    }
     println!("AZWRITER_OPENED {}", doc.id);
-    st.doc = Some(doc);
-    st.pages = paginate::Pages::default();
-    st.paginating = None;
+    let at = docs::insert_at(st.open.len(), st.active);
+    st.open.insert(at, doc);
+    st.active = at;
+    st.sheet_doc = None;
     st.screen = Screen::Editor;
+    true
+}
+
+/// Shows open document `index`; the one it takes the screen from is saved when it has changes.
+fn switch_to(st: &mut AppState, info: &mut CallbackInfo, app: &RefAny, index: usize) -> Update {
+    if index >= st.open.len() {
+        return Update::DoNothing;
+    }
+    st.sheet_doc = None;
+    st.screen = Screen::Editor;
+    if index == st.active {
+        return Update::RefreshDom;
+    }
+    save_if_dirty(st, info, app);
+    st.active = index;
+    Update::RefreshDom
 }
 
 /// The document as printed: on white paper, the A4 margins, the text laid
@@ -101,7 +166,7 @@ pub fn print_dom(doc: &DocumentModel) -> Dom {
         .with_child(paginate::measure_dom(doc.doc()))
 }
 
-/// The PDF of the open document (`None` without one, or when the renderer
+/// The PDF of the shown document (`None` without one, or when the renderer
 /// made nothing).
 fn pdf_bytes(doc: &DocumentModel, info: &CallbackInfo) -> Option<Vec<u8>> {
     let bytes = Pdf::create()
@@ -156,7 +221,7 @@ pub fn imported(name: &str, result: Result<Option<Vec<u8>>, String>) -> Result<a
 
 /// The read of a file to import answered (`crate::on_files_done`, tag
 /// `IMPORT`): the file becomes a new document of the data tree, saved at
-/// once (the open one saved first when it has changes).
+/// once (the shown one saved first when it has changes).
 pub fn finish_import(
     st: &mut AppState,
     info: &mut CallbackInfo,
@@ -167,10 +232,11 @@ pub fn finish_import(
     match imported(name, result) {
         Ok(doc) => {
             save_if_dirty(st, info, app);
-            show_document(st, DocumentModel::from_doc(model::new_document_id(), doc, String::new()));
-            save(st, info, app, storage::tag::SAVE);
-            st.notice = azul_appkit::l10n::t_args("azwriter-imported", &[("name", azul_appkit::l10n::Arg::from(name))]);
-            println!("AZWRITER_IMPORTED {name}");
+            if show_document(st, DocumentModel::from_doc(model::new_document_id(), doc, String::new())) {
+                save(st, info, app, storage::tag::SAVE);
+                st.notice = azul_appkit::l10n::t_args("azwriter-imported", &[("name", azul_appkit::l10n::Arg::from(name))]);
+                println!("AZWRITER_IMPORTED {name}");
+            }
         }
         Err(e) => st.notice = e,
     }
@@ -209,6 +275,27 @@ extern "C" fn on_import_picked(mut data: RefAny, mut info: CallbackInfo, result:
     Update::RefreshDom
 }
 
+/// How many words, characters and pages the shown document has, as the sentence the user reads.
+#[must_use]
+pub fn word_count_notice(doc: &DocumentModel) -> String {
+    let characters: usize = doc
+        .doc()
+        .blocks
+        .as_slice()
+        .iter()
+        .map(|b| b.get_text().as_str().chars().count())
+        .sum();
+    let pages = doc.pages.starts_for(doc.doc().block_count()).len();
+    azul_appkit::l10n::t_args(
+        "azwriter-word-count",
+        &[
+            ("words", azul_appkit::l10n::Arg::from(doc.word_count())),
+            ("characters", azul_appkit::l10n::Arg::from(characters)),
+            ("pages", azul_appkit::l10n::Arg::from(pages)),
+        ],
+    )
+}
+
 /// Runs `cmd` on the app.
 pub fn run(app: &mut RefAny, cmd: Command, info: &mut CallbackInfo) -> Update {
     let handle = app.clone();
@@ -217,20 +304,13 @@ pub fn run(app: &mut RefAny, cmd: Command, info: &mut CallbackInfo) -> Update {
     };
     let st = &mut *guard;
     match cmd {
-        Command::Rich(rich) => {
-            let Some(doc) = st.doc.as_mut() else {
+        Command::Rich(rich) => rich_commands(st, info, &handle, vec![rich]),
+        Command::Quick(quick) => {
+            let Some(doc) = st.doc() else {
                 return Update::DoNothing;
             };
-            let before = doc.editor.revision;
-            let _ = doc.editor.apply_command(*info, rich);
-            if doc.editor.revision != before {
-                doc.generation = model::next_generation();
-            }
-            // The ribbon took the focus: back into the text.
-            doc.editor.focus(*info);
-            paginate::ensure(st, info, &handle);
-            // The ribbon's pressed buttons follow either way.
-            Update::RefreshDom
+            let commands = flow::quick_commands(quick, &doc.editor);
+            rich_commands(st, info, &handle, commands)
         }
         Command::RibbonTab(index) => {
             st.ribbon_tab = index;
@@ -253,14 +333,44 @@ pub fn run(app: &mut RefAny, cmd: Command, info: &mut CallbackInfo) -> Update {
             Update::RefreshDom
         }
         Command::NewDocument => {
+            // a blank document nobody typed in is the new document already
+            if st.doc().is_some_and(is_pristine) {
+                st.screen = Screen::Editor;
+                return Update::RefreshDom;
+            }
             save_if_dirty(st, info, &handle);
             show_document(st, DocumentModel::untitled(model::new_document_id()));
+            Update::RefreshDom
+        }
+        Command::Switch(index) => switch_to(st, info, &handle, index),
+        Command::Close(index) => close_at(st, info, &handle, index),
+        Command::Collab(index, on) => {
+            let Some(doc) = st.open.get_mut(index) else {
+                return Update::DoNothing;
+            };
+            doc.collab = on;
+            st.notice = if on {
+                azul_appkit::l10n::t(docs::COLLAB_NOTE_KEY)
+            } else {
+                String::new()
+            };
             Update::RefreshDom
         }
         Command::OpenDocument(index) => {
             let Some(id) = st.docs.get(index).map(|d| d.id.clone()) else {
                 return Update::DoNothing;
             };
+            // open already: it takes the screen
+            if let Some(at) = st.index_of(&id) {
+                return switch_to(st, info, &handle, at);
+            }
+            if !st.can_open_more() {
+                st.notice = azul_appkit::l10n::t_args(
+                    "kit-doc-too-many",
+                    &[("count", azul_appkit::l10n::Arg::from(docs::MAX_OPEN_DOCS))],
+                );
+                return Update::RefreshDom;
+            }
             save_if_dirty(st, info, &handle);
             spawn(st, info, &handle, vec![storage::open_job(&id)], storage::tag::OPEN);
             Update::RefreshDom
@@ -283,14 +393,16 @@ pub fn run(app: &mut RefAny, cmd: Command, info: &mut CallbackInfo) -> Update {
         Command::ExportPdf => export(st, info, &handle, true),
         Command::ExportMarkdown => export(st, info, &handle, false),
         Command::DeleteDocument => {
-            let Some(doc) = st.doc.take() else {
+            if st.doc().is_none() {
                 return Update::DoNothing;
-            };
+            }
+            let removed = st.open.remove(st.active);
+            st.active = docs::active_after_close(st.open.len() + 1, st.active, st.active).unwrap_or(0);
             spawn(
                 st,
                 info,
                 &handle,
-                vec![storage::delete_job(&doc.id), storage::list_job()],
+                vec![storage::delete_job(&removed.id), storage::list_job()],
                 storage::tag::DELETE,
             );
             st.screen = Screen::Backstage;
@@ -298,6 +410,13 @@ pub fn run(app: &mut RefAny, cmd: Command, info: &mut CallbackInfo) -> Update {
             Update::RefreshDom
         }
         Command::CloseDocument => close_document(st, info, &handle),
+        Command::WordCount => {
+            sync_doc(st, info);
+            if let Some(doc) = st.doc() {
+                st.notice = word_count_notice(doc);
+            }
+            Update::RefreshDom
+        }
         Command::Zoom(step) => {
             st.zoom_percent = if step == 0 {
                 100.0
@@ -321,11 +440,29 @@ pub fn run(app: &mut RefAny, cmd: Command, info: &mut CallbackInfo) -> Update {
     }
 }
 
-/// Writes the open document as PDF (`pdf`) or Markdown into the data
+/// Runs editor commands on the shown document: a button of the ribbon or the rail took the focus,
+/// it goes back into the text; the buttons that show the caret's state follow either way.
+fn rich_commands(
+    st: &mut AppState,
+    info: &mut CallbackInfo,
+    handle: &RefAny,
+    commands: Vec<azul::widgets::RichTextCommand>,
+) -> Update {
+    let Some(doc) = st.doc_mut() else {
+        return Update::DoNothing;
+    };
+    if flow::run(&mut doc.editor, info, commands) {
+        doc.touch();
+    }
+    paginate::ensure(st, info, handle);
+    Update::RefreshDom
+}
+
+/// Writes the shown document as PDF (`pdf`) or Markdown into the data
 /// tree's exports (`writer/exports/<title>.<ext>`), on a Thread.
 fn export(st: &mut AppState, info: &mut CallbackInfo, app: &RefAny, pdf: bool) -> Update {
     sync_doc(st, info);
-    let Some(doc) = st.doc.as_ref() else {
+    let Some(doc) = st.doc() else {
         return Update::DoNothing;
     };
     let (key, bytes) = if pdf {
@@ -341,44 +478,33 @@ fn export(st: &mut AppState, info: &mut CallbackInfo, app: &RefAny, pdf: bool) -
     Update::RefreshDom
 }
 
-/// Closes the open document (saved first when it has changes).
-fn close_document(st: &mut AppState, info: &mut CallbackInfo, app: &RefAny) -> Update {
-    save_if_dirty(st, info, app);
-    st.doc = None;
+/// Closes open document `index` (written first when it has changes); the one that takes the
+/// screen is the neighbour that slid into its place. Closing the last document leaves the empty
+/// state.
+fn close_at(st: &mut AppState, info: &mut CallbackInfo, app: &RefAny, index: usize) -> Update {
+    if index >= st.open.len() {
+        return Update::DoNothing;
+    }
+    if index == st.active {
+        sync_doc(st, info);
+    }
+    if st.open[index].is_dirty() && !st.is_saving_doc(&st.open[index].id) {
+        save_at(st, info, app, index, storage::tag::SAVE);
+    }
+    let before = st.open.len();
+    st.open.remove(index);
+    st.active = docs::active_after_close(before, st.active, index).unwrap_or(0);
+    st.sheet_doc = None;
     st.screen = Screen::Editor;
     Update::RefreshDom
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn the_answer_of_an_import_read_is_a_document_or_a_sentence() {
-        crate::l10n::in_english();
-        let doc = imported("notes.md", Ok(Some(b"# Hello\n\nworld\n".to_vec()))).expect("markdown");
-        assert_eq!(crate::model::title_of(&doc), "Hello");
-        let docx = include_bytes!("../testdata/sample.docx").to_vec();
-        let doc = imported("Report.docx", Ok(Some(docx))).expect("word");
-        assert_eq!(crate::model::title_of(&doc), "A Real Heading");
-        assert_eq!(
-            imported("gone.md", Ok(None)).err().as_deref(),
-            Some("gone.md is gone.")
-        );
-        assert_eq!(
-            imported("locked.md", Err("permission denied".to_string())).err().as_deref(),
-            Some("locked.md could not be read: permission denied")
-        );
-        let broken = imported("broken.docx", Ok(Some(b"not a zip".to_vec()))).expect_err("not Word");
-        assert!(broken.starts_with("broken.docx could not be imported: "), "{broken}");
-    }
-
-    #[test]
-    fn an_import_reads_word_by_name_and_markdown_otherwise() {
-        let doc = import_bytes("notes.md", b"# Hello\n\nworld\n").expect("markdown");
-        assert_eq!(crate::model::title_of(&doc), "Hello");
-        let docx = include_bytes!("../testdata/sample.docx");
-        let doc = import_bytes("Report.DOCX", docx).expect("word");
-        assert_eq!(crate::model::title_of(&doc), "A Real Heading");
-    }
+/// Closes the shown document (saved first when it has changes).
+fn close_document(st: &mut AppState, info: &mut CallbackInfo, app: &RefAny) -> Update {
+    let index = st.active;
+    close_at(st, info, app, index)
 }
+
+#[cfg(test)]
+#[path = "commands_test.rs"]
+mod commands_test;

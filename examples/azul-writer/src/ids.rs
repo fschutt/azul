@@ -42,3 +42,12 @@ pub const NOTICE: AzString = AzString::from_const_str("__azwriter_notice");
 pub const SETTINGS_VIEW: AzString = AzString::from_const_str("__azwriter_settings-view");
 /// The About dialog's frame.
 pub const ABOUT: AzString = AzString::from_const_str("__azwriter_about");
+
+/// The frame of the window (azul's `AppFrame`): the sidebar, the ribbon, the text, the status bar.
+pub const FRAME: AzString = AzString::from_const_str("__azwriter_frame");
+/// The sidebar: the open documents, the outline, the pages, the styles; collapsed, the rail.
+pub const SIDEBAR: AzString = AzString::from_const_str("__azwriter_sidebar");
+/// The ribbon: the tab row and the active tab's band (File shows the location).
+pub const RIBBON: AzString = AzString::from_const_str("__azwriter_ribbon");
+/// A block of the document: `__azwriter_doc-<index>` (the engine's block ids).
+pub const BLOCK_PREFIX: &str = "__azwriter_doc-";

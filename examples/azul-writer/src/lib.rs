@@ -1,14 +1,17 @@
 //! AzWriter: a Word-style document editor on the public azul API.
 //!
-//! The window is the S1 `DocumentShell` (`WindowDecorations::NoTitle`: the
-//! ribbon, whose tabs are the title bar, or the backstage under the
-//! app-drawn `Titlebar`; the A4 pages, the status bar) inside a
-//! `ShellThemeScope`, behind a `CloseGuard` that
-//! asks "Save changes?"; it follows the app theme (flat / flora) and the
-//! OS mode. The text is azul's shared rich-text editor (`RichTextEditor` +
-//! `RichTextDoc`, the one AzNotes and AzMail's compose window use): one
-//! document, ONE undo history (Ctrl/Cmd+Z included), formats from the
-//! engine, one editing host per page (`RichTextEditor::page_doms`, the
+//! The window is azul's `AppFrame` (`WindowDecorations::NoTitle`): a full-height SIDEBAR that lists
+//! the open documents (each with its sync pie and its collaboration icon, UI only) and, collapsed to
+//! the 18 px rail, carries the formatting quick access at the bottom where the thumb is; the tab
+//! RIBBON whose tabs are the title bar (File shows the location of the document, then Home, Insert,
+//! Layout, Review, View); the text, which FLOWS like a mobile Markdown editor (the page layout is a
+//! View option) with no Preview and no list beside it; the status bar. File's old pages are the
+//! backstage under the app-drawn `Titlebar`. All of it sits inside a `ShellThemeScope`, behind a
+//! `CloseGuard` that asks "Save changes?"; it follows the app theme (flat / flora) and the OS mode.
+//! The text is azul's shared rich-text editor (`RichTextEditor` +
+//! `RichTextDoc`, the one AzNotes and AzMail's compose window use, wrapped by azul-appkit's flow
+//! module): the open documents each have ONE undo history (Ctrl/Cmd+Z included), formats from the
+//! engine, one editing host per page of the page layout (`RichTextEditor::page_doms`, the
 //! pages from the engine's pagination). Documents are Markdown files in the
 //! data tree, `writer/<uuid>.md`, exports in `writer/exports/`, written
 //! through azul-storage from a `Thread` (azul-appkit's file jobs); args,
@@ -24,15 +27,19 @@ mod backstage;
 pub mod commands;
 pub mod docx;
 pub mod ids;
-mod insets;
 pub mod l10n;
 #[cfg(test)]
 mod l10n_tests;
 pub mod model;
+pub mod nav;
 pub mod pages;
 pub mod paginate;
 mod ribbon;
 pub mod storage;
+mod ui_frame;
+mod ui_location;
+mod ui_sheet;
+mod ui_sidebar;
 
 use azul::{
     app::App,
@@ -74,7 +81,7 @@ pub const SCREENS: [&str; 4] = ["editor", "open", "new", "settings"];
 pub const SPEC: AppSpec = AppSpec {
     name: "AzWriter",
     binary: "AzWriter",
-    summary: "documents on A4 pages, kept as Markdown files",
+    summary: "documents that flow like a Markdown editor or sit on A4 pages, kept as Markdown files",
     screens: &SCREENS,
     files_help: "Markdown (.md) or Word (.docx) files to import as new documents",
 };
@@ -83,16 +90,18 @@ pub const ABOUT: AboutInfo = AboutInfo {
     name: "AzWriter",
     version: env!("CARGO_PKG_VERSION"),
     // The About page says it by `azwriter-about-summary` (l10n::app_word).
-    summary: "A document editor with A4 pages: headings, lists, tables, page breaks, Word import \
-              and PDF export. Every document is a Markdown file in your data folder.",
+    summary: "A document editor whose text flows like a Markdown editor (A4 pages are a View option): \
+              headings, lists, tables, page breaks, Word import and PDF export. Every document is a \
+              Markdown file in your data folder.",
     license: "MIT",
     app_folder: storage::APP_FOLDER,
 };
 
-pub const SHORTCUTS: [Shortcut; 14] = [
+pub const SHORTCUTS: [Shortcut; 15] = [
     Shortcut::new("azwriter-shortcut-document", "Mod+N", "azwriter-new-document"),
     Shortcut::new("azwriter-shortcut-document", "Mod+O", "azwriter-open-document"),
     Shortcut::new("azwriter-shortcut-document", "Mod+S", "azwriter-save"),
+    Shortcut::new("azwriter-shortcut-document", "Mod+W", "azwriter-close-document"),
     Shortcut::new("azwriter-shortcut-document", "Mod+P", "azwriter-export-pdf"),
     Shortcut::new("azwriter-group-editing", "Mod+Z", "azwriter-undo"),
     Shortcut::new("azwriter-group-editing", "Mod+Shift+Z / Mod+Y", "azwriter-redo"),
@@ -150,9 +159,9 @@ pub fn start() {
         azul_appkit::l10n::set_locale(language.tag());
     }
     let mut st = AppState::new(kit_ref.clone(), data_root, args.sample);
-    st.doc = Some(DocumentModel::untitled(model::new_document_id()));
+    st.open.push(DocumentModel::untitled(model::new_document_id()));
     if let Some(doc) = args.files.first().and_then(|p| import_at_start(p)) {
-        st.doc = Some(DocumentModel::from_doc(model::new_document_id(), doc, String::new()));
+        commands::show_document(&mut st, DocumentModel::from_doc(model::new_document_id(), doc, String::new()));
         st.save_on_start = true;
     }
     match args.screen.as_deref() {
@@ -221,12 +230,19 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
     // Reading the mode and the theme makes a switch of either rebuild the window.
     let _mode = info.get_mode();
     let _theme = info.get_theme();
-    let width = info.get_window_width();
     let app = data.clone();
-    // The window's fonts, for the pagination thread.
+    // The engine's one rule for a phone's layout, asked while the DOM is built (a resize across 600 dp builds it again).
+    let phone = ui_frame::is_phone();
     if let Some(mut st) = data.downcast_mut::<AppState>() {
+        // The window's fonts, for the pagination thread.
         if st.fonts.is_none() {
             st.fonts = Some(FontCacheSnapshot::from_layout_info(&info));
+        }
+        st.phone = phone;
+        // The first layout says what the sidebar starts as: the rail on a phone, open on a desktop.
+        if !st.sidebar_chosen {
+            st.sidebar_chosen = true;
+            st.sidebar = ui_frame::initial_sidebar(phone);
         }
     }
     let Some(guard) = data.downcast_ref::<AppState>() else {
@@ -234,68 +250,38 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
     };
     let st = &*guard;
     let title = st.title();
-    // A phone's window draws under the system bars (`ribbon::for_the_phone`): what stands in the way of a bar, a
-    // camera or the home indicator keeps clear of it by the insets. Any other window is inset by the engine.
-    let insets = if ribbon::draws_under_the_bars() { insets::Insets::of(&info) } else { insets::Insets::default() };
-    // The strip of tabs a phone's editor has at the very top of the window, in the status bar's band.
-    let mut strip = None;
     let content = if kit::settings_open(&st.kit) {
-        insets.around(column(vec![kit::title_row(&title), kit::settings_page(&st.kit, Vec::new())]), true)
+        ui_frame::clear_of_bars(column(vec![kit::title_row(&title), kit::settings_page(&st.kit, Vec::new())]), &info)
     } else {
         match st.screen {
-            Screen::Backstage => insets.around(
+            Screen::Backstage => ui_frame::clear_of_bars(
                 DocumentShell::create(Dom::create_div())
                     .office_shell()
                     .with_title_row(kit::title_row(&title))
                     .with_backstage(backstage::backstage(&app, st))
                     .dom(),
-                true,
+                &info,
             ),
-            // A phone: the tabs as a strip of touch pills in the status bar's band and the active tab's keys under
-            // it, not the ribbon (its keys are not a finger's and its groups do not fit the screen). A narrow
-            // window of any machine has the same room.
-            Screen::Editor if width < ribbon::PHONE_WIDTH || info.window_height_less_than(ribbon::PHONE_HEIGHT) => {
-                let band = ribbon::status_band(&info);
-                let in_the_band = band.is_some();
-                let tabs = ribbon::phone_strip(&app, st, band);
-                let shell = DocumentShell::create(pages::document_area(&app, st, width))
-                    .office_shell()
-                    .with_ribbon(ribbon::phone_bar(&app, st))
-                    .with_status_bar(pages::status_bar(&app, st, true))
-                    .dom();
-                if in_the_band {
-                    // The strip stands where the status bar was; the rest keeps clear of the other sides.
-                    strip = Some(tabs);
-                    insets.around(shell, false)
-                } else {
-                    // The system still shows its status bar: the strip is a row under it, like the rest.
-                    insets.around(column(vec![tabs, shell]), true)
-                }
-            }
-            // No title row: the ribbon's tabs are the title bar.
-            Screen::Editor => insets.around(
-                DocumentShell::create(pages::document_area(&app, st, width))
-                    .office_shell()
-                    .with_ribbon(ribbon::ribbon(&app, st))
-                    .with_status_bar(pages::status_bar(&app, st, false))
-                    .dom(),
-                true,
-            ),
+            // The frame: the sidebar, the ribbon (the tabs are the title bar; on a phone they stand in the
+            // status bar's band beside the camera), the text, the status bar.
+            Screen::Editor => ui_frame::editor_frame(st, &app, &info, phone),
         }
     };
-    let document_name = st.doc.as_ref().map_or_else(|| "AzWriter".to_string(), DocumentModel::title);
+    let document_name = st.doc().map_or_else(|| "AzWriter".to_string(), DocumentModel::title);
     let guarded = kit::close_guard(content, &document_name)
-        .with_dirty(st.is_dirty())
+        .with_dirty(st.any_dirty())
         .with_asking(st.asking_close)
         .with_on_event(app.clone(), on_close_guard)
         .dom();
-    // The strip first: it stands at the very top of the window. A newer AzWriter waiting: the update kit's banner
-    // over everything else.
-    let mut children: Vec<Dom> = strip.into_iter().collect();
-    children.extend(azul_appkit::update::app::banner(&st.kit));
+    // A newer AzWriter waiting: the update kit's banner over everything else.
+    let mut children: Vec<Dom> = azul_appkit::update::app::banner(&st.kit).into_iter().collect();
     children.push(guarded);
     children.push(about_modal(&app, st));
-    let root = column(children);
+    let mut root =
+        Dom::create_div().with_css("display: flex; flex-direction: column; width: 100%; height: 100%; min-height: 0px;");
+    for child in children {
+        root.add_child(child);
+    }
     Dom::create_body()
         .with_css("display: flex; flex-direction: column; margin: 0px; padding: 0px; height: 100%;")
         .with_child(ShellThemeScope::create(root).with_accent(ShellThemeAccent::Blue).dom())
@@ -417,8 +403,10 @@ pub extern "C" fn on_files_done(mut app: RefAny, mut msg: RefAny, mut info: Call
                     (Some(id), Ok(())) => {
                         if let Some(at) = st.pending_saves.iter().position(|(i, _)| *i == id) {
                             let (_, markdown) = st.pending_saves.remove(at);
-                            if let Some(doc) = st.doc.as_mut().filter(|d| d.id == id) {
+                            // the document may have been closed while its write was on the way
+                            if let Some(doc) = st.open.iter_mut().find(|d| d.id == id) {
                                 doc.saved = markdown;
+                                doc.save_failed = false;
                             }
                         }
                         println!("AZWRITER_SAVED {id}");
@@ -427,6 +415,9 @@ pub extern "C" fn on_files_done(mut app: RefAny, mut msg: RefAny, mut info: Call
                     (Some(id), Err(e)) => {
                         st.pending_saves.retain(|(i, _)| *i != id);
                         st.close_after_save = false;
+                        if let Some(doc) = st.open.iter_mut().find(|d| d.id == id) {
+                            doc.save_failed = true;
+                        }
                         st.notice = azul_appkit::l10n::t_args(
                             "azwriter-doc-unsaved",
                             &[("why", azul_appkit::l10n::Arg::from(e.to_string()))],
@@ -494,7 +485,7 @@ extern "C" fn on_close_guard(mut data: RefAny, mut info: CallbackInfo, event: Cl
         CloseGuardEventKind::Save => {
             st.asking_close = false;
             st.close_after_save = true;
-            commands::save(st, &mut info, &handle, storage::tag::SAVE_AND_CLOSE);
+            commands::save_all(st, &mut info, &handle, storage::tag::SAVE_AND_CLOSE);
         }
         // The guard closes the window itself.
         CloseGuardEventKind::Discard => st.discard_document(),
@@ -542,6 +533,7 @@ extern "C" fn on_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
         (VirtualKeyCode::N, true, false) => Command::NewDocument,
         (VirtualKeyCode::O, true, false) => Command::OpenBackstage(BackstagePage::Open),
         (VirtualKeyCode::P, true, false) => Command::ExportPdf,
+        (VirtualKeyCode::W, true, false) => Command::CloseDocument,
         (VirtualKeyCode::Escape, false, _) if about_open => {
             if let Some(mut st) = data.downcast_mut::<AppState>() {
                 st.about_open = false;

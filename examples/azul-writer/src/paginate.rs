@@ -209,56 +209,60 @@ pub fn compute_starts(doc: &RichTextDoc, fonts: FontCacheSnapshot) -> Vec<Start>
 
 struct PaginateInit {
     doc: Option<RichTextDoc>,
+    /// The document the pages are for (the open documents each keep their own).
+    doc_id: String,
     generation: u64,
     fonts: FontCacheSnapshot,
 }
 
 struct PaginateDone {
+    doc_id: String,
     generation: u64,
     starts: Vec<Start>,
 }
 
 extern "C" fn paginate_worker(mut init: RefAny, mut sender: ThreadSender, _recv: ThreadReceiver) {
-    let Some((doc, generation, fonts)) = init.downcast_mut::<PaginateInit>().and_then(|mut i| {
+    let Some((doc, doc_id, generation, fonts)) = init.downcast_mut::<PaginateInit>().and_then(|mut i| {
         let doc = i.doc.take()?;
-        Some((doc, i.generation, i.fonts.clone()))
+        Some((doc, i.doc_id.clone(), i.generation, i.fonts.clone()))
     }) else {
         return;
     };
     let starts = compute_starts(&doc, fonts);
     let _sent = sender.send(ThreadReceiveMsg::WriteBack(ThreadWriteBackMsg::create(
         on_paginated,
-        RefAny::new(PaginateDone { generation, starts }),
+        RefAny::new(PaginateDone { doc_id, generation, starts }),
     )));
 }
 
-/// Starts the pagination of the open document when its pages are not known
-/// for its generation and none is on the way (one at a time: the answer
-/// starts the next if the document changed meanwhile).
+/// Starts the pagination of the shown document when its pages are not known for its generation
+/// and none is on the way for it (one at a time: the answer starts the next if the document
+/// changed meanwhile).
 pub fn ensure(state: &mut AppState, info: &mut CallbackInfo, app: &RefAny) {
-    let Some(doc) = state.doc.as_ref() else {
-        return;
-    };
-    if state.pages.generation == doc.generation || state.paginating.is_some() {
-        return;
-    }
     let Some(fonts) = state.fonts.clone() else {
         return;
     };
+    let Some(doc) = state.doc_mut() else {
+        return;
+    };
+    if doc.pages.generation == doc.generation || doc.paginating.is_some() {
+        return;
+    }
     let generation = doc.generation;
     let init = RefAny::new(PaginateInit {
         doc: Some(doc.doc().clone()),
+        doc_id: doc.id.clone(),
         generation,
         fonts,
     });
+    doc.paginating = Some(generation);
     info.add_thread(ThreadId::unique(), Thread::create(init, app.clone(), paginate_worker));
-    state.paginating = Some(generation);
 }
 
 extern "C" fn on_paginated(mut app: RefAny, mut msg: RefAny, mut info: CallbackInfo) -> Update {
-    let Some((generation, starts)) = msg
+    let Some((doc_id, generation, starts)) = msg
         .downcast_mut::<PaginateDone>()
-        .map(|mut d| (d.generation, core::mem::take(&mut d.starts)))
+        .map(|mut d| (d.doc_id.clone(), d.generation, core::mem::take(&mut d.starts)))
     else {
         return Update::DoNothing;
     };
@@ -267,12 +271,21 @@ extern "C" fn on_paginated(mut app: RefAny, mut msg: RefAny, mut info: CallbackI
         return Update::DoNothing;
     };
     let state = &mut *guard;
-    state.paginating = None;
-    let changed = state.pages.starts != starts;
-    state.pages = Pages { generation, starts };
-    println!("AZWRITER_PAGES {}", state.pages.starts.len());
+    // the document may have been closed while its pages were computed: then there is nothing to keep
+    let mut changed = false;
+    let mut shown = false;
+    if let Some(at) = state.open.iter().position(|d| d.id == doc_id) {
+        shown = at == state.active;
+        let doc = &mut state.open[at];
+        doc.paginating = None;
+        changed = doc.pages.starts != starts;
+        doc.pages = Pages { generation, starts };
+        if shown {
+            println!("AZWRITER_PAGES {}", doc.pages.starts.len());
+        }
+    }
     ensure(state, &mut info, &handle);
-    if changed {
+    if changed && shown {
         Update::RefreshDom
     } else {
         Update::DoNothing

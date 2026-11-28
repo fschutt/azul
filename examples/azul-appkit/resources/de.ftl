@@ -9,6 +9,40 @@ kit-close-text = Deine Änderungen gehen verloren, wenn du sie nicht speicherst.
 kit-close-save = Speichern
 kit-close-discard = Nicht speichern
 
+## Die offenen Dokumente einer Dokument-App (Zeilen der Seitenleiste: das Sync-Kuchendiagramm und das Zusammenarbeits-Symbol)
+kit-doc-saved = Gespeichert
+kit-doc-saving = Wird gespeichert
+kit-doc-unsaved = Ungespeicherte Änderungen
+kit-doc-failed = Nicht gespeichert
+kit-doc-saved-detail = Das Dokument ist auf diesem Gerät gespeichert.
+kit-doc-saving-detail = Das Dokument wird gerade auf dieses Gerät geschrieben.
+kit-doc-unsaved-detail = Die Änderungen werden geschrieben, wenn du speicherst, zu einem anderen Dokument wechselst oder die App verlässt.
+kit-doc-failed-detail = Das letzte Speichern hat nicht geklappt. Das Dokument bleibt mit seinen Änderungen geöffnet.
+kit-doc-collab-on = Die Zusammenarbeit ist für dieses Dokument eingeschaltet
+kit-doc-collab-off = Zusammenarbeit für dieses Dokument einschalten
+kit-doc-collab-note = Gemeinsam an einem Dokument zu arbeiten braucht das Sync-Kit, das in dieser Version noch nicht enthalten ist.
+kit-doc-new = Neu oder öffnen
+kit-doc-section = Offene Dokumente
+kit-doc-too-many = { $count } Dokumente sind geöffnet, mehr geht nicht. Schließe zuerst eines.
+
+## Die Schnellzugriffe des Fließtext-Editors (die Formatierungs-Knöpfe der eingeklappten Leiste einer Schreib-App)
+kit-flow-undo = Rückgängig
+kit-flow-redo = Wiederholen
+kit-flow-bold = Fett
+kit-flow-italic = Kursiv
+kit-flow-underline = Unterstrichen
+kit-flow-strike = Durchgestrichen
+kit-flow-code = Code
+kit-flow-size-down = Kleinerer Text
+kit-flow-size-up = Größerer Text
+kit-flow-bullets = Aufzählung
+kit-flow-numbers = Nummerierte Liste
+kit-flow-checklist = Checkliste
+kit-flow-heading = Überschrift
+kit-flow-quote = Zitat
+kit-flow-outdent = Einzug verkleinern
+kit-flow-indent = Einzug vergrößern
+
 ## Die Kategorien der Einstellungsseite und die Zeile darüber
 kit-category-general = Allgemein
 kit-category-data = Daten

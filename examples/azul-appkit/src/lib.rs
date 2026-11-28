@@ -8,6 +8,8 @@
 //!   guessed from the header line).
 //! - [`data`]: the per-user data layout - one folder per app under the data
 //!   root, keyed as the user's S3 bucket will be.
+//! - [`docs`]: the open documents of a document app (AzWriter, AzSheets, AzShow): the sidebar's rows, the
+//!   sync pie (the local save state until the sync kit exists), the collaboration switch, the list rules.
 //! - [`settings`]: `<app>/settings.json` (app theme, mode, the app's values).
 //! - [`azlin_config`]: `~/.azlin/config.json`, the one config every Azlin app
 //!   shares (`currentTheme`, `mode`): read at the start, written when the look
@@ -63,6 +65,10 @@
 //! - `backstage` (feature `azul`): the right side of the File tab in the
 //!   Outlook 2010 look (a page's title, cards, command rows of a button, a
 //!   heading and what it does, two columns, sections, facts).
+//! - `docs_ui` (feature `azul`): the open documents as sidebar rows (sync pie, collaboration icon, the
+//!   "New or open" row) and the decoding of what the sidebar reports about them.
+//! - `flow` (feature `azul`): the FLOW editor the writing apps share (AzWriter, AzNotes): the page the
+//!   text flows on, the formatting quick access of the sidebar's rail and what a tap on it runs.
 //! - `ribbon` (feature `azul`): the office apps' ribbon buttons, columns,
 //!   rows and groups (one builder; the app's command type implements
 //!   `RibbonCommand`).
@@ -85,8 +91,10 @@ pub mod client_health;
 pub mod css;
 pub mod csv;
 pub mod data;
+pub mod docs;
 pub mod files;
 pub mod find;
+pub mod flow_rules;
 pub mod history;
 pub mod insets;
 pub mod l10n_check;
@@ -113,6 +121,10 @@ mod clickable_tests;
 
 #[cfg(feature = "azul")]
 pub mod backstage;
+#[cfg(feature = "azul")]
+pub mod docs_ui;
+#[cfg(feature = "azul")]
+pub mod flow;
 #[cfg(feature = "azul")]
 pub mod frame;
 #[cfg(feature = "look")]

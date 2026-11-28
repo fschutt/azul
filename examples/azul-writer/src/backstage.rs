@@ -1,7 +1,9 @@
-//! File: the backstage. Info (the open document: title, words, pages,
+//! File's old pages: the backstage. Info (the shown document: title, words, pages,
 //! where its file is; Save, Export, Delete), New (a blank document, an
-//! import), Open (the documents in the data tree), Save, Export (PDF and
-//! Markdown into the data tree's exports), Close.
+//! import), Open (the documents in the data tree, with the blank document and the
+//! import beside them), Save, Export (PDF and Markdown into the data tree's exports), Close.
+//! The `...` of the File tab's location opens Info; the sidebar's "New or open" row and the
+//! location's "Documents" crumb open Open.
 
 use azul::{
     callbacks::{BackstageOnNavSelectCallbackType, ButtonOnClickCallbackType, CallbackInfo, RefAny, Update},
@@ -11,7 +13,7 @@ use azul::{
 };
 
 use crate::{
-    app::{command, AppState, BackstagePage, Command},
+    app::{command, AppState, BackstagePage, Command, BACKSTAGE_NAV},
     commands::on_command,
     ids, storage,
 };
@@ -66,7 +68,7 @@ fn pane(children: Vec<Dom>) -> Dom {
 
 /// Where the open document's file is, as the user reads it.
 fn file_line(st: &AppState) -> String {
-    match st.doc.as_ref() {
+    match st.doc() {
         Some(doc) => azul_appkit::l10n::t_args(
             "azwriter-file",
             &[(
@@ -81,14 +83,14 @@ fn file_line(st: &AppState) -> String {
 }
 
 fn info_page(app: &RefAny, st: &AppState) -> Dom {
-    let Some(doc) = st.doc.as_ref() else {
+    let Some(doc) = st.doc() else {
         return pane(vec![
             heading("azwriter-page-info"),
             line("azwriter-no-doc-open"),
             buttons(vec![primary(app, ids::NEW_DOC, "azwriter-blank-document", Command::NewDocument)]),
         ]);
     };
-    let pages = st.pages.starts_for(doc.doc().block_count()).len();
+    let pages = doc.pages.starts_for(doc.doc().block_count()).len();
     pane(vec![
         heading(&doc.title()),
         line(&azul_appkit::l10n::t_args(
@@ -146,6 +148,10 @@ fn open_page(app: &RefAny, st: &AppState) -> Dom {
     }
     pane(vec![
         heading("azwriter-page-open"),
+        buttons(vec![
+            primary(app, ids::NEW_DOC, "azwriter-blank-document", Command::NewDocument),
+            button(app, ids::IMPORT, "azwriter-import-file", Command::Import),
+        ]),
         line(&azul_appkit::l10n::t_args(
             "azwriter-your-documents",
             &[(
@@ -188,7 +194,7 @@ fn export_page(app: &RefAny, st: &AppState) -> Dom {
 }
 
 extern "C" fn on_nav(mut data: RefAny, mut info: CallbackInfo, index: usize) -> Update {
-    let page = BackstagePage::NAV.get(index).copied().unwrap_or(BackstagePage::Info);
+    let page = BACKSTAGE_NAV.get(index).copied().unwrap_or(BackstagePage::Info);
     crate::commands::run(&mut data, Command::OpenBackstage(page), &mut info)
 }
 
@@ -202,7 +208,7 @@ pub fn backstage(app: &RefAny, st: &AppState) -> Dom {
         BackstagePage::Save => save_page(app, st),
         BackstagePage::Export => export_page(app, st),
     };
-    let nav: Vec<BackstageNavItem> = BackstagePage::NAV
+    let nav: Vec<BackstageNavItem> = BACKSTAGE_NAV
         .iter()
         .map(|p| {
             let item = BackstageNavItem::create(s(p.label()));

@@ -2,13 +2,14 @@
 
 ## AzWriter
 
-azwriter-about-summary = Ein Dokument-Editor mit A4-Seiten: Überschriften, Listen, Tabellen, Seitenumbrüche, Word-Import und PDF-Export. Jedes Dokument ist eine Markdown-Datei in deinem Datenordner.
+azwriter-about-summary = Ein Dokument-Editor, dessen Text wie in einem Markdown-Editor fließt (A4-Seiten sind eine Ansichtsoption): Überschriften, Listen, Tabellen, Seitenumbrüche, Word-Import und PDF-Export. Jedes Dokument ist eine Markdown-Datei in deinem Datenordner.
 azwriter-shortcut-document = Dokument
 azwriter-group-editing = Bearbeiten
 azwriter-group-window = Fenster
 azwriter-new-document = Neues Dokument
 azwriter-open-document = Ein Dokument öffnen
 azwriter-save = Speichern
+azwriter-close-document = Das Dokument schließen
 azwriter-export-pdf = Als PDF exportieren
 azwriter-undo = Rückgängig
 azwriter-redo = Wiederholen
@@ -38,6 +39,8 @@ azwriter-page-close = Schließen
 azwriter-tab-file = DATEI
 azwriter-tab-home = START
 azwriter-tab-insert = EINFÜGEN
+azwriter-tab-layout = LAYOUT
+azwriter-tab-review = ÜBERPRÜFEN
 azwriter-tab-view = ANSICHT
 azwriter-file = Datei: { $path }
 azwriter-no-doc-open = Kein Dokument ist geöffnet.
@@ -57,7 +60,7 @@ azwriter-no-documents = Es gibt noch keine Dokumente.
 azwriter-doc-row = { $title }  ({ $words } Wörter)
 azwriter-your-documents = Deine Dokumente, in { $folder }
 azwriter-save-what = Dokumente werden als Markdown-Dateien in deinem Datenordner gespeichert.
-azwriter-export-what = Ein PDF behält das A4-Layout; Markdown behält den Text und seine Struktur.
+azwriter-export-what = Ein PDF behält das A4-Layout; Markdown behält den Text und seine Struktur. Beides wird in deinen Datenordner geschrieben.
 azwriter-exports-go-to = Exporte kommen nach { $folder }
 azwriter-export-markdown = Als Markdown exportieren
 azwriter-empty = Kein Dokument ist geöffnet
@@ -102,11 +105,20 @@ azwriter-group-styles = Formatvorlagen
 azwriter-group-tables = Tabellen
 azwriter-table = Tabelle
 azwriter-group-pages = Seiten
+azwriter-group-indent = Einzug
+azwriter-group-breaks = Umbrüche
+azwriter-group-proofing = Überprüfung
+azwriter-group-comments = Kommentare
 azwriter-page-break = Seitenumbruch
 azwriter-line = Linie
+azwriter-word-count-button = Wörter zählen
+azwriter-spelling = Rechtschreibung
+azwriter-no-spelling = Die Rechtschreibprüfung braucht ein Wörterbuch, das AzWriter noch nicht hat.
+azwriter-new-comment = Neuer Kommentar
+azwriter-no-comments = Kommentare brauchen das Sync-Kit, das in dieser Version noch nicht enthalten ist.
 azwriter-group-views = Ansichten
-azwriter-print-layout = Drucklayout
-azwriter-web-layout = Weblayout
+azwriter-flow-layout = Fließtext
+azwriter-page-layout = Seitenlayout
 azwriter-group-zoom = Zoom
 azwriter-zoom-in = Vergrößern
 azwriter-zoom-out = Verkleinern
@@ -123,3 +135,23 @@ azwriter-importing = { $path } wird importiert...
 azwriter-not-importable = { $path } ist keine Datei, die importiert werden kann.
 azwriter-import-dialog = Ein Dokument importieren
 azwriter-pdf-failed = Das PDF konnte nicht erstellt werden.
+azwriter-word-count = { $words } Wörter, { $characters } Zeichen, { $pages ->
+    [one] 1 Seite
+   *[other] { $pages } Seiten
+ }
+azwriter-location-documents = Dokumente
+azwriter-sidebar-label = Dokumente, Gliederung und Formatvorlagen
+azwriter-outline-title = Gliederung
+azwriter-outline-more = { $count } weitere Überschriften
+azwriter-pages-title = Seiten
+azwriter-page-row = Seite { $page }
+azwriter-styles-title = Formatvorlagen
+azwriter-status-pages-label = Seiten
+azwriter-status-pages-detail = { $pages ->
+    [one] Das Dokument hat 1 Seite.
+   *[other] Das Dokument hat { $pages } Seiten.
+ }
+azwriter-sheet-show = Anzeigen
+azwriter-sheet-close = Schließen
+azwriter-sheet-collab-on = Zusammenarbeit einschalten
+azwriter-sheet-collab-off = Zusammenarbeit ausschalten

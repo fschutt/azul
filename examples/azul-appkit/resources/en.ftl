@@ -9,6 +9,40 @@ kit-close-text = Your changes will be lost if you don't save them.
 kit-close-save = Save
 kit-close-discard = Don't Save
 
+## The open documents of a document app (the sidebar's rows: the sync pie and the collaboration icon)
+kit-doc-saved = Saved
+kit-doc-saving = Saving
+kit-doc-unsaved = Unsaved changes
+kit-doc-failed = Not saved
+kit-doc-saved-detail = The document is saved on this device.
+kit-doc-saving-detail = The document is being written to this device.
+kit-doc-unsaved-detail = The changes are written when you save, switch to another document or leave the app.
+kit-doc-failed-detail = The last save did not work. The document stays open with its changes.
+kit-doc-collab-on = Collaboration is on for this document
+kit-doc-collab-off = Switch collaboration on for this document
+kit-doc-collab-note = Working on a document together needs the sync kit, which is not part of this version yet.
+kit-doc-new = New or open
+kit-doc-section = Open documents
+kit-doc-too-many = { $count } documents are open, which is the most. Close one first.
+
+## The flow editor's quick access (the formatting buttons of the collapsed rail of a writing app)
+kit-flow-undo = Undo
+kit-flow-redo = Redo
+kit-flow-bold = Bold
+kit-flow-italic = Italic
+kit-flow-underline = Underline
+kit-flow-strike = Strikethrough
+kit-flow-code = Code
+kit-flow-size-down = Smaller text
+kit-flow-size-up = Larger text
+kit-flow-bullets = Bulleted list
+kit-flow-numbers = Numbered list
+kit-flow-checklist = Checklist
+kit-flow-heading = Heading
+kit-flow-quote = Quote
+kit-flow-outdent = Decrease indent
+kit-flow-indent = Increase indent
+
 ## The categories of the settings page and the line over each
 kit-category-general = General
 kit-category-data = Data

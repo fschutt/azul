@@ -1,30 +1,37 @@
-//! The ribbon: FILE (the backstage), HOME (font, paragraph, styles,
-//! editing), INSERT (table, rule, page break), VIEW (print / web layout,
-//! zoom). Every button runs a [`Command`]; the format, list, alignment and
-//! style buttons show the caret's state (the editor's
-//! `is_current_format` / `is_current_kind`), not a flag of their own.
+//! The ribbon: FILE (the location of the document), HOME (clipboard, font, paragraph, styles,
+//! editing), INSERT (table, line, page break), LAYOUT (indent, breaks), REVIEW (word count; what
+//! AzWriter does not do yet says why) and VIEW (flow / page layout, zoom, settings). Every button
+//! runs a [`Command`]; the format, list, alignment and style buttons show the caret's state (the
+//! editor's `is_current_format` / `is_current_kind`), not a flag of their own.
+//!
+//! The tab row is the window's title bar (no title row): on a phone it is a strip of icon squares
+//! in the status bar's band beside the camera cutout (`for_the_phone`, `status_band`), on a desktop
+//! the tabs' text. A button shows EITHER its words OR its icon: words on a desktop, icons on a
+//! phone (the words are its name and its tooltip there); the formatting toggles of Font and
+//! Paragraph have no words, only icons, as in Word.
 
 use azul::{
     callbacks::{
         ButtonOnClickCallbackType, CallbackInfo, DropDownOnChoiceChangeCallbackType, LayoutCallbackInfo, RefAny,
-        RibbonGalleryOnSelectCallbackType, RibbonOnTabClickCallbackType, TabOnClickCallbackType, Update,
+        RibbonGalleryOnSelectCallbackType, RibbonOnTabClickCallbackType, Update,
     },
     css::LogicalSize,
     dom::Dom,
     option::OptionString,
     str::String as AzString,
     widgets::{
-        Button, DropDown, RichAlign, RichBlockKind, RichCheck, RichFormat, RichTableSize,
-        RichTextCommand, RichTextEditorState, Ribbon, RibbonAppButton, RibbonGallery,
-        RibbonGalleryCell, RibbonItem, RibbonTab, StatusBarBand, TabHeader, TabHeaderState,
+        DropDown, RibbonButtonFace, RichAlign, RichBlockKind, RichCheck, RichFormat, RichTableSize,
+        RichTextCommand, RichTextEditorState, Ribbon, RibbonGallery, RibbonGalleryCell, RibbonItem,
+        RibbonTab, StatusBarBand, TabLabels, TabsInTitlebar,
     },
     window::{SystemBarMode, WindowCreateOptions},
 };
-use azul_appkit::ribbon::{button, column, group, large, row, small, toggle, RibbonCommand};
+use azul_appkit::ribbon::{button, column, group, icon_button, large, row, small, RibbonCommand};
 
 use crate::{
-    app::{command, AppState, BackstagePage, Command, View, TABS},
+    app::{command, AppState, Command, View, TABS, TAB_ICONS},
     commands::on_command,
+    ids, ui_location,
 };
 
 /// A key of the resources said, or words as they are (a document's title).
@@ -44,8 +51,9 @@ impl RibbonCommand for Command {
     }
 }
 
-/// The paragraph styles of the gallery (their names keys of the resources), in its order.
-pub const STYLES: [(&str, &str); 6] = [
+/// The paragraph styles of the gallery and of the sidebar's Styles section (their names keys of the
+/// resources, the CSS of their sample), in their order.
+pub static STYLES: [(&str, &str); 6] = [
     ("azwriter-style-normal", "font-size: 13px;"),
     ("azwriter-style-heading-1", "font-size: 17px; font-weight: bold;"),
     ("azwriter-style-heading-2", "font-size: 15px; font-weight: bold;"),
@@ -56,7 +64,7 @@ pub const STYLES: [(&str, &str); 6] = [
 
 /// The Font group's families: a key of the resources and the CSS family it sets (empty: the
 /// paper's own face).
-pub const FONT_FAMILIES: [(&str, &str); 4] = [
+pub static FONT_FAMILIES: [(&str, &str); 4] = [
     ("azwriter-font-default", ""),
     ("azwriter-font-serif", "serif"),
     ("azwriter-font-sans-serif", "sans-serif"),
@@ -64,7 +72,7 @@ pub const FONT_FAMILIES: [(&str, &str); 4] = [
 ];
 
 /// The Font group's sizes in points, Word's list.
-pub const FONT_SIZES: [f32; 17] = [
+pub static FONT_SIZES: [f32; 17] = [
     8.0, 9.0, 10.0, 10.5, 11.0, 12.0, 14.0, 16.0, 18.0, 20.0, 22.0, 24.0, 26.0, 28.0, 36.0, 48.0,
     72.0,
 ];
@@ -161,7 +169,7 @@ extern "C" fn on_style(mut data: RefAny, mut info: CallbackInfo, index: usize) -
         return Update::DoNothing;
     };
     let commands = match app.downcast_ref::<AppState>() {
-        Some(st) => match st.doc.as_ref() {
+        Some(st) => match st.doc() {
             Some(doc) => style_commands(&doc.editor, index),
             None => return Update::DoNothing,
         },
@@ -257,79 +265,71 @@ fn home_tab(app: &RefAny, editor: Option<&RichTextEditorState>) -> RibbonTab {
         vec![column(vec![
             row(vec![RibbonItem::Drop(families), RibbonItem::Drop(sizes)]),
             row(vec![
-            toggle(app, "format_bold", "azwriter-bold", Command::format(RichFormat::Bold), format_on(RichFormat::Bold)),
-            toggle(app, "format_italic", "azwriter-italic", Command::format(RichFormat::Italic), format_on(RichFormat::Italic)),
-            toggle(
-                app,
-                "format_underlined",
-                "azwriter-underline",
-                Command::format(RichFormat::Underline),
-                format_on(RichFormat::Underline),
-            ),
-            toggle(
-                app,
-                "strikethrough_s",
-                "azwriter-strikethrough",
-                Command::format(RichFormat::Strike),
-                format_on(RichFormat::Strike),
-            ),
-            toggle(app, "code", "azwriter-style-code", Command::format(RichFormat::Code), format_on(RichFormat::Code)),
+                icon_button(app, "format_bold", "azwriter-bold", Command::format(RichFormat::Bold), format_on(RichFormat::Bold)),
+                icon_button(app, "format_italic", "azwriter-italic", Command::format(RichFormat::Italic), format_on(RichFormat::Italic)),
+                icon_button(
+                    app,
+                    "format_underlined",
+                    "azwriter-underline",
+                    Command::format(RichFormat::Underline),
+                    format_on(RichFormat::Underline),
+                ),
+                icon_button(
+                    app,
+                    "strikethrough_s",
+                    "azwriter-strikethrough",
+                    Command::format(RichFormat::Strike),
+                    format_on(RichFormat::Strike),
+                ),
+                icon_button(app, "code", "azwriter-style-code", Command::format(RichFormat::Code), format_on(RichFormat::Code)),
             ]),
         ])],
     );
 
+    let check = RichBlockKind::Check(RichCheck {
+        indent: 0,
+        checked: false,
+    });
     let paragraph = group(
         "azwriter-group-paragraph",
         vec![column(vec![
             row(vec![
-                toggle(
+                icon_button(
                     app,
                     "format_list_bulleted",
                     "azwriter-bullets",
                     Command::kind(RichBlockKind::Bullet(0)),
                     kind_on(RichBlockKind::Bullet(0)),
                 ),
-                toggle(
+                icon_button(
                     app,
                     "format_list_numbered",
                     "azwriter-numbering",
                     Command::kind(RichBlockKind::Numbered(0)),
                     kind_on(RichBlockKind::Numbered(0)),
                 ),
-                toggle(
-                    app,
-                    "checklist",
-                    "azwriter-checklist",
-                    Command::kind(RichBlockKind::Check(RichCheck {
-                        indent: 0,
-                        checked: false,
-                    })),
-                    kind_on(RichBlockKind::Check(RichCheck {
-                        indent: 0,
-                        checked: false,
-                    })),
-                ),
-                small(app, "format_indent_decrease", "azwriter-outdent", Command::Rich(RichTextCommand::Outdent)),
-                small(app, "format_indent_increase", "azwriter-indent", Command::Rich(RichTextCommand::Indent)),
+                icon_button(app, "checklist", "azwriter-checklist", Command::kind(check.clone()), kind_on(check)),
+                icon_button(app, "format_indent_decrease", "azwriter-outdent", Command::Rich(RichTextCommand::Outdent), false),
+                icon_button(app, "format_indent_increase", "azwriter-indent", Command::Rich(RichTextCommand::Indent), false),
             ]),
             row(vec![
-                toggle(app, "format_align_left", "azwriter-left", Command::align(RichAlign::Left), align == RichAlign::Left),
-                toggle(
+                icon_button(app, "format_align_left", "azwriter-left", Command::align(RichAlign::Left), align == RichAlign::Left),
+                icon_button(
                     app,
                     "format_align_center",
                     "azwriter-center",
                     Command::align(RichAlign::Center),
                     align == RichAlign::Center,
                 ),
-                toggle(app, "format_align_right", "azwriter-right", Command::align(RichAlign::Right), align == RichAlign::Right),
-                toggle(
+                icon_button(app, "format_align_right", "azwriter-right", Command::align(RichAlign::Right), align == RichAlign::Right),
+                icon_button(
                     app,
                     "format_align_justify",
                     "azwriter-justify",
                     Command::align(RichAlign::Justify),
                     align == RichAlign::Justify,
                 ),
-                toggle(app, "format_quote", "azwriter-style-quote", Command::Rich(RichTextCommand::ToggleQuote), quoted),
+                icon_button(app, "format_quote", "azwriter-style-quote", Command::Rich(RichTextCommand::ToggleQuote), quoted),
             ]),
         ])],
     );
@@ -367,7 +367,8 @@ fn home_tab(app: &RefAny, editor: Option<&RichTextEditorState>) -> RibbonTab {
         vec![column(vec![RibbonItem::SmallButton(undo), RibbonItem::SmallButton(redo)])],
     );
 
-    RibbonTab::create(s(TABS[0]))
+    RibbonTab::create(s(TABS[1]))
+        .with_icon(TAB_ICONS[1])
         .with_group(clipboard)
         .with_group(font)
         .with_group(paragraph)
@@ -392,7 +393,47 @@ fn insert_tab(app: &RefAny) -> RibbonTab {
             large(app, "horizontal_rule", "azwriter-line", Command::Rich(RichTextCommand::InsertRule)),
         ],
     );
-    RibbonTab::create(s(TABS[1])).with_group(tables).with_group(pages)
+    RibbonTab::create(s(TABS[2])).with_icon(TAB_ICONS[2]).with_group(tables).with_group(pages)
+}
+
+/// LAYOUT: the indent of a list item and the breaks. (The paper is A4 and its margins are an inch:
+/// nothing to set yet, so nothing is offered.)
+fn layout_tab(app: &RefAny) -> RibbonTab {
+    let indent = group(
+        "azwriter-group-indent",
+        vec![column(vec![
+            small(app, "format_indent_decrease", "azwriter-outdent", Command::Rich(RichTextCommand::Outdent)),
+            small(app, "format_indent_increase", "azwriter-indent", Command::Rich(RichTextCommand::Indent)),
+        ])],
+    );
+    let breaks = group(
+        "azwriter-group-breaks",
+        vec![
+            large(app, "insert_page_break", "azwriter-page-break", Command::Rich(RichTextCommand::InsertPageBreak)),
+            large(app, "horizontal_rule", "azwriter-line", Command::Rich(RichTextCommand::InsertRule)),
+        ],
+    );
+    RibbonTab::create(s(TABS[3])).with_icon(TAB_ICONS[3]).with_group(indent).with_group(breaks)
+}
+
+/// REVIEW: the word count, and what AzWriter cannot do yet, greyed with its reason.
+fn review_tab(app: &RefAny) -> RibbonTab {
+    let proofing = group(
+        "azwriter-group-proofing",
+        vec![
+            large(app, "pin", "azwriter-word-count-button", Command::WordCount),
+            RibbonItem::LargeButton(
+                button(app, "spellcheck", "azwriter-spelling", Command::WordCount).with_disabled(s("azwriter-no-spelling")),
+            ),
+        ],
+    );
+    let comments = group(
+        "azwriter-group-comments",
+        vec![RibbonItem::LargeButton(
+            button(app, "add_comment", "azwriter-new-comment", Command::WordCount).with_disabled(s("azwriter-no-comments")),
+        )],
+    );
+    RibbonTab::create(s(TABS[4])).with_icon(TAB_ICONS[4]).with_group(proofing).with_group(comments)
 }
 
 fn view_tab(app: &RefAny, st: &AppState) -> RibbonTab {
@@ -400,12 +441,12 @@ fn view_tab(app: &RefAny, st: &AppState) -> RibbonTab {
         "azwriter-group-views",
         vec![
             RibbonItem::LargeButton(
-                button(app, View::Print.icon(), "azwriter-print-layout", Command::View(View::Print))
-                    .with_toggled(st.view == View::Print),
+                button(app, View::Flow.icon(), "azwriter-flow-layout", Command::View(View::Flow))
+                    .with_toggled(st.view == View::Flow),
             ),
             RibbonItem::LargeButton(
-                button(app, View::Web.icon(), "azwriter-web-layout", Command::View(View::Web))
-                    .with_toggled(st.view == View::Web),
+                button(app, View::Pages.icon(), "azwriter-page-layout", Command::View(View::Pages))
+                    .with_toggled(st.view == View::Pages),
             ),
         ],
     );
@@ -424,34 +465,66 @@ fn view_tab(app: &RefAny, st: &AppState) -> RibbonTab {
             large(app, "info", "azwriter-page-about", Command::About),
         ],
     );
-    RibbonTab::create(s(TABS[2])).with_group(views).with_group(zoom).with_group(help)
+    RibbonTab::create(s(TABS[5])).with_icon(TAB_ICONS[5]).with_group(views).with_group(zoom).with_group(help)
 }
 
-/// The window width under which the screen is a phone's (portrait), and the height under which it is a
-/// phone's too (landscape: 393 dp on an iPhone 15 Pro, a desktop window is at least 480): the strip of tabs
-/// ([`phone_strip`]) and the keys of the active tab ([`phone_bar`]) take the ribbon's place. The ribbon's keys are 22 px tall and its band (the groups of
-/// a tab side by side) is wider than such a screen: the tab strip and the groups ran out of a 411 dp
-/// window on its right.
-pub const PHONE_WIDTH: f32 = 600.0;
-/// See [`PHONE_WIDTH`].
-pub const PHONE_HEIGHT: f32 = 440.0;
+/// The room the tab strip keeps at the window's edges for the OS's window controls the sidebar
+/// does not cover, the width it is laid out in, and where it stands.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Strip {
+    /// Room before the first tab (macOS's traffic lights, as far as the sidebar leaves them).
+    pub left: f32,
+    /// Room after the last tab (Linux's and Windows's controls over the strip).
+    pub right: f32,
+    /// The width the ribbon is laid out in, px.
+    pub width: f32,
+    /// Whether the window is a phone's: the tabs are icon squares, the buttons icons.
+    pub phone: bool,
+    /// How far the ribbon's content band keeps from the window's left edge: the phone's rail
+    /// stands beside it, below the tab row (`Sidebar::phone_content_inset`); 0 elsewhere.
+    pub content_inset: f32,
+    /// The status bar's band the tabs stand in, beside the camera, on a phone that draws under its
+    /// bars; none elsewhere (the tab row is an ordinary row then).
+    pub band: Option<StatusBarBand>,
+}
 
-/// The phone's keys under the strip: one row of keys that scrolls sideways when the screen is too narrow
-/// for them.
-const PHONE_BAR: &str = "display: flex; flex-direction: row; align-items: center; flex-shrink: 0; \
-                         gap: 2px; padding: 4px; overflow-x: auto; overflow-y: hidden; \
-                         background: system:window-background; border-bottom: 1px solid \
-                         system:separator;";
-
-/// A key of the phone's format bar: an icon named for a screen reader, lit while the caret's text
-/// has what it sets. Runs the command through [`on_command`], as a ribbon key does.
-fn key(app: &RefAny, icon: &str, name: &str, cmd: Command, on: bool) -> Dom {
-    Button::create("")
-        .with_icon(icon)
-        .with_toggled(on)
-        .with_on_click(command(app, cmd), on_command as ButtonOnClickCallbackType)
-        .dom()
-        .with_accessibility_name(s(name))
+/// The ribbon for the app's state: File (the location) and the five bands, the active tab the
+/// app's.
+#[must_use]
+pub fn ribbon(app: &RefAny, st: &AppState, strip: &Strip) -> Dom {
+    let editor = st.doc().map(|d| &d.editor);
+    let file = RibbonTab::create(s(TABS[0]))
+        .with_icon(TAB_ICONS[0])
+        .with_location(ui_location::location(app, st));
+    let tabs = vec![
+        file,
+        home_tab(app, editor),
+        insert_tab(app),
+        layout_tab(app),
+        review_tab(app),
+        view_tab(app, st),
+    ];
+    let active = st.ribbon_tab.min(tabs.len() - 1);
+    let platform = azul_appkit::ui::tabs_in_titlebar();
+    let mut ribbon = Ribbon::create(tabs)
+        .with_active_tab(active)
+        .with_on_tab_click(app.clone(), on_tab_click as RibbonOnTabClickCallbackType)
+        // No title row over the ribbon: its tabs are the title bar.
+        .with_tabs_in_titlebar(TabsInTitlebar::create(platform.top, strip.left.max(0.0), strip.right.max(platform.right)))
+        // a phone's tabs are icon squares where every tab names an icon, the desktop's are text
+        .with_labels(TabLabels::Auto)
+        // a button shows its words OR its icon, never both (the words are its name and its tooltip):
+        // words on a desktop, icons on a phone
+        .with_button_face(if strip.phone { RibbonButtonFace::Icon } else { RibbonButtonFace::Text })
+        // the phone's 18 px rail stands beside the band, under the tab row: the band keeps clear
+        .with_content_inset(strip.content_inset)
+        // the window's ONE chevron at the left end of the tab row folds the band away
+        .with_content_toggle(true)
+        .with_available_width(strip.width);
+    if let Some(band) = strip.band.clone() {
+        ribbon = ribbon.with_status_bar(band);
+    }
+    ribbon.dom_desktop().with_id(ids::RIBBON)
 }
 
 /// Whether the window draws under the system bars: on a phone (an Android or iOS build). Elsewhere the engine keeps
@@ -462,9 +535,9 @@ pub const fn draws_under_the_bars() -> bool {
 }
 
 /// The window of a phone draws under the system bars and into the cutout area, and hides the status bar (a swipe
-/// from the top edge shows it for a moment): the strip of [`phone_strip`] takes the place of the clock and the battery
+/// from the top edge shows it for a moment): the tab strip takes the place of the clock and the battery
 /// icons, a word processor needs neither while a person writes. Everything below the strip keeps clear of the insets
-/// itself (`insets::Insets`). Any other window is returned as it is.
+/// itself (`ui_frame`). Any other window is returned as it is.
 #[must_use]
 pub fn for_the_phone(mut window: WindowCreateOptions) -> WindowCreateOptions {
     if draws_under_the_bars() {
@@ -496,218 +569,6 @@ pub fn status_band(info: &LayoutCallbackInfo) -> Option<StatusBarBand> {
     ))
 }
 
-/// The strip of a phone: FILE, HOME, INSERT and VIEW as touch pills, IN the status bar's band and sliding around
-/// the camera when there is a `band`, an ordinary row otherwise. FILE opens the backstage; the others choose which
-/// keys [`phone_bar`] shows under the strip.
-#[must_use]
-pub fn phone_strip(app: &RefAny, st: &AppState, band: Option<StatusBarBand>) -> Dom {
-    let tabs = azul_appkit::l10n::labels(&["azwriter-tab-file", TABS[0], TABS[1], TABS[2]]);
-    // The style is the default one (`TabStyle::Auto`): the touch pills on a phone, the look every tab bar has elsewhere.
-    let header = TabHeader::create(tabs)
-        .with_active_tab(st.ribbon_tab.min(TABS.len() - 1) + 1)
-        .with_on_click(app.clone(), on_phone_tab as TabOnClickCallbackType);
-    match band {
-        Some(band) => header.with_status_bar(band).dom(),
-        None => header.dom(),
-    }
-}
-
-/// A pill of the strip: the first (FILE) opens the backstage, any other is a tab of the ribbon.
-extern "C" fn on_phone_tab(mut data: RefAny, mut info: CallbackInfo, state: TabHeaderState) -> Update {
-    let cmd = match state.active_tab {
-        0 => Command::OpenBackstage(BackstagePage::Info),
-        index => Command::RibbonTab(index - 1),
-    };
-    crate::commands::run(&mut data, cmd, &mut info)
-}
-
-/// HOME's keys on a phone: what people use while they write - undo and redo, the three formats, the two lists and the
-/// alignment - and the caret's state is lit as in the ribbon.
-fn home_keys(app: &RefAny, st: &AppState) -> Vec<Dom> {
-    let editor = st.doc.as_ref().map(|d| &d.editor);
-    let format_on = |f: RichFormat| editor.is_some_and(|e| e.is_current_format(f));
-    let kind_on = |k: RichBlockKind| editor.is_some_and(|e| e.is_current_kind(k));
-    let align = editor.map_or(RichAlign::Left, current_align);
-    vec![
-        key(app, "undo", "azwriter-undo", Command::Rich(RichTextCommand::Undo), false),
-        key(app, "redo", "azwriter-redo", Command::Rich(RichTextCommand::Redo), false),
-        key(app, "format_bold", "azwriter-bold", Command::format(RichFormat::Bold), format_on(RichFormat::Bold)),
-        key(app, "format_italic", "azwriter-italic", Command::format(RichFormat::Italic), format_on(RichFormat::Italic)),
-        key(
-            app,
-            "format_underlined",
-            "azwriter-underline",
-            Command::format(RichFormat::Underline),
-            format_on(RichFormat::Underline),
-        ),
-        key(
-            app,
-            "format_list_bulleted",
-            "azwriter-bullets",
-            Command::kind(RichBlockKind::Bullet(0)),
-            kind_on(RichBlockKind::Bullet(0)),
-        ),
-        key(
-            app,
-            "format_list_numbered",
-            "azwriter-numbering",
-            Command::kind(RichBlockKind::Numbered(0)),
-            kind_on(RichBlockKind::Numbered(0)),
-        ),
-        key(app, "format_align_left", "azwriter-left", Command::align(RichAlign::Left), align == RichAlign::Left),
-        key(app, "format_align_center", "azwriter-center", Command::align(RichAlign::Center), align == RichAlign::Center),
-        key(app, "format_align_right", "azwriter-right", Command::align(RichAlign::Right), align == RichAlign::Right),
-    ]
-}
-
-/// INSERT's keys on a phone: the table, the page break and the line.
-fn insert_keys(app: &RefAny) -> Vec<Dom> {
-    vec![
-        key(
-            app,
-            "table_chart",
-            "azwriter-table",
-            Command::Rich(RichTextCommand::InsertTable(RichTableSize { rows: 3, columns: 3 })),
-            false,
-        ),
-        key(app, "insert_page_break", "azwriter-page-break", Command::Rich(RichTextCommand::InsertPageBreak), false),
-        key(app, "horizontal_rule", "azwriter-line", Command::Rich(RichTextCommand::InsertRule), false),
-    ]
-}
-
-/// VIEW's keys on a phone: the two layouts (the one that is on is lit), the zoom, the settings and the About box.
-fn view_keys(app: &RefAny, st: &AppState) -> Vec<Dom> {
-    vec![
-        key(app, View::Print.icon(), "azwriter-print-layout", Command::View(View::Print), st.view == View::Print),
-        key(app, View::Web.icon(), "azwriter-web-layout", Command::View(View::Web), st.view == View::Web),
-        key(app, "zoom_in", "azwriter-zoom-in", Command::Zoom(10), false),
-        key(app, "zoom_out", "azwriter-zoom-out", Command::Zoom(-10), false),
-        key(app, "fit_screen", "100%", Command::Zoom(0), false),
-        key(app, "settings", "azwriter-settings", Command::Settings, false),
-        key(app, "info", "azwriter-page-about", Command::About, false),
-    ]
-}
-
-/// The keys of a phone, in the ribbon's place and under the strip: the active tab's, every one a finger wide (the
-/// engine's touch floor of a button).
-#[must_use]
-pub fn phone_bar(app: &RefAny, st: &AppState) -> Dom {
-    let keys = match st.ribbon_tab.min(TABS.len() - 1) {
-        0 => home_keys(app, st),
-        1 => insert_keys(app),
-        _ => view_keys(app, st),
-    };
-    let mut bar = Dom::create_div().with_css(PHONE_BAR);
-    for one in keys {
-        bar.add_child(one);
-    }
-    bar
-}
-
-/// The ribbon for the app's state.
-#[must_use]
-pub fn ribbon(app: &RefAny, st: &AppState) -> Dom {
-    let editor = st.doc.as_ref().map(|d| &d.editor);
-    let tabs = vec![home_tab(app, editor), insert_tab(app), view_tab(app, st)];
-    let active = st.ribbon_tab.min(tabs.len() - 1);
-    Ribbon::create(tabs)
-        .with_app_button(RibbonAppButton::create(s("azwriter-tab-file")).with_on_click(
-            command(app, Command::OpenBackstage(BackstagePage::Info)),
-            on_command as ButtonOnClickCallbackType,
-        ))
-        .with_active_tab(active)
-        .with_on_tab_click(app.clone(), on_tab_click as RibbonOnTabClickCallbackType)
-        // No title row over the ribbon: its tabs are the title bar.
-        .with_tabs_in_titlebar(azul_appkit::ui::tabs_in_titlebar())
-        .dom_desktop()
-}
-
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use azul::widgets::RichTextDoc;
-
-    fn editor_on(markdown: &str) -> RichTextEditorState {
-        RichTextEditorState::create(RichTextDoc::create_from_markdown(markdown))
-    }
-
-    /// The words inside `dom`.
-    fn texts(dom: &Dom) -> Vec<String> {
-        let mut out: Vec<String> = dom
-            .root
-            .node_type
-            .get_text()
-            .into_option()
-            .map(|t| t.as_str().to_string())
-            .into_iter()
-            .collect();
-        for child in dom.children.as_slice() {
-            out.extend(texts(child));
-        }
-        out
-    }
-
-    /// The File tab is said in the window's language, as the tabs beside it are: DATEI, not
-    /// FILE, in a German window.
-    #[test]
-    fn the_file_tab_is_said_in_the_windows_language() {
-        crate::l10n::in_english();
-        let st = AppState::new(RefAny::new(()), std::path::PathBuf::from("data"), false);
-        azul_appkit::l10n::set_locale("de-DE");
-        let shown = texts(&ribbon(&RefAny::new(()), &st));
-        azul_appkit::l10n::set_locale("en-US");
-        assert!(shown.iter().any(|t| t == "DATEI"), "{shown:?}");
-        assert!(shown.iter().any(|t| t == "START"), "the tab beside it: {shown:?}");
-        assert!(!shown.iter().any(|t| t == "FILE"), "{shown:?}");
-    }
-
-    /// Word 2010's HOME tab starts with the Clipboard group: Paste, Cut and Copy.
-    #[test]
-    fn the_home_tab_starts_with_the_clipboard_group() {
-        crate::l10n::in_english();
-        let st = AppState::new(RefAny::new(()), std::path::PathBuf::from("data"), false);
-        let shown = texts(&ribbon(&RefAny::new(()), &st));
-        for word in ["Clipboard", "Paste", "Cut", "Copy"] {
-            assert!(shown.iter().any(|t| t == word), "{word} is missing: {shown:?}");
-        }
-    }
-
-    #[test]
-    fn the_font_combos_show_the_carets_family_and_the_nearest_size() {
-        assert_eq!(font_family_index(""), 0, "the paper's face");
-        assert_eq!(FONT_FAMILIES[font_family_index("monospace")].1, "monospace");
-        assert_eq!(font_family_index("Comic Sans"), 0, "an unknown family shows the default");
-        assert_eq!(FONT_SIZES[font_size_index(0.0)], DEFAULT_FONT_SIZE, "no size of its own");
-        assert_eq!(FONT_SIZES[font_size_index(10.5)], 10.5);
-        assert_eq!(FONT_SIZES[font_size_index(15.0)], 14.0, "between 14 and 16: the smaller");
-        assert_eq!(FONT_SIZES[font_size_index(17.5)], 18.0);
-        assert_eq!(FONT_SIZES[font_size_index(500.0)], 72.0);
-    }
-
-    #[test]
-    fn every_style_of_the_gallery_is_its_own_kind() {
-        // The old gallery mapped its 3rd and 5th cells both to heading 1
-        // (DEDUP_EDITORS A3.5).
-        let kinds: Vec<Option<RichBlockKind>> = (0..STYLES.len()).map(style_kind).collect();
-        assert_eq!(kinds[1], Some(RichBlockKind::Heading(1)));
-        assert_eq!(kinds[2], Some(RichBlockKind::Heading(2)));
-        assert_eq!(kinds[3], Some(RichBlockKind::Heading(3)));
-        assert_eq!(style_kind(STYLES.len()), None);
-    }
-
-    #[test]
-    fn the_gallery_shows_the_carets_style_and_a_pick_never_toggles_it_off() {
-        let heading = editor_on("# Title\n");
-        assert_eq!(current_style(&heading), 1);
-        assert!(style_commands(&heading, 1).is_empty(), "heading 1 again changes nothing");
-        assert_eq!(
-            style_commands(&heading, 2),
-            vec![RichTextCommand::ToggleKind(RichBlockKind::Heading(2))]
-        );
-        let quote = editor_on("> words\n");
-        assert_eq!(current_style(&quote), 4);
-        assert_eq!(style_commands(&quote, 0), vec![RichTextCommand::ToggleQuote]);
-        let plain = editor_on("words\n");
-        assert_eq!(style_commands(&plain, 4), vec![RichTextCommand::ToggleQuote]);
-    }
-}
+#[path = "ribbon_test.rs"]
+mod ribbon_test;

@@ -1,4 +1,4 @@
-//! The app's state and the commands its ribbon, backstage, status bar and
+//! The app's state and the commands its ribbon, backstage, sidebar, status bar and
 //! keys run.
 
 use std::path::PathBuf;
@@ -7,17 +7,21 @@ use azul::{
     callbacks::RefAny,
     font::FontCacheSnapshot,
     str::String as AzString,
-    widgets::{RichAlign, RichBlockKind, RichFormat, RichTextCommand},
+    widgets::{RichAlign, RichBlockKind, RichFormat, RichTextCommand, SidebarState},
+};
+use azul_appkit::{
+    docs::{self, DocRow, DocSync},
+    flow_rules::Quick,
 };
 
-use crate::{model::DocumentModel, paginate::Pages, storage::DocEntry};
+use crate::{model::DocumentModel, storage::DocEntry};
 
 /// What the window shows.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Screen {
-    /// The ribbon, the pages, the status bar.
+    /// The sidebar, the ribbon, the text, the status bar.
     Editor,
-    /// File: the backstage.
+    /// File's old pages (`...` of the location, "New or open"): the backstage.
     Backstage,
 }
 
@@ -32,17 +36,17 @@ pub enum BackstagePage {
     Close,
 }
 
-impl BackstagePage {
-    /// The pages in the navigation's order.
-    pub const NAV: [BackstagePage; 6] = [
-        BackstagePage::Info,
-        BackstagePage::New,
-        BackstagePage::Open,
-        BackstagePage::Save,
-        BackstagePage::Export,
-        BackstagePage::Close,
-    ];
+/// The backstage's pages in the navigation's order.
+pub static BACKSTAGE_NAV: [BackstagePage; 6] = [
+    BackstagePage::Info,
+    BackstagePage::New,
+    BackstagePage::Open,
+    BackstagePage::Save,
+    BackstagePage::Export,
+    BackstagePage::Close,
+];
 
+impl BackstagePage {
     #[must_use]
     pub const fn label(self) -> &'static str {
         match self {
@@ -57,33 +61,37 @@ impl BackstagePage {
 
     #[must_use]
     pub fn index(self) -> usize {
-        Self::NAV.iter().position(|p| *p == self).unwrap_or(0)
+        BACKSTAGE_NAV.iter().position(|p| *p == self).unwrap_or(0)
     }
 }
 
 /// How the document is shown.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum View {
-    /// A4 sheets, as printed.
-    Print,
-    /// One continuous sheet as wide as the window allows (no pages).
-    Web,
+    /// The text FLOWS: one continuous column as wide as is comfortable, like a mobile Markdown
+    /// editor. The default, and the only layout a phone has.
+    #[default]
+    Flow,
+    /// A4 sheets, as printed: the page layout (a View option; a window narrower than a sheet shows
+    /// the flow instead).
+    Pages,
 }
 
-impl View {
-    pub const ALL: [View; 2] = [View::Print, View::Web];
+/// Both views, in the order of the View tab and the status bar's switcher.
+pub static VIEWS: [View; 2] = [View::Flow, View::Pages];
 
+impl View {
     #[must_use]
     pub const fn icon(self) -> &'static str {
         match self {
-            View::Print => "description",
-            View::Web => "public",
+            View::Flow => "notes",
+            View::Pages => "description",
         }
     }
 
     #[must_use]
     pub fn index(self) -> usize {
-        Self::ALL.iter().position(|v| *v == self).unwrap_or(0)
+        VIEWS.iter().position(|v| *v == self).unwrap_or(0)
     }
 }
 
@@ -91,9 +99,21 @@ impl View {
 pub const ZOOM_MIN: f32 = 50.0;
 pub const ZOOM_MAX: f32 = 200.0;
 
-/// The ribbon's tabs.
-/// The ribbon's tabs (keys of the resources).
-pub const TABS: [&str; 3] = ["azwriter-tab-home", "azwriter-tab-insert", "azwriter-tab-view"];
+/// The ribbon's tabs (keys of the resources): File shows the location, the rest are bands.
+pub static TABS: [&str; 6] = [
+    "azwriter-tab-file",
+    "azwriter-tab-home",
+    "azwriter-tab-insert",
+    "azwriter-tab-layout",
+    "azwriter-tab-review",
+    "azwriter-tab-view",
+];
+
+/// The icons of the tabs, where a phone's pills are icons (the same order as [`TABS`]).
+pub static TAB_ICONS: [&str; 6] = ["folder", "home", "add_circle", "view_quilt", "rate_review", "visibility"];
+
+/// The tab the window starts on: File, the location of the document (the wireframe's first tab).
+pub const START_TAB: usize = 0;
 
 /// Everything AzWriter knows.
 pub struct AppState {
@@ -104,20 +124,26 @@ pub struct AppState {
     pub screen: Screen,
     pub backstage: BackstagePage,
     pub ribbon_tab: usize,
-    /// The open document (`None`: the empty state).
-    pub doc: Option<DocumentModel>,
+    /// The open documents, in the order of the sidebar.
+    pub open: Vec<DocumentModel>,
+    /// Which of them the main view shows (an index into `open`).
+    pub active: usize,
     /// The documents in the data tree (the backstage's Open page).
     pub docs: Vec<DocEntry>,
     /// The list was read at least once.
     pub listed: bool,
-    /// Where the pages start (for the open document's last pagination).
-    pub pages: Pages,
-    /// The generation a pagination thread is working on.
-    pub paginating: Option<u64>,
     /// The window's fonts, for the pagination thread (taken in `layout`).
     pub fonts: Option<FontCacheSnapshot>,
     pub zoom_percent: f32,
     pub view: View,
+    /// The state of the sidebar: the rail (a phone starts there), expanded (a desktop starts so).
+    pub sidebar: SidebarState,
+    /// Whether the last layout was a phone's (an event handler asks what the layout decided).
+    pub phone: bool,
+    /// The first layout chose the sidebar's starting state (the rail on a phone, open on a desktop).
+    pub sidebar_chosen: bool,
+    /// The open document whose action sheet shows (a phone's long press on its row).
+    pub sheet_doc: Option<usize>,
     /// The last notice for the user ("" = none).
     pub notice: String,
     /// The saves on the way: `(document id, the Markdown it writes)`; a
@@ -140,7 +166,7 @@ pub struct AppState {
 }
 
 impl AppState {
-    /// A fresh state for the kit's data root.
+    /// A fresh state for the kit's data root, no document open yet.
     #[must_use]
     pub fn new(kit: RefAny, data_root: PathBuf, sample: bool) -> Self {
         Self {
@@ -148,15 +174,18 @@ impl AppState {
             data_root,
             screen: Screen::Editor,
             backstage: BackstagePage::Info,
-            ribbon_tab: 0,
-            doc: None,
+            ribbon_tab: START_TAB,
+            open: Vec::new(),
+            active: 0,
             docs: Vec::new(),
             listed: false,
-            pages: Pages::default(),
-            paginating: None,
             fonts: None,
             zoom_percent: 100.0,
-            view: View::Print,
+            view: View::Flow,
+            sidebar: SidebarState::Rail,
+            phone: false,
+            sidebar_chosen: false,
+            sheet_doc: None,
             notice: String::new(),
             pending_saves: Vec::new(),
             sample_done: false,
@@ -169,31 +198,97 @@ impl AppState {
         }
     }
 
+    /// The document the main view shows (`None`: nothing is open).
+    #[must_use]
+    pub fn doc(&self) -> Option<&DocumentModel> {
+        self.open.get(self.active)
+    }
+
+    /// [`Self::doc`], to change it.
+    pub fn doc_mut(&mut self) -> Option<&mut DocumentModel> {
+        self.open.get_mut(self.active)
+    }
+
+    /// The open document with this id.
+    #[must_use]
+    pub fn doc_by_id(&self, id: &str) -> Option<&DocumentModel> {
+        self.open.iter().find(|d| d.id == id)
+    }
+
+    /// The index of the open document with this id.
+    #[must_use]
+    pub fn index_of(&self, id: &str) -> Option<usize> {
+        self.open.iter().position(|d| d.id == id)
+    }
+
     /// A save is on the way.
     #[must_use]
     pub fn is_saving(&self) -> bool {
         !self.pending_saves.is_empty()
     }
 
-    /// The open document has changes its file does not.
+    /// A save of document `id` is on the way.
     #[must_use]
-    pub fn is_dirty(&self) -> bool {
-        self.doc.as_ref().is_some_and(DocumentModel::is_dirty)
+    pub fn is_saving_doc(&self, id: &str) -> bool {
+        self.pending_saves.iter().any(|(i, _)| i == id)
     }
 
-    /// "Don't Save" in the close question: the open document closes without
-    /// writing, its file keeps what it had. The guard closes the window
+    /// The shown document has changes its file does not.
+    #[must_use]
+    pub fn is_dirty(&self) -> bool {
+        self.doc().is_some_and(DocumentModel::is_dirty)
+    }
+
+    /// Some open document has changes its file does not (what the close guard asks about).
+    #[must_use]
+    pub fn any_dirty(&self) -> bool {
+        self.open.iter().any(DocumentModel::is_dirty)
+    }
+
+    /// Where the save of open document `index` stands, as its sidebar pie says it.
+    #[must_use]
+    pub fn sync_of(&self, index: usize) -> DocSync {
+        match self.open.get(index) {
+            Some(doc) => DocSync::of(doc.is_dirty(), self.is_saving_doc(&doc.id), doc.save_failed),
+            None => DocSync::Saved,
+        }
+    }
+
+    /// The rows of the open documents for the sidebar (`docs::DocRow`), the shown one selected.
+    #[must_use]
+    pub fn doc_rows(&self) -> Vec<DocRow> {
+        self.open
+            .iter()
+            .enumerate()
+            .map(|(index, doc)| DocRow {
+                name: doc.title(),
+                sync: self.sync_of(index),
+                collab: doc.collab,
+                selected: index == self.active,
+            })
+            .collect()
+    }
+
+    /// Whether one more document may be opened: [`docs::MAX_OPEN_DOCS`] is the most.
+    #[must_use]
+    pub fn can_open_more(&self) -> bool {
+        self.open.len() < docs::MAX_OPEN_DOCS
+    }
+
+    /// "Don't Save" in the close question: the documents with changes close without
+    /// writing, their files keep what they had. The guard closes the window
     /// right after and judges that close by the DOM rebuilt from this
     /// state, so nothing may be left to save here.
     pub fn discard_document(&mut self) {
-        self.doc = None;
+        self.open.retain(|d| !d.is_dirty());
+        self.active = self.active.min(self.open.len().saturating_sub(1));
         self.asking_close = false;
     }
 
     /// The window's title: the document's, a star while unsaved.
     #[must_use]
     pub fn title(&self) -> String {
-        match self.doc.as_ref() {
+        match self.doc() {
             Some(doc) => format!(
                 "{}{} - AzWriter",
                 doc.title(),
@@ -204,16 +299,24 @@ impl AppState {
     }
 }
 
-/// What a button, a key or a menu asks of the app.
+/// What a button, a key, a menu or the sidebar asks of the app.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Command {
-    /// A command of the shared editor on the open document (formats,
+    /// A command of the shared editor on the shown document (formats,
     /// block kinds, alignment, lists, undo / redo, inserts).
     Rich(RichTextCommand),
+    /// A formatting button of the sidebar's rail.
+    Quick(Quick),
     RibbonTab(usize),
     OpenBackstage(BackstagePage),
     CloseBackstage,
     NewDocument,
+    /// Shows open document `index`.
+    Switch(usize),
+    /// Closes open document `index` (saved first when it has changes).
+    Close(usize),
+    /// Switches collaboration on or off for open document `index` (UI only).
+    Collab(usize, bool),
     /// Opens the document at this index of the backstage's list.
     OpenDocument(usize),
     /// Asks for a Markdown or Word file to import as a new document.
@@ -221,9 +324,11 @@ pub enum Command {
     Save,
     ExportPdf,
     ExportMarkdown,
-    /// Deletes the open document's file (the document closes).
+    /// Deletes the shown document's file (the document closes).
     DeleteDocument,
     CloseDocument,
+    /// Says how many words, characters and pages the shown document has.
+    WordCount,
     /// The zoom by this many percent.
     Zoom(i32),
     View(View),
@@ -267,35 +372,5 @@ pub fn command(app: &RefAny, cmd: Command) -> RefAny {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn the_backstage_pages_and_the_views_are_found_by_index() {
-        for (i, page) in BackstagePage::NAV.iter().enumerate() {
-            assert_eq!(page.index(), i);
-        }
-        assert_eq!(View::Web.index(), 1);
-    }
-
-    #[test]
-    fn dont_save_drops_the_changes_so_the_close_it_asks_for_is_not_held_again() {
-        let mut st = AppState::new(RefAny::new(()), PathBuf::from("data"), false);
-        // A new document with typed text: never saved, so it has changes.
-        st.doc = Some(DocumentModel::from_doc(
-            "a".to_string(),
-            azul::widgets::RichTextDoc::create_from_markdown("# Typed\n\nNot saved.\n"),
-            String::new(),
-        ));
-        st.asking_close = true;
-        assert!(st.is_dirty());
-        st.discard_document();
-        assert!(
-            !st.is_dirty(),
-            "the guard judges the close by the DOM rebuilt after the answer: a dirty document \
-             there holds the close and asks again"
-        );
-        assert!(!st.asking_close, "the question is answered");
-        assert!(st.pending_saves.is_empty(), "nothing was written");
-    }
-}
+#[path = "app_test.rs"]
+mod app_test;
