@@ -7,9 +7,10 @@ license = "MIT"
 description = """
     AzMaps — the P3 goal app from SUPER_PLAN_2. The `MapWidget`
     (layout/src/widgets/map.rs) as a full-window map: OpenStreetMap
-    vector tiles (MVT -> MapCSS -> SVG, labels as real text), a slim
-    sidebar with the travel panel and the recent places, a place's
-    card in a popover at its pin. Routing: see ROUTING.md.
+    vector tiles (MVT -> MapCSS -> SVG, labels as real text); search,
+    a place and the way to it in a panel at the left of the map on a
+    desktop and in a draggable sheet under a search bar on a phone.
+    Routing: see ROUTING.md.
 """
 publish = false
 

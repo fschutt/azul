@@ -128,7 +128,7 @@ e2e = true   # also built against [lib.mobile-e2e] (phones) and [lib.desktop-e2e
 [[app]]
 package = "AzMaps"
 dir = "examples/azul-maps"
-description = "a slippy-map tile viewer - async work in the UI"
+description = "a maps app: search, places and routes on OpenStreetMap vector tiles; a panel on a desktop, a sheet on a phone"
 platforms = ["linux", "macos-arm64", "macos-intel", "windows", "android", "ios"]
 weight = 2
 docker = true
