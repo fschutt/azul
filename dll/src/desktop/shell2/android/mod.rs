@@ -799,6 +799,8 @@ impl PlatformWindow for AndroidWindow {
         self.view_close_owed = true;
     }
 
+    /// Never reached: a window with one surface opens its menus INSIDE itself (`open_menu_inside_window`, the
+    /// `CallbackChange::OpenMenu` arm), there is no OS menu window to show.
     fn show_menu_from_callback(
         &mut self,
         _menu: &azul_core::menu::Menu,
@@ -807,6 +809,8 @@ impl PlatformWindow for AndroidWindow {
     ) {
     }
 
+    /// No tooltip window, on purpose: a tooltip is what a pointer resting over a control shows, and a touch screen has
+    /// none (a finger held down is a long press, which opens the context menu).
     fn show_tooltip_from_callback(&mut self, _text: &str, _anchor: azul_core::geom::LogicalRect) {}
 
     fn hide_tooltip_from_callback(&mut self) {}
