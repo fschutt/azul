@@ -610,6 +610,8 @@ impl App {
         crate::desktop::process_app::register(self.ptr.undo_manager.services());
         // The platform's share sheet (`CallbackInfo::share`): Android's chooser, iOS's activity view, "unsupported" on a desktop.
         crate::desktop::extra::share::install(self.ptr.undo_manager.services());
+        // The files and folders the user owns (`CallbackInfo::documents`): Android's storage framework; a desktop keeps its paths.
+        crate::desktop::extra::documents::install(self.ptr.undo_manager.services());
         crate::desktop::global_hotkey::choose_platform_backend();
         // The AppConfig's own set: the static list is declared now, the
         // derived callback runs at the loop's first hotkey pump - after the
