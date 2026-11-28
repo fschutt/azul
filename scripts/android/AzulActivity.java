@@ -114,6 +114,8 @@ public class AzulActivity extends NativeActivity {
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
             Splash31.cut(this);
         }
+        // The insets of the window's FIRST dispatch (before its surface exists) are kept for the engine's first layout.
+        NativeTextBridge.installEarlyInsetsListener(this);
         // A tap on a notification of an app that was not running started
         // this activity: its intent carries the notification. Forwarded now
         // (Rust queues it until android_main's loop routes it to the

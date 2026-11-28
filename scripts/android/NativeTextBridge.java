@@ -101,30 +101,112 @@ public final class NativeTextBridge {
         });
     }
 
+    // ---- Window insets ------------------------------------------------------------------------------------------------
+
+    /** The latest insets the window was given, `[top, bottom, left, right, ime]` physical px; null before the first dispatch. */
+    private static volatile int[] lastInsets;
+    /** The latest display features (the array of `android_core/display.rs`), physical px; null before the first dispatch or when they could not be read. */
+    private static volatile int[] lastFeatures;
+    /** The engine's bridge the insets are forwarded to as they change, 0 until the engine has published it (`installInsetsListener`). */
+    private static volatile long insetsTarget;
+    /** Dispatches of this window's insets seen so far (UI thread): the first few are on the record. */
+    private static int insetsDispatches;
+
     /**
-     * Start delivering window insets to Rust.
+     * THE FIRST INSETS, BEFORE THE ENGINE HAS A WINDOW.
      *
-     * Called once from AzulActivity.onCreate. Requests insets immediately as
-     * well as on change: the first dispatch happens before we can install a
-     * listener, so a listener alone would leave the app laid out under the
-     * status bar until something else moved.
+     * The window's insets (the status bar, the navigation bar, the cutout) are dispatched in the first traversal of the window, before its
+     * surface exists. A listener installed at the first window focus (where it used to be installed: the engine's bridge does not exist
+     * sooner) missed that dispatch, so the engine laid its first picture out under the status bar, got the insets after the picture, laid
+     * everything out AGAIN (a second full layout, 0.3 s on the widget gallery) and moved the page down by the height of the bar: a jump
+     * between the first picture and the second (ledger E60, the "Resize" pass after the first present). This listener is installed in
+     * onCreate, sees the first dispatch and keeps what it saw; the engine asks for it ({@link #insetsSnapshot}) when its surface is created,
+     * before its first layout. Later dispatches are forwarded to the engine as they come once it has published its bridge.
      */
-    public static void installInsetsListener(Activity activity, long nativePtr) {
+    public static void installEarlyInsetsListener(final Activity activity) {
+        if (activity == null) {
+            return;
+        }
+        // A window made again in a live process (a warm start) starts from nothing: what the window before it was given is not this one's, and the
+        // engine's bridge the insets were forwarded to is the one of the engine that ended (the new one publishes its own, `installInsetsListener`).
+        lastInsets = null;
+        lastFeatures = null;
+        insetsTarget = 0L;
+        insetsDispatches = 0;
+        final View root = activity.getWindow().getDecorView();
+        root.setOnApplyWindowInsetsListener((v, insets) -> {
+            rememberInsets(activity, v, insets);
+            return insets;
+        });
+    }
+
+    /**
+     * What the engine asks for when its surface is created: the insets of the window's latest dispatch (five ints: top, bottom, left, right,
+     * the keyboard) followed by its display features (the array of `android_core/display.rs`, absent when they could not be read); null when
+     * the window has had no dispatch yet. Any thread.
+     */
+    public static int[] insetsSnapshot() {
+        int[] insets = lastInsets;
+        if (insets == null) {
+            return null;
+        }
+        int[] features = lastFeatures;
+        int[] both = new int[insets.length + (features == null ? 0 : features.length)];
+        System.arraycopy(insets, 0, both, 0, insets.length);
+        if (features != null) {
+            System.arraycopy(features, 0, both, insets.length, features.length);
+        }
+        return both;
+    }
+
+    /**
+     * Start forwarding window insets to Rust (called once the engine has published its bridge, from AzulActivity.attachBridges): what the
+     * window has been given so far goes at once, and every later dispatch as it comes.
+     */
+    public static void installInsetsListener(final Activity activity, final long nativePtr) {
         if (activity == null || nativePtr == 0L) {
             return;
         }
         activity.runOnUiThread(() -> {
-            View root = activity.getWindow().getDecorView();
-            root.setOnApplyWindowInsetsListener((v, insets) -> {
-                dispatchInsets(nativePtr, insets);
-                dispatchDisplayFeatures(nativePtr, v, insets);
-                return insets;
-            });
-            root.requestApplyInsets();
+            insetsTarget = nativePtr;
+            int[] insets = lastInsets;
+            if (insets != null) {
+                nativeOnWindowInsets(nativePtr, insets[0], insets[1], insets[2], insets[3], insets[4]);
+            }
+            int[] features = lastFeatures;
+            if (features != null) {
+                nativeOnDisplayFeatures(nativePtr, features);
+            }
+            // a window that had no dispatch yet (or an early listener something replaced): ask again
+            activity.getWindow().getDecorView().requestApplyInsets();
         });
     }
 
-    private static void dispatchInsets(long nativePtr, WindowInsets insets) {
+    /** One dispatch of the window's insets: kept for {@link #insetsSnapshot}, and forwarded when the engine's bridge is there. UI thread. */
+    private static void rememberInsets(Activity activity, View root, WindowInsets insets) {
+        int[] values = insetsArray(insets);
+        int[] features = featuresArray(activity, root, insets);
+        lastInsets = values;
+        lastFeatures = features;
+        // On the record, with the time: the first dispatches of a window and what the app's request of the system bars makes of them (a start whose
+        // first layout was made for one state of the bars and the picture moved for the next is told by these lines and the engine's).
+        if (insetsDispatches < 4) {
+            insetsDispatches++;
+            boolean statusShown = Build.VERSION.SDK_INT < Build.VERSION_CODES.R || insets.isVisible(WindowInsets.Type.statusBars());
+            Log.i("azul", "NativeTextBridge: insets dispatch " + insetsDispatches + " top=" + values[0] + " bottom=" + values[1] + " left=" + values[2]
+                    + " right=" + values[3] + " ime=" + values[4] + " status bar shown=" + statusShown + ", engine bridge "
+                    + (insetsTarget != 0L ? "attached" : "not yet"));
+        }
+        long target = insetsTarget;
+        if (target != 0L) {
+            nativeOnWindowInsets(target, values[0], values[1], values[2], values[3], values[4]);
+            if (features != null) {
+                nativeOnDisplayFeatures(target, features);
+            }
+        }
+    }
+
+    private static int[] insetsArray(WindowInsets insets) {
         int top = 0, bottom = 0, left = 0, right = 0, ime = 0;
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             // systemBars() | displayCutout(): the notch is NOT part of
@@ -146,7 +228,22 @@ public final class NativeTextBridge {
             left = insets.getSystemWindowInsetLeft();
             right = insets.getSystemWindowInsetRight();
         }
-        nativeOnWindowInsets(nativePtr, top, bottom, left, right, ime);
+        return new int[] {top, bottom, left, right, ime};
+    }
+
+    /** The window's size in physical px: its decor view's once laid out, before that the window's bounds (the first dispatch comes before the first layout). */
+    private static int[] windowSize(Activity activity, View root) {
+        int width = root.getWidth();
+        int height = root.getHeight();
+        if (width > 0 && height > 0) {
+            return new int[] {width, height};
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            Rect bounds = activity.getWindowManager().getCurrentWindowMetrics().getBounds();
+            return new int[] {bounds.width(), bounds.height()};
+        }
+        android.util.DisplayMetrics metrics = activity.getResources().getDisplayMetrics();
+        return new int[] {metrics.widthPixels, metrics.heightPixels};
     }
 
     /**
@@ -157,9 +254,9 @@ public final class NativeTextBridge {
      * `isVisible`, API 30) and whether the device has a fingerprint sensor. Rects are in the window's own physical px.
      *
      * The fingerprint sensor's KIND and PLACE are not public API (`FingerprintSensorPropertiesInternal` is hidden): there is
-     * no reflection here, the array says only whether a sensor exists.
+     * no reflection here, the array says only whether a sensor exists. Null when a platform call refuses.
      */
-    private static void dispatchDisplayFeatures(long nativePtr, View root, WindowInsets insets) {
+    private static int[] featuresArray(Activity activity, View root, WindowInsets insets) {
         try {
             java.util.List<Rect> cutouts = null;
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P && insets.getDisplayCutout() != null) {
@@ -185,8 +282,9 @@ public final class NativeTextBridge {
             } else {
                 at += 4;
             }
-            int width = root.getWidth();
-            int height = root.getHeight();
+            int[] size = windowSize(activity, root);
+            int width = size[0];
+            int height = size[1];
             int statusHeight;
             int navBottom = 0;
             int navLeft = 0;
@@ -226,10 +324,11 @@ public final class NativeTextBridge {
             boolean fingerprint = root.getContext().getPackageManager()
                     .hasSystemFeature(android.content.pm.PackageManager.FEATURE_FINGERPRINT);
             flat[at] = fingerprint ? 0 : -1;
-            nativeOnDisplayFeatures(nativePtr, flat);
+            return flat;
         } catch (RuntimeException e) {
             // The display features are an extra: a platform that refuses one of the calls leaves the app with the insets.
             Log.w("AzulDisplay", "display features not reported: " + e);
+            return null;
         }
     }
 
@@ -768,7 +867,7 @@ public final class NativeTextBridge {
     private static native void nativeOnWindowInsets(long nativePtr, int top, int bottom,
                                                     int left, int right, int ime);
 
-    /** The display features of `dispatchDisplayFeatures` (the array layout: android_core/display.rs). */
+    /** The display features of `featuresArray` (the array layout: android_core/display.rs). */
     private static native void nativeOnDisplayFeatures(long nativePtr, int[] flat);
 
     // int, not boolean: the Rust side returns `i32` (`jint`), and a jboolean is
