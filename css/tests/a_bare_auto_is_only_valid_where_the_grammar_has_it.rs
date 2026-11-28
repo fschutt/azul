@@ -101,7 +101,9 @@ fn properties_with_auto_in_their_grammar_keep_the_bare_auto() {
         CssPropertyType::BreakBefore,
         CssPropertyType::TableLayout,
         CssPropertyType::ScrollbarColor,
-        CssPropertyType::ScrollbarWidth,
+        // `scrollbar-width: auto` is not on this list any more: auto, thin and none are the typed
+        // values of the property (`CssProperty::ScrollbarWidth(Exact(..))`, css/src/props/
+        // property_scrollbar_test.rs), because the CSS-wide `none` read back as "no value".
         CssPropertyType::SpatialNavigationAction,
         CssPropertyType::SpatialNavigationContain,
     ] {

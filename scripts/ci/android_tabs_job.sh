@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
-# android_tabs_job.sh: ONE runner job: the tab strip on a Pixel 8 emulator with the punch-hole camera (examples/azul-widgets/e2e/tab_touch*.json).
-# It builds the QA variant of AzWidgets (the `mobile-e2e` phone library: debug server and e2e scripting) from the tree it runs in, starts a Pixel 8
-# emulator, turns the system's punch-hole cutout on (cmd overlay enable com.android.internal.display.cutout.emulation.hole) and runs
+# android_tabs_job.sh: ONE runner job: the tab strip on an emulator with the Pixel 8's camera cutout (examples/azul-widgets/e2e/tab_touch*.json).
+# It builds the QA variant of AzWidgets (the `mobile-e2e` phone library: debug server and e2e scripting) from the tree it runs in, starts an emulator
+# (the Pixel 8 profile when the runner's avdmanager has it, else Pixel 6: same 1080 x 2400 screen), turns the Pixel 8's cutout on (cmd overlay
+# enable-exclusive com.android.internal.emulation.pixel_8; the overlay named ...cutout.emulation.hole does not exist on the AOSP image) and runs
 # scripts/ci/android_qa.sh's `tabs` session: portrait, then the phone turned to landscape (the hole at the side); per orientation the device's own
 # pictures of a plain start (light, dark), and per scenario file a recording and the engine's frames (demo-out/qa-tabs/<mode>/tabs-<orientation>/).
 #
@@ -33,14 +34,35 @@ echo "FEATURES $variant: $features"
 start=$(date +%s)
 bash scripts/demo_lib.sh android "$target" "$features" "demo-out/libs/demolib-$col-$variant" || { echo "LIB $variant FAILED"; exit 3; }
 echo "LIB $variant SECONDS: $(( $(date +%s) - start ))"
-python3 scripts/demo_build.py android --target "$target" --apps AzWidgets --libs demo-out/libs --out demo-out/apps --results demo-out/results --variant "$variant" \
+python3 scripts/demo_build.py android --target "$target" --apps "AzWidgets AzWriter" --libs demo-out/libs --out demo-out/apps --results demo-out/results --variant "$variant" \
   || echo "demo_build.py returned non-zero"
 ls -la demo-out/apps
 apk="demo-out/apps/AzWidgets-e2e-$col.apk"
 [ -e "$apk" ] || { echo "no $apk"; exit 3; }
 
+# AzMail (the user's ask: how does it look on a phone): AZ_TABS_AZMAIL_RUN=<run id of `android_build_smoke.sh AzMail`> takes its APK from that run's
+# artifact (demo-out/apps/AzMail-android-x86_64.apk) and puts the app on the same phone, portrait and landscape; the sample mailbox (the files the
+# kit's `--sample` writes, which a phone cannot be given) is generated from examples/azul-mail/scripts/sample_mail by azmail_sample_data.py
+if [ -n "${AZ_TABS_AZMAIL_RUN:-}" ]; then
+  mkdir -p azmail-apk
+  if gh run download "$AZ_TABS_AZMAIL_RUN" -R "$GITHUB_REPOSITORY" -n remote-Linux -D azmail-apk; then
+    azmail_apk="$(ls azmail-apk/demo-out/apps/AzMail-android-x86_64.apk 2>/dev/null | head -n 1)"
+    if [ -n "$azmail_apk" ]; then
+      export AZ_QA_AZMAIL_APK="$azmail_apk"
+      python3 scripts/ci/azmail_sample_data.py demo-out/azmail-sample --repo . && export AZ_QA_AZMAIL_DATA="demo-out/azmail-sample/azmail-data"
+    else
+      echo "no AzMail APK in run $AZ_TABS_AZMAIL_RUN"
+    fi
+  else
+    echo "the artifact of run $AZ_TABS_AZMAIL_RUN could not be downloaded"
+  fi
+fi
+
+# the AzWriter ribbon: its QA build gets a first look on the same phone (the tab strip's other home)
+[ -e "demo-out/apps/AzWriter-e2e-$col.apk" ] && export AZ_QA_TABS_EXTRA_APKS="demo-out/apps/AzWriter-e2e-$col.apk"
+
 # the emulator: Pixel 8 (its profile), the hole overlay; portrait and landscape inside the session
-AZ_ANDROID_DEVICE=pixel_8 AZ_ANDROID_OVERLAYS=com.android.internal.display.cutout.emulation.hole \
+AZ_ANDROID_DEVICE=pixel_8 AZ_ANDROID_OVERLAYS=com.android.internal.emulation.pixel_8 \
   timeout 4500 bash scripts/ci/android_qa.sh demo-out/qa-tabs "$apk" swiftshader_indirect "AzWidgets tabs" tabs
 echo "SESSION tabs: exit $?"
 if [ "${AZ_TABS_FLICKER:-}" = 1 ]; then

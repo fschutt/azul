@@ -20,11 +20,14 @@ echo "FEATURES mobile-e2e: $features"
 start=$(date +%s)
 bash scripts/demo_lib.sh ios "$target" "$features" "demo-out/libs/demolib-ios-sim-mobile-e2e" || { echo "LIB mobile-e2e FAILED"; exit 3; }
 echo "LIB mobile-e2e SECONDS: $(( $(date +%s) - start ))"
-python3 scripts/demo_build.py ios --target "$target" --apps "AzWidgets" --libs demo-out/libs --out demo-out/apps --results demo-out/results --variant mobile-e2e \
+python3 scripts/demo_build.py ios --target "$target" --apps "AzWidgets AzWriter" --libs demo-out/libs --out demo-out/apps --results demo-out/results --variant mobile-e2e \
   || echo "demo_build.py returned non-zero"
 ls -la demo-out/apps
 e2e_zip="$(ls demo-out/apps/AzWidgets-e2e-ios-sim*.zip 2>/dev/null | head -n 1)"
 [ -n "$e2e_zip" ] || { echo "no AzWidgets e2e Simulator app"; exit 3; }
+# the AzWriter ribbon: its QA build gets a first look on the same phones
+writer_zip="$(ls demo-out/apps/AzWriter-e2e-ios-sim*.zip 2>/dev/null | head -n 1)"
+[ -n "$writer_zip" ] && export AZ_QA_TABS_EXTRA_APPS="$writer_zip"
 # the two phones; a device the runner's Xcode does not have fails its own session (a line says so) and the next one runs
 for dev in "iPhone 16 Pro" "iPhone SE (3rd generation)"; do
   tag="$(printf '%s' "$dev" | tr -c 'A-Za-z0-9' '-')"

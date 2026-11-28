@@ -38,6 +38,7 @@ import com.azul.gamepad.AzulGamepad;
 import com.azul.permission.AzulPermissions;
 import com.azul.media.AzulMediaSession;
 import com.azul.notify.AzulNotifications;
+import com.azul.geolocation.AzulGeolocation;
 import com.azul.sensors.AzulSensors;
 
 public class AzulActivity extends NativeActivity {
@@ -80,6 +81,8 @@ public class AzulActivity extends NativeActivity {
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
+        // Android 12+: the system's starting window stays until the engine's first picture (see holdStartingWindow).
+        holdStartingWindow();
         prepareAppDirs();
         // NativeActivity dlopens the cdylib NATIVELY during super.onCreate —
         // which does NOT register it with this ClassLoader for Java
@@ -217,6 +220,80 @@ public class AzulActivity extends NativeActivity {
         AzulNotifications.onIntent(this, intent, false);
     }
 
+    // ---- the system's starting window, held until the first picture (Android 12 and later) ----------------------------
+
+    /**
+     * How long the starting window may stay when the engine never says it posted a picture: it must never trap the app
+     * behind it.
+     */
+    private static final long SPLASH_HOLD_MS = 2000;
+    /** UI thread only: the engine has posted its first picture. */
+    private static boolean firstFrameShown;
+    /** UI thread only: removes the starting window the system handed over, once. */
+    private static Runnable removeSplash;
+
+    /**
+     * The starting window (the app icon on the window colour) leaves when the activity's window has drawn, which for a
+     * NativeActivity is before its surface has any buffer: a second of the platform's empty window followed on the CPU
+     * renderer (QA's flicker audit, ledger E46). With an exit listener the system hands the window over and waits for it to
+     * be removed: it is removed when the engine says its first picture is posted ({@link #firstFramePresented}), or after
+     * {@link #SPLASH_HOLD_MS}.
+     */
+    private void holdStartingWindow() {
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
+            Splash31.hold(this);
+        }
+    }
+
+    /** The engine posted its first picture (CPU or GPU), from any thread: the starting window may go. */
+    public static void firstFramePresented(final android.app.Activity activity) {
+        if (activity == null) {
+            return;
+        }
+        activity.runOnUiThread(() -> {
+            firstFrameShown = true;
+            Runnable remove = removeSplash;
+            removeSplash = null;
+            if (remove != null) {
+                remove.run();
+            }
+        });
+    }
+
+    /** The Android 12 API in a class of its own: an older system never loads it. */
+    private static final class Splash31 {
+        static void hold(android.app.Activity activity) {
+            try {
+                activity.getSplashScreen().setOnExitAnimationListener(view -> {
+                    final Runnable remove = new Runnable() {
+                        private boolean done;
+
+                        @Override
+                        public void run() {
+                            if (done) {
+                                return;
+                            }
+                            done = true;
+                            try {
+                                view.remove();
+                            } catch (RuntimeException ignored) {
+                                // already gone
+                            }
+                        }
+                    };
+                    if (firstFrameShown) {
+                        remove.run();
+                        return;
+                    }
+                    removeSplash = remove;
+                    new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(remove, SPLASH_HOLD_MS);
+                });
+            } catch (RuntimeException e) {
+                // The system's own exit then.
+            }
+        }
+    }
+
     /**
      * Runtime-permission results.
      *
@@ -267,6 +344,8 @@ public class AzulActivity extends NativeActivity {
         // app unless something stops them; nothing did. Paused, not stopped: the
         // app asked for the readings once and expects them again after onResume.
         AzulSensors.pause(this);
+        // Location updates too: a listener nobody can see the result of is battery for nothing.
+        AzulGeolocation.pause();
         // A sign-in's Custom Tab covers the app: noted, so a return without the
         // redirect reads as a cancel (onResume).
         AzulAuthSession.onPause();
@@ -281,6 +360,7 @@ public class AzulActivity extends NativeActivity {
         AzulAuthSession.onResume();
         // The readings the app asked for before the pause.
         AzulSensors.resume(this);
+        AzulGeolocation.resume(this);
     }
 
     @Override
@@ -356,6 +436,93 @@ public class AzulActivity extends NativeActivity {
                 }
             }
         });
+    }
+
+    /**
+     * What the app asks of the system bars and the cutout area (`WindowFlags::system_bars`): applied on the UI thread, at
+     * the window's creation and on every change.
+     *
+     * @param status         0 shown, 1 hidden and a swipe from the edge shows it for a moment (BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE),
+     *                       2 hidden and a swipe shows it until it is hidden again (BEHAVIOR_DEFAULT after hide())
+     * @param navigation     the same for the navigation bar
+     * @param icons          0 the shell picks from what the window draws behind the bar (setSystemBarsAppearance), 1 light icons, 2 dark icons
+     * @param drawIntoCutout the window draws into the area of the display cutouts: LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS (API 30; SHORT_EDGES
+     *                       on API 28-29) and edge to edge; false leaves the system's default for the window
+     */
+    public static void applySystemBars(final android.app.Activity activity, final int status, final int navigation,
+                                       final int icons, final boolean drawIntoCutout) {
+        if (activity == null) {
+            return;
+        }
+        activity.runOnUiThread(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    android.view.Window window = activity.getWindow();
+                    if (drawIntoCutout && android.os.Build.VERSION.SDK_INT >= 28) {
+                        android.view.WindowManager.LayoutParams lp = window.getAttributes();
+                        lp.layoutInDisplayCutoutMode = android.os.Build.VERSION.SDK_INT >= 30
+                                ? android.view.WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
+                                : android.view.WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES;
+                        window.setAttributes(lp);
+                        if (android.os.Build.VERSION.SDK_INT >= 30) {
+                            window.setDecorFitsSystemWindows(false);
+                        }
+                    }
+                    if (android.os.Build.VERSION.SDK_INT >= 30) {
+                        android.view.WindowInsetsController controller = window.getInsetsController();
+                        if (controller == null) {
+                            return;
+                        }
+                        applyBar(controller, android.view.WindowInsets.Type.statusBars(), status);
+                        applyBar(controller, android.view.WindowInsets.Type.navigationBars(), navigation);
+                        // one behaviour for the bars: a bar the app hid is shown for a moment by a swipe, unless it asked for a sticky one
+                        boolean transient_ = status == 1 || navigation == 1;
+                        boolean sticky = status == 2 || navigation == 2;
+                        if (transient_ || sticky) {
+                            controller.setSystemBarsBehavior(transient_
+                                    ? android.view.WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+                                    : android.view.WindowInsetsController.BEHAVIOR_DEFAULT);
+                        }
+                        if (icons != 0) {
+                            int lightStatus = android.view.WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS;
+                            int lightNav = android.view.WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS;
+                            // dark icons (2) are the ones for a LIGHT background
+                            controller.setSystemBarsAppearance(icons == 2 ? lightStatus : 0, lightStatus);
+                            controller.setSystemBarsAppearance(icons == 2 ? lightNav : 0, lightNav);
+                        }
+                    } else {
+                        View decor = window.getDecorView();
+                        int flags = decor.getSystemUiVisibility();
+                        flags = status == 0 ? (flags & ~View.SYSTEM_UI_FLAG_FULLSCREEN) : (flags | View.SYSTEM_UI_FLAG_FULLSCREEN);
+                        flags = navigation == 0
+                                ? (flags & ~View.SYSTEM_UI_FLAG_HIDE_NAVIGATION)
+                                : (flags | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION);
+                        // immersive: a swipe shows the bars; sticky: they hide again by themselves
+                        flags &= ~(View.SYSTEM_UI_FLAG_IMMERSIVE | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY);
+                        if (status == 1 || navigation == 1) {
+                            flags |= View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY;
+                        } else if (status == 2 || navigation == 2) {
+                            flags |= View.SYSTEM_UI_FLAG_IMMERSIVE;
+                        }
+                        if (drawIntoCutout) {
+                            flags |= View.SYSTEM_UI_FLAG_LAYOUT_STABLE | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN;
+                        }
+                        decor.setSystemUiVisibility(flags);
+                    }
+                } catch (RuntimeException e) {
+                    android.util.Log.w("AzulBars", "system bars not applied: " + e);
+                }
+            }
+        });
+    }
+
+    private static void applyBar(android.view.WindowInsetsController controller, int type, int mode) {
+        if (mode == 0) {
+            controller.show(type);
+        } else {
+            controller.hide(type);
+        }
     }
 
     /** Map UI_MODE_NIGHT_MASK onto the codes the Rust side expects. */

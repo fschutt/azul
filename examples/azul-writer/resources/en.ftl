@@ -63,6 +63,7 @@ azwriter-export-markdown = Export as Markdown
 azwriter-empty = No document is open
 azwriter-empty-what = Start a blank document, or open one from File.
 azwriter-document = Document
+azwriter-placeholder = Start writing...
 azwriter-status-words = { $count } WORDS
 azwriter-status-page = PAGE { $page } OF { $pages }
 azwriter-status-no-document = NO DOCUMENT

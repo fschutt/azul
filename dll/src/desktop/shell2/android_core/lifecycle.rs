@@ -70,6 +70,84 @@ pub const fn trim_plan(level: i32) -> TrimPlan {
     }
 }
 
+/// What the app is told of its coming and going (the app's lifecycle handler, `LifecycleEvent`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Tell {
+    /// The app left the screen: save what is not saved (the process may be killed from here on, without another word).
+    Paused,
+    /// The app is back on the screen after a pause.
+    Resumed,
+    /// The system wants memory back (`onLowMemory`, a trim from `TRIM_MEMORY_RUNNING_LOW` on).
+    LowMemory,
+    /// The activity is destroyed: the last word.
+    WillTerminate,
+}
+
+/// What of the activity's coming and going the app has been told, so that what it hears holds in pairs: `Paused` once
+/// when it leaves (`onPause`; a surface lost without one tells it too, since the loop has seen `TerminateWindow` before
+/// `Pause`), `Resumed` only after a `Paused` (the `Resume` of the launch is no return), a second `Pause` says nothing new,
+/// `WillTerminate` once. `LowMemory` is said at every trim: what to drop is the app's to decide.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct AppPhase {
+    paused: bool,
+    terminating: bool,
+}
+
+impl AppPhase {
+    /// `onPause` reached the loop (`MainEvent::Pause`).
+    pub fn on_pause(&mut self) -> Option<Tell> {
+        if self.paused || self.terminating {
+            return None;
+        }
+        self.paused = true;
+        Some(Tell::Paused)
+    }
+
+    /// The surface went (`MainEvent::TerminateWindow`): the app is off the screen even if `Pause` did not come first.
+    pub fn on_surface_lost(&mut self) -> Option<Tell> {
+        self.on_pause()
+    }
+
+    /// `onResume` reached the loop (`MainEvent::Resume`).
+    pub fn on_resume(&mut self) -> Option<Tell> {
+        if !self.paused || self.terminating {
+            return None;
+        }
+        self.paused = false;
+        Some(Tell::Resumed)
+    }
+
+    /// `onLowMemory` (`MainEvent::LowMemory`).
+    #[must_use]
+    pub const fn on_low_memory(&self) -> Option<Tell> {
+        if self.terminating {
+            None
+        } else {
+            Some(Tell::LowMemory)
+        }
+    }
+
+    /// `onTrimMemory(level)`: told from the running-low level on (the plan's `release_caches`).
+    #[must_use]
+    pub const fn on_trim(&self, level: i32) -> Option<Tell> {
+        if self.terminating || level < TRIM_MEMORY_RUNNING_LOW {
+            None
+        } else {
+            Some(Tell::LowMemory)
+        }
+    }
+
+    /// `onDestroy` (`MainEvent::Destroy`): the app that never heard `Paused` hears it first, then the last word.
+    pub fn on_destroy(&mut self) -> [Option<Tell>; 2] {
+        if self.terminating {
+            return [None, None];
+        }
+        let paused = self.on_pause();
+        self.terminating = true;
+        [paused, Some(Tell::WillTerminate)]
+    }
+}
+
 #[cfg(test)]
 #[path = "lifecycle_test.rs"]
 mod tests;

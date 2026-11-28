@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Android 12+, LIGHT: the same theme with the starting window's background as the window's, so the system's starting
+     window (the icon on this colour) is followed by the same colour, not by the platform's default. -->
+<resources>
+    <style name="AzulTheme" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:windowBackground">@color/azul_window_background</item>
+        <item name="android:colorBackground">@color/azul_window_background</item>
+        <item name="android:windowSplashScreenBackground">@color/azul_window_background</item>
+    </style>
+</resources>
