@@ -24,6 +24,7 @@ mod backstage;
 pub mod commands;
 pub mod docx;
 pub mod ids;
+mod insets;
 pub mod l10n;
 #[cfg(test)]
 mod l10n_tests;
@@ -163,7 +164,14 @@ pub fn start() {
         Some("settings") => kit::open_settings(&kit_ref, None),
         _ => {}
     }
-    let window = kit::window_options(&kit_ref, layout, (1280.0, 800.0), (720.0, 480.0), on_window_created);
+    // A phone's window draws under the system bars: the ribbon's strip takes the status bar's band.
+    let window = ribbon::for_the_phone(kit::window_options(
+        &kit_ref,
+        layout,
+        (1280.0, 800.0),
+        (720.0, 480.0),
+        on_window_created,
+    ));
     App::create(RefAny::new(st), config).run(window);
 }
 
@@ -223,30 +231,53 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
     };
     let st = &*guard;
     let title = st.title();
+    // A phone's window draws under the system bars (`ribbon::for_the_phone`): what stands in the way of a bar, a
+    // camera or the home indicator keeps clear of it by the insets. Any other window is inset by the engine.
+    let insets = if ribbon::draws_under_the_bars() { insets::Insets::of(&info) } else { insets::Insets::default() };
+    // The strip of tabs a phone's editor has at the very top of the window, in the status bar's band.
+    let mut strip = None;
     let content = if kit::settings_open(&st.kit) {
-        column(vec![kit::title_row(&title), kit::settings_page(&st.kit, Vec::new())])
+        insets.around(column(vec![kit::title_row(&title), kit::settings_page(&st.kit, Vec::new())]), true)
     } else {
         match st.screen {
-            Screen::Backstage => DocumentShell::create(Dom::create_div())
-                .office_shell()
-                .with_title_row(kit::title_row(&title))
-                .with_backstage(backstage::backstage(&app, st))
-                .dom(),
-            // A phone: the format bar, not the ribbon (its keys are not a finger's and its groups
-            // do not fit the screen). A narrow window of any machine has the same room.
+            Screen::Backstage => insets.around(
+                DocumentShell::create(Dom::create_div())
+                    .office_shell()
+                    .with_title_row(kit::title_row(&title))
+                    .with_backstage(backstage::backstage(&app, st))
+                    .dom(),
+                true,
+            ),
+            // A phone: the tabs as a strip of touch pills in the status bar's band and the active tab's keys under
+            // it, not the ribbon (its keys are not a finger's and its groups do not fit the screen). A narrow
+            // window of any machine has the same room.
             Screen::Editor if width < ribbon::PHONE_WIDTH || info.window_height_less_than(ribbon::PHONE_HEIGHT) => {
-                DocumentShell::create(pages::document_area(&app, st, width))
+                let band = ribbon::status_band(&info);
+                let in_the_band = band.is_some();
+                let tabs = ribbon::phone_strip(&app, st, band);
+                let shell = DocumentShell::create(pages::document_area(&app, st, width))
                     .office_shell()
                     .with_ribbon(ribbon::phone_bar(&app, st))
                     .with_status_bar(pages::status_bar(&app, st, true))
-                    .dom()
+                    .dom();
+                if in_the_band {
+                    // The strip stands where the status bar was; the rest keeps clear of the other sides.
+                    strip = Some(tabs);
+                    insets.around(shell, false)
+                } else {
+                    // The system still shows its status bar: the strip is a row under it, like the rest.
+                    insets.around(column(vec![tabs, shell]), true)
+                }
             }
             // No title row: the ribbon's tabs are the title bar.
-            Screen::Editor => DocumentShell::create(pages::document_area(&app, st, width))
-                .office_shell()
-                .with_ribbon(ribbon::ribbon(&app, st))
-                .with_status_bar(pages::status_bar(&app, st, false))
-                .dom(),
+            Screen::Editor => insets.around(
+                DocumentShell::create(pages::document_area(&app, st, width))
+                    .office_shell()
+                    .with_ribbon(ribbon::ribbon(&app, st))
+                    .with_status_bar(pages::status_bar(&app, st, false))
+                    .dom(),
+                true,
+            ),
         }
     };
     let document_name = st.doc.as_ref().map_or_else(|| "AzWriter".to_string(), DocumentModel::title);
@@ -255,8 +286,10 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
         .with_asking(st.asking_close)
         .with_on_event(app.clone(), on_close_guard)
         .dom();
-    // A newer AzWriter waiting: the update kit's banner over everything else.
-    let mut children: Vec<Dom> = azul_appkit::update::app::banner(&st.kit).into_iter().collect();
+    // The strip first: it stands at the very top of the window. A newer AzWriter waiting: the update kit's banner
+    // over everything else.
+    let mut children: Vec<Dom> = strip.into_iter().collect();
+    children.extend(azul_appkit::update::app::banner(&st.kit));
     children.push(guarded);
     children.push(about_modal(&app, st));
     let root = column(children);

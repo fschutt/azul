@@ -11,6 +11,20 @@
 # CPU renderer and the GPU path; add 'demo-out/qa-flicker*/**' and 'demo-out/qa-startup/**' to the artifacts): the audit of the iOS Simulator that never ran before the app was
 # installed by it (flicker_audit.py, 7c4e132056).
 set -uxo pipefail
+# a macOS runner has no GNU `timeout` (the first run of this job: "timeout: command not found", exit 127, no session ran): a time limit in plain bash
+limit() {   # limit <seconds> <command...>: the command's exit status, 124 when it was stopped at the limit
+  local secs="$1"; shift
+  "$@" &
+  local pid=$!
+  ( sleep "$secs"; kill -TERM "$pid" 2>/dev/null; sleep 5; kill -KILL "$pid" 2>/dev/null ) >/dev/null 2>&1 &
+  local watcher=$!
+  wait "$pid" 2>/dev/null
+  local rc=$?
+  kill "$watcher" 2>/dev/null; wait "$watcher" 2>/dev/null
+  # stopped by the watcher's TERM or KILL: 124, as GNU timeout says
+  if [ "$rc" -eq 143 ] || [ "$rc" -eq 137 ]; then rc=124; fi
+  return "$rc"
+}
 target=aarch64-apple-ios-sim
 mkdir -p demo-out/libs demo-out/apps demo-out/results
 rustup target add "$target"
@@ -31,16 +45,16 @@ writer_zip="$(ls demo-out/apps/AzWriter-e2e-ios-sim*.zip 2>/dev/null | head -n 1
 # the two phones; a device the runner's Xcode does not have fails its own session (a line says so) and the next one runs
 for dev in "iPhone 16 Pro" "iPhone SE (3rd generation)"; do
   tag="$(printf '%s' "$dev" | tr -c 'A-Za-z0-9' '-')"
-  AZ_QA_GUI=1 AZ_QA_IOS_DEVICE="$dev" timeout 2400 bash scripts/ci/ios_qa.sh "demo-out/qa-tabs/$tag" "$e2e_zip" "tabs $dev" tabs
+  AZ_QA_GUI=1 AZ_QA_IOS_DEVICE="$dev" limit 2400 bash scripts/ci/ios_qa.sh "demo-out/qa-tabs/$tag" "$e2e_zip" "tabs $dev" tabs
   echo "SESSION tabs $dev: exit $?"
 done
 if [ "${AZ_TABS_FLICKER:-}" = 1 ]; then
-  timeout 3000 bash scripts/ci/qa_ios_flicker.sh
+  limit 3000 bash scripts/ci/qa_ios_flicker.sh
   echo "SESSION flicker: exit $?"
   # the cold starts with the startup timeline on (first_present, the layout passes, the font cache rows) of the same plain app
   plain_zip="$(ls demo-out/apps/AzWidgets-ios-sim*.zip 2>/dev/null | grep -v -- '-e2e-' | head -n 1)"
   if [ -n "$plain_zip" ]; then
-    timeout 900 bash scripts/ci/ios_qa.sh demo-out/qa-startup "$plain_zip" AzWidgets startup
+    limit 900 bash scripts/ci/ios_qa.sh demo-out/qa-startup "$plain_zip" AzWidgets startup
     echo "SESSION startup: exit $?"
   fi
 fi

@@ -1,9 +1,8 @@
-//! A tab bar takes the style it is given: Aurora (Firefox's curved tabs),
-//! Rectangular (classic square tabs) or Pills (pill buttons on leather).
+//! A tab bar takes the style it is given: Rectangular (classic square
+//! tabs) or Pills (the theme's buttons floating on leather); `Auto` is the
+//! buttons in both themes.
 //!
-//! - Aurora cuts EVERY tab with its curves, the selected one and the rest,
-//!   so all tabs share one shape; only the selected one stands on the rule
-//!   with its run-outs.
+//! - Auto, named by no one, is the same buttons in Flora and in Flat.
 //! - Rectangular hangs no curves, in either theme.
 //! - Pills sit on a leather strip that reaches the top of the bar; the strip
 //!   closes on a 2px line along its foot, gold: a shimmer over aluminium.
@@ -107,39 +106,22 @@ fn builtin(name: &str) -> StyleBackgroundContent {
 }
 
 #[test]
-fn every_aurora_tab_is_cut_with_curves_and_only_the_selected_one_has_run_outs() {
+fn a_tab_bar_that_names_no_style_is_the_same_buttons_in_both_themes() {
+    // `Auto` is the theme's buttons on the leather in every theme (and `Pills` on a desktop): the
+    // tabs hang no curves, and the bar carries the leather's golden line as a node of its own.
     for theme in THEMES {
-        let header = TabHeader::create(labels())
-            .with_active_tab(1)
+        let auto = TabHeader::create(labels()).with_theme(theme).dom();
+        let pills = TabHeader::create(labels())
             .with_theme(theme)
-            .with_style(TabStyle::Aurora)
+            .with_style(TabStyle::Pills)
             .dom();
-        let tabs = tabs(&header);
-        assert_eq!(tabs.len(), 3, "{theme:?}: the three tabs");
-        for (i, tab) in tabs.iter().enumerate() {
-            for curve in CURVES {
-                assert!(has_child(tab, curve), "{theme:?}: tab {i} is cut with its {curve}");
-            }
-            let runouts = RUNOUTS.iter().filter(|r| has_child(tab, r)).count();
-            if i == 1 {
-                // Flora's rule is metal and eases into the selected tab's
-                // feet; flat's is a hairline and needs no run-out.
-                if theme == UiTheme::Flora {
-                    assert!(runouts > 0, "flora: the selected tab eases the rule into its feet");
-                }
-            } else {
-                assert_eq!(runouts, 0, "{theme:?}: tab {i} stands above the rule, no run-out");
-            }
-        }
+        assert!(tabs(&auto).iter().all(|t| !has_child(t, CURVES[0])), "{theme:?}: no curves");
+        assert_eq!(
+            auto.children.as_ref().len(),
+            pills.children.as_ref().len(),
+            "{theme:?}: Auto builds what Pills builds"
+        );
     }
-}
-
-#[test]
-fn flora_s_own_tab_bar_is_aurora_and_flat_s_is_rectangular() {
-    let flora = TabHeader::create(labels()).with_theme(UiTheme::Flora).dom();
-    assert!(tabs(&flora).iter().all(|t| has_child(t, CURVES[0])), "flora: every tab curved");
-    let flat = TabHeader::create(labels()).with_theme(UiTheme::Flat).dom();
-    assert!(tabs(&flat).iter().all(|t| !has_child(t, CURVES[0])), "flat: square tabs");
 }
 
 #[test]
@@ -160,7 +142,7 @@ fn a_rectangular_tab_bar_hangs_no_curves_in_either_theme() {
 #[test]
 fn a_tab_bar_with_no_tab_selected_shows_none_selected() {
     for theme in THEMES {
-        for style in [TabStyle::Aurora, TabStyle::Rectangular, TabStyle::Pills] {
+        for style in [TabStyle::Rectangular, TabStyle::Pills] {
             for none in [3, usize::MAX] {
                 let header = TabHeader::create(labels())
                     .with_active_tab(none)
@@ -325,89 +307,6 @@ fn the_pill_strip_is_leather_to_the_top_and_closes_on_a_two_pixel_line() {
         assert_eq!(pills.len(), 3);
         for pill in pills {
             assert!(contains(&leather, &pill), "{theme:?}: pill {pill:?} sits on the leather");
-        }
-    }
-}
-
-/// The text runs of a laid-out window: each glyph's pen x and the run's
-/// font size.
-fn glyph_xs(lw: &LayoutWindow) -> Vec<(f32, f32)> {
-    let result = lw.get_layout_result(&DomId::ROOT_ID).expect("laid out");
-    result
-        .display_list
-        .items
-        .iter()
-        .filter_map(|item| match item {
-            DisplayListItem::Text {
-                glyphs,
-                font_size_px,
-                ..
-            } => Some(glyphs.iter().map(|g| (g.point.x, *font_size_px)).collect::<Vec<_>>()),
-            _ => None,
-        })
-        .flatten()
-        .collect()
-}
-
-/// A flora tab is as wide as its capitals and its 8px sides, no wider,
-/// and no curve hangs over a neighbour's label.
-#[test]
-fn a_flora_aurora_tab_is_as_wide_as_its_capitals_and_no_curve_covers_a_neighbour() {
-    let lw = laid_out(
-        TabHeader::create(labels())
-            .with_active_tab(1)
-            .with_theme(UiTheme::Flora)
-            .dom(),
-    );
-    let glyphs = glyph_xs(&lw);
-    let mut tabs = rects_of(&lw, NOT_ACTIVE);
-    tabs.extend(rects_of(&lw, ACTIVE));
-    assert_eq!(tabs.len(), 3);
-    for tab in &tabs {
-        let mine: Vec<(f32, f32)> = glyphs
-            .iter()
-            .copied()
-            .filter(|(x, _)| *x >= tab.origin.x && *x < tab.origin.x + tab.size.width)
-            .collect();
-        assert!(!mine.is_empty(), "the tab {tab:?} paints its label");
-        let first = mine.iter().map(|g| g.0).fold(f32::INFINITY, f32::min);
-        let last = mine.iter().map(|g| g.0).fold(f32::NEG_INFINITY, f32::max);
-        let em = mine[0].1;
-        assert!(
-            first - tab.origin.x <= 8.0 + 1.5,
-            "the label starts 8px in, at {first:.1} in {tab:?}"
-        );
-        assert!(
-            tab.origin.x + tab.size.width - last <= 8.0 + 1.2 * em,
-            "the tab ends 8px after its last capital (at {last:.1}): {tab:?}"
-        );
-    }
-    let mut curves = rects_of(&lw, CURVES[0]);
-    curves.extend(rects_of(&lw, CURVES[1]));
-    for curve in curves {
-        // The curve's foot spans its whole width at the bottom; its upper
-        // half, where the labels are, lies within its inner half.
-        let inner = LogicalRect::new(
-            azul_core::geom::LogicalPosition::new(curve.origin.x + curve.size.width / 4.0, curve.origin.y),
-            LogicalSize::new(curve.size.width / 2.0, curve.size.height),
-        );
-        for tab in &tabs {
-            let overlaps_tab =
-                inner.origin.x < tab.origin.x + tab.size.width && tab.origin.x < inner.origin.x + inner.size.width;
-            if !overlaps_tab {
-                continue;
-            }
-            let label_glyphs_under = glyphs.iter().filter(|(x, _)| {
-                *x >= tab.origin.x
-                    && *x < tab.origin.x + tab.size.width
-                    && *x >= inner.origin.x
-                    && *x < inner.origin.x + inner.size.width
-            });
-            assert_eq!(
-                label_glyphs_under.count(),
-                0,
-                "a curve {curve:?} hangs over the label of {tab:?}"
-            );
         }
     }
 }

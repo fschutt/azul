@@ -567,9 +567,12 @@ the sensor come from the preset for the window's size, and a window wider than t
 ops `set_display_preset` and `get_display_features` do the same from a scenario file, so one file runs on a desktop and
 on a phone. The shapes of a preset are approximations (every cutout says `approximate`).
 
-**A tab bar for a finger.** `TabStyle::Auto` is the touch pills on a phone (Android or iOS, a window narrower than 600 dp);
-a desktop keeps the theme's look, and `TabStyle::TouchPills` asks for them anywhere. A pill is 32 px tall with full-radius
-ends in a 48 px row; the target is the whole row (padded, not the picture). The row is longer than the window and
+**A tab bar for a finger.** `TabStyle::Auto` is one look in every theme: the theme's buttons (the selected one is the
+submit button, the others the plain button) floating on a strip of leather that closes on a 2px golden line, at the house
+radius (slightly rounded corners, no capsule ends). On a phone (Android or iOS, a window narrower than 600 dp) it is
+`TabStyle::TouchPills`, the same buttons at touch sizes, and `TabStyle::TouchPills` asks for them anywhere; `Pills` names
+the desktop size and `Rectangular` the classic square tabs. A button is 32 px tall in a 48 px row; the target is the
+whole row (padded, not the picture). The row is longer than the window and
 scrolls sideways under a finger, with the wheel and with the keys, without a scrollbar, and the selected pill scrolls
 into view (centred) by itself whoever changed the selection: a tap, an arrow key, a flip, the app. The pills are tabs for
 TalkBack and VoiceOver (the tab role, the name, the selected state) and the arrow keys move between them.
@@ -579,8 +582,9 @@ word processor) gives that row to its tabs: the window draws under the bars (`ex
 bar (`system_bars.status` as `HiddenTransient`), draws into the cutout area (`system_bars.draw_into_cutout`) and builds
 its tab bar with `with_status_bar`, given the band the display makes: `StatusBarBand::from_display` takes
 `info.get_display_features()`, `info.get_safe_area_insets()` and the window's size. The strip is then the lanes either
-side of the camera (and a margin of 8 px around it): it slides under the camera as a strip of paper behind a hole, what
-lies under a cutout is covered by the window's background and never drawn, a pill that straddles it is cut at the lane's
+side of the camera (and a margin of 8 px around it), a stretch of leather in each with the camera between them: it slides
+under the camera as a strip of paper behind a hole, what lies under a cutout is covered by the window's background and
+never drawn, a pill that straddles it is cut at the lane's
 edge (the hint that there is more), and the selected pill always stands whole inside a lane. With one hole that is two
 lanes, with two three, and a window without a cutout or a status bar has an ordinary row. A rotation or a resize runs
 `layout()` again and the strip is built around the new window. The `Ribbon` does the same with

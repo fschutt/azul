@@ -3383,8 +3383,9 @@ pub enum DebugEvent {
     WaitFrame,
     /// `{ "op": "wait_settled", "timeout_ms": 3000 }` - answer once nothing in
     /// the window moves on its own clock any more: no layout animation (the
-    /// slide a rebuild gives a moved node), CSS transition, keyframe track,
-    /// exiting node, scroll easing, fading scrollbar or scrollbar still to fade
+    /// slide a rebuild gives a moved node), CSS transition, keyframe track that
+    /// ends (a loop that never ends, a spinner's, is not waited for), exiting
+    /// node, scroll easing, fading scrollbar or scrollbar still to fade
     /// out ([`window_still_moving`]). The op to put before a screenshot that must
     /// show the window at rest - one taken right after a rebuild catches the
     /// slides mid-way and shows "two layouts at once". An error names what
@@ -24654,7 +24655,17 @@ pub fn window_still_moving(layout_window: &azul_layout::window::LayoutWindow) ->
     };
     count(lw.animations.len(), "layout animation(s)");
     count(lw.css_transitions.len(), "CSS transition(s)");
-    count(lw.live_tracks.len(), "keyframe track(s)");
+    // Only a track that is bound to end is a state in transit (the enter of a mounted node, a fade, a
+    // slide). One that loops forever (`iterations_left` is `None`: a spinner's `infinite`) is motion that
+    // is meant to go on: a window that shows a spinner would never settle, and on a phone the showcase's
+    // three spinners (23 tracks) kept every `wait_settled` of a scenario waiting for its whole deadline.
+    count(
+        lw.live_tracks
+            .values()
+            .filter(|track| track.iterations_left.is_some())
+            .count(),
+        "keyframe track(s)",
+    );
     count(
         lw.zombies.iter().filter(|z| !z.tracks.is_empty()).count(),
         "exiting node(s)",

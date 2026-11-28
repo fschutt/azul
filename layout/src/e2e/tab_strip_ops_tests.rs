@@ -15,10 +15,15 @@ use crate::widgets::tabs::{TabHeader, TabStyle};
 const TABS: usize = 12;
 
 fn run(name: &str, dom: StyledDom, steps: serde_json::Value) -> E2eTestResult {
+    run_at(name, dom, steps, 400, 96)
+}
+
+/// The same on a window `width` px wide at `dpi` (96 is a scale of 1, 252 is a Pixel 8's 2.625).
+fn run_at(name: &str, dom: StyledDom, steps: serde_json::Value, width: u32, dpi: u32) -> E2eTestResult {
     let test: E2eTest = serde_json::from_value(serde_json::json!({
         "name": name,
         "config": { "continue_on_failure": true },
-        "setup": { "window_width": 400, "window_height": 400, "dpi": 96 },
+        "setup": { "window_width": width, "window_height": 400, "dpi": dpi },
         "steps": steps,
     }))
     .expect("the scenario literal is a valid E2eTest");
@@ -99,6 +104,75 @@ fn the_touch_strip_scrolls_sideways_and_shows_no_scrollbar() {
             has_no_bar(),
         ]),
     ));
+}
+
+/// The tab a scenario clicks by its text, recorded by the strip's own callback.
+struct Clicked(std::sync::Arc<std::sync::atomic::AtomicUsize>);
+
+extern "C" fn record_tab(
+    data: azul_core::refany::RefAny,
+    _info: crate::callbacks::CallbackInfo,
+    state: crate::widgets::tabs::TabHeaderState,
+) -> azul_core::callbacks::Update {
+    let mut data = data;
+    if let Some(clicked) = data.downcast_ref::<Clicked>() {
+        clicked
+            .0
+            .store(state.active_tab + 1, std::sync::atomic::Ordering::SeqCst);
+    }
+    azul_core::callbacks::Update::DoNothing
+}
+
+/// A scenario that clicks a pill by its text must reach one that is out of the window: the op scrolls
+/// the strip to it, then presses on it. On a phone (Android emulator, 2026-11-28) a click on a tab of the
+/// ribbon in the band found no panel afterwards.
+#[test]
+fn a_click_by_text_reaches_a_pill_of_the_touch_strip_that_is_out_of_the_window() {
+    // a desktop window at a scale of 1, and a phone's: 411 px wide at 2.625; and a window that sits on a
+    // Pixel 8, whose status bar and camera push the content down (a click is aimed at the pill's place
+    // in the WINDOW, not in the layout)
+    for (width, dpi, preset) in [(400, 96, "off"), (411, 252, "off"), (411, 252, "pixel8")] {
+        let seen = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        // the `fn` item as the `fn` pointer the `Into` bound needs
+        let on_click: crate::widgets::tabs::TabOnClickCallbackType = record_tab;
+        let labels = StringVec::from_vec(
+            (0..TABS)
+                .map(|i| AzString::from(format!("Tab number {i}")))
+                .collect(),
+        );
+        let mut dom = Dom::create_body().with_child(
+            TabHeader::create(labels)
+                .with_active_tab(0)
+                .with_style(TabStyle::TouchPills)
+                .with_on_click(
+                    azul_core::refany::RefAny::new(Clicked(seen.clone())),
+                    on_click,
+                )
+                .dom(),
+        );
+        let (css, _) = azul_css::parser2::new_from_str("* { margin: 0; padding: 0; }");
+        assert_passes(&run_at(
+            "click_by_text_far_pill",
+            StyledDom::create(&mut dom, css),
+            serde_json::json!([
+                { "op": "wait_frame" },
+                { "op": "set_display_preset", "preset": preset },
+                { "op": "wait_frame" },
+                { "op": "wait_frame" },
+                { "op": "click", "text": "Tab number 11" },
+                { "op": "wait_frame" },
+                { "op": "wait_frame" },
+                { "op": "wait_frame" },
+            ]),
+            width,
+            dpi,
+        ));
+        assert_eq!(
+            seen.load(std::sync::atomic::Ordering::SeqCst),
+            TABS,
+            "{width} px at {dpi} dpi, preset {preset}: the last pill (index 11, recorded as 12) was clicked"
+        );
+    }
 }
 
 #[test]

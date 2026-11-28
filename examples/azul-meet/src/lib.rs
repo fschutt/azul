@@ -243,7 +243,7 @@ use azul::{
         IrohRelayMode, IrohTileRole,
     },
     json::Json,
-    misc::{Capability, PermissionState},
+    misc::{Capability, PermissionState, SettingsOpened},
     option::{OptionDarkLightMode, OptionKeyringResult, OptionString},
     prelude::*,
     str::String as AzString,
@@ -1701,6 +1701,30 @@ extern "C" fn on_permission_changed(mut data: RefAny, info: CallbackInfo) -> Upd
     Update::RefreshDom
 }
 
+/// "Open settings" beside a refused camera: the system's page of AzMeet's camera permission (a refused permission is not
+/// asked again, this is the way back).
+extern "C" fn on_open_camera_settings(data: RefAny, info: CallbackInfo) -> Update {
+    open_permission_settings(data, info, Capability::Camera)
+}
+
+/// The same beside a refused microphone.
+extern "C" fn on_open_microphone_settings(data: RefAny, info: CallbackInfo) -> Update {
+    open_permission_settings(data, info, Capability::Microphone)
+}
+
+/// Open the system's page of `capability`'s permission. A system with no such page (Linux) is told so in the notice,
+/// with where to look, instead of a button that does nothing.
+fn open_permission_settings(mut data: RefAny, mut info: CallbackInfo, capability: Capability) -> Update {
+    if matches!(info.open_app_settings(capability), SettingsOpened::Opened) {
+        return Update::DoNothing;
+    }
+    let Some(mut s) = data.downcast_mut::<MeetState>() else {
+        return Update::DoNothing;
+    };
+    s.notice = t("azmeet-settings-unsupported");
+    Update::RefreshDom
+}
+
 /// The app's callbacks, as the window wires them (`ui::Actions`).
 const ACTIONS: ui::Actions = ui::Actions {
     mic: mic_toggle,
@@ -1738,6 +1762,8 @@ const ACTIONS: ui::Actions = ui::Actions {
     key: on_key,
     keyring: on_keyring_result,
     permission: on_permission_changed,
+    open_camera_settings: on_open_camera_settings,
+    open_microphone_settings: on_open_microphone_settings,
     retry_server: on_retry_server,
     new_chat_room: on_new_chat_room,
     schedule: on_schedule,

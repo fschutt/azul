@@ -6,10 +6,10 @@
 //! (brass at half alpha at both ends of the strip, the glint at a third and
 //! at two thirds, a darker roll between); the selected tab's metal is
 //! `--fl-rolled-tab` (lit at its head, turning to `--fl-metal-turn` toward the
-//! foot), the S of each curve cut from the same bead, the rule eased into the
-//! turn colour beside each foot; and the tab is open at its foot - its stone
-//! covers the rule, no metal line under it. Every one of those used to be
-//! #C6B279.
+//! foot); and the tab is open at its foot - its stone covers the rule, no
+//! metal line under it. Every one of those used to be #C6B279. (The row is
+//! the square-tab row, `TabStyle::Rectangular`: `Auto` is the buttons on the
+//! leather, and the S curves are only the ribbon's.)
 //!
 //! The probes sit on the strip's 2px foot (the rule), on the selected tab's
 //! head and under it, at places the layout gives - nothing depends on the
@@ -26,7 +26,10 @@ use azul_layout::{
     callbacks::ExternalSystemCallbacks,
     cpurender::{self, RenderOptions},
     glyph_cache::GlyphCache,
-    widgets::{tabs::TabHeader, themes::UiTheme},
+    widgets::{
+        tabs::{TabHeader, TabStyle},
+        themes::UiTheme,
+    },
     window::LayoutWindow,
     window_state::FullWindowState,
 };
@@ -80,6 +83,7 @@ fn row() -> Row {
     let header = TabHeader::create(labels)
         .with_active_tab(1)
         .with_theme(UiTheme::Flora)
+        .with_style(TabStyle::Rectangular)
         .dom();
     let dom = Dom::create_body()
         .with_css("margin: 0; background: #ffffff;")
@@ -202,27 +206,4 @@ fn the_selected_tab_is_lit_along_its_head_and_open_at_its_foot() {
         u16::from(foot.2) > u16::from(foot.0) + 40 && foot.0 < 150,
         "the stone, not the metal, under the selected tab: {foot:?}"
     );
-}
-
-#[test]
-fn the_rule_turns_into_the_s_in_the_turn_colour_beside_each_foot() {
-    let row = row();
-    let y = row.rule_y();
-    let turn = (198, 178, 121);
-    let curve = 18.0;
-    for (x, what) in [
-        (row.tab.origin.x - curve, "the left S's foot"),
-        (row.tab.origin.x - curve - 1.0, "the left run-out's end"),
-        // One pixel out from the right foot: the S flares into the rule, so
-        // the pixel AT its foot is the curve's anti-aliased edge - the left
-        // foot's sample lands on a covered pixel only by its x's fraction.
-        (row.tab.origin.x + row.tab.size.width + curve, "the right S's foot"),
-        (row.tab.origin.x + row.tab.size.width + curve + 1.0, "the right run-out's end"),
-    ] {
-        assert!(
-            close(row.rgb(x, y), turn, 10),
-            "{what} (x = {x}) is the turn colour: {:?}",
-            row.rgb(x, y)
-        );
-    }
 }

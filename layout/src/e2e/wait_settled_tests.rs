@@ -182,3 +182,41 @@ fn e2e_m3_wait_settled_refuses_an_unknown_parameter_by_name() {
         "the refusal names the op, the key and the known one: {error}"
     );
 }
+
+/// A track that loops forever (a spinner's `infinite`) is not motion a screenshot has to wait out: on a
+/// phone the showcase's three spinners kept 23 tracks alive and every `wait_settled` of a scenario
+/// ran into its deadline ("the window was still moving after 3000 ms: 23 keyframe track(s)"). A track
+/// that ends (the enter of a node, a fade) is still waited for.
+#[test]
+fn a_track_that_loops_forever_is_not_motion_to_wait_for_but_one_that_ends_is() {
+    use azul_core::{geom::LogicalRect, id::NodeId};
+    use azul_css::{css::Keyframes, props::basic::animation::AnimationTiming};
+
+    let track = |iterations: Option<u16>| {
+        let mut track = crate::window::compile_keyframes_track(
+            &Keyframes::default(),
+            LogicalRect::zero(),
+            0.8,
+            AnimationTiming::Linear,
+        );
+        track.iterations_left = iterations;
+        track
+    };
+    let mut lw = crate::window::LayoutWindow::new(rust_fontconfig::FcFontCache::default())
+        .expect("a layout window");
+    assert_eq!(super::window_still_moving(&lw), None, "a new window has settled");
+    for node in 1..=23 {
+        lw.live_tracks.insert(NodeId::new(node), track(None));
+    }
+    assert_eq!(
+        super::window_still_moving(&lw),
+        None,
+        "23 spinner tracks that never end are the window at rest"
+    );
+    lw.live_tracks.insert(NodeId::new(40), track(Some(1)));
+    let moving = super::window_still_moving(&lw).expect("a track that ends is motion");
+    assert!(
+        moving.starts_with("1 keyframe track"),
+        "only the one that ends is counted: {moving}"
+    );
+}

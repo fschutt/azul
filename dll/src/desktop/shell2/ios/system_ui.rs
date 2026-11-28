@@ -25,7 +25,7 @@ use objc::{
 
 use super::{declare_class, CGRect};
 use crate::desktop::shell2::common::{
-    ios_display::{ios_display, system_ui_of, turn_of, IosSystemUi},
+    ios_display::{ios_display, system_ui_of, turn_of, IosDisplay, IosSystemUi},
     ios_display_features::features_of,
 };
 
@@ -184,7 +184,8 @@ unsafe fn is_pad() -> bool {
 }
 
 /// The display features of the window whose render view is `view`, `width` x `height` points with `insets` (top,
-/// right, bottom, left) as `layoutSubviews` read them. `options` are the app's `system_bars`; `touch_id_hardware` is
+/// right, bottom, left) as `layoutSubviews` read them, and the display they come from (the shell derives the system's
+/// gesture zones from it, `ios_display::gesture_zones`). `options` are the app's `system_bars`; `touch_id_hardware` is
 /// asked once at window creation.
 ///
 /// # Safety
@@ -196,7 +197,7 @@ pub(super) unsafe fn display_features(
     insets: (f32, f32, f32, f32),
     touch_id_hardware: bool,
     options: &SystemBarsOptions,
-) -> DisplayFeatures {
+) -> (DisplayFeatures, IosDisplay) {
     let turn = turn_of(width, height, interface_orientation_of(view));
     let mut display = ios_display(width, height, insets, is_pad(), touch_id_hardware, turn);
     let measured = status_bar_of(view);
@@ -210,5 +211,5 @@ pub(super) unsafe fn display_features(
     let system_hides = matches!(measured, Some((true, _)));
     let status_visible = !system_hides && !options.status_hidden();
     let navigation_visible = matches!(options.navigation, SystemBarMode::Visible);
-    features_of(&display, status_visible, navigation_visible)
+    (features_of(&display, status_visible, navigation_visible), display)
 }
