@@ -11707,6 +11707,12 @@ pub trait PlatformWindow {
         &mut self,
         reported: azul_css::accessibility::AccessibilityPreferences,
     ) -> Option<ProcessEventResult> {
+        // Contract shape (snapshot -> mutate -> pass): the adoption is the mutation. Only when the
+        // platform's report moved - a poll that finds nothing costs nothing.
+        if self.get_common_mut().detected_preferences == reported {
+            return None;
+        }
+        self.snapshot_window_state_baseline("adopt_reported_preferences");
         if !self.adopt_reported_preferences(reported) {
             return None;
         }

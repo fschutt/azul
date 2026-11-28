@@ -1214,8 +1214,6 @@ impl Win32Window {
         let Some(reported) = system_style::read_preferences() else {
             return false;
         };
-        // Contract shape (snapshot -> mutate -> pass): the adoption is the mutation and the pass.
-        self.snapshot_window_state_baseline("windows.preferences");
         match self.adopt_reported_preferences_and_tell(reported) {
             Some(result) => {
                 self.route_main_window_result(hwnd, result);

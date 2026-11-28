@@ -9941,7 +9941,6 @@ impl WaylandWindow {
         // The desktop's accessibility settings (the text size, the contrast, the motion ...): what the watcher
         // thread found since the last turn. The adoption restyles, and the pass tells the window's listeners.
         if let Some(reported) = self.preference_watcher.newest() {
-            self.snapshot_window_state_baseline("linux.wayland.preferences");
             if self.adopt_reported_preferences_and_tell(reported).is_some() {
                 self.needs_redraw.raise();
                 self.generate_frame_if_needed();

@@ -1859,8 +1859,6 @@ fn read_preferences(app: &AndroidApp) -> azul_css::accessibility::AccessibilityP
 #[cfg(all(target_os = "android", feature = "android-activity"))]
 fn adopt_preferences(app: &AndroidApp, window: &mut AndroidWindow) {
     let reported = read_preferences(app);
-    // Contract shape (snapshot -> mutate -> pass): the adoption is the mutation and the pass.
-    window.snapshot_window_state_baseline("android.preferences");
     if let Some(result) = window.adopt_reported_preferences_and_tell(reported) {
         window.needs_rerender = true;
         follow_ui_result(window, result);
