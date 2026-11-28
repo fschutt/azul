@@ -213,6 +213,20 @@ def main(argv):
                     if inbox_again
                     else "the New E-mail command is not in the dump: the compose window is still on top, or the app left",
                 )
+            if hit:
+                # File > Help > About AzMail: the About box is a Modal over the window - a sheet on a phone. Each step finds the next label in the dump
+                # and says what it did; the first label that is not there ends the walk (the pictures say where).
+                for label, wanted in (("file", ("File",)), ("help", ("Help",)), ("about", ("About AzMail", "About"))):
+                    xml = dump_ui(dev, out, f"before-{label}{tag}")
+                    found = find_label(xml, wanted)
+                    if not found:
+                        step(f"about-{label}", False, f"no {wanted[0]!r} in the dump")
+                        break
+                    dev.tap(found[1], found[2])
+                    time.sleep(4.0)
+                    shot(f"azmail-{label}{tag}")
+                    step(f"about-{label}", True, f"tapped {found[0]!r} at {found[1]},{found[2]}")
+                dump_ui(dev, out, f"about{tag}")
     log = app_log()
     (out / "azmail-first-start.log").write_text(first_log, encoding="utf-8")
     (out / "azmail.log").write_text(log, encoding="utf-8")
