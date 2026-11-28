@@ -4617,3 +4617,7 @@ mod audit_a6_tests {
         assert_eq!(hover_events(&pass(&hover)), 4);
     }
 }
+
+#[cfg(test)]
+#[path = "system_style_notice_test.rs"]
+mod system_style_notice_test;
