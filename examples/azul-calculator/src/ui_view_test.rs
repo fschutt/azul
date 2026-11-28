@@ -70,14 +70,10 @@ fn every_tab_has_a_view_and_a_word() {
     }
 }
 
-#[test]
-fn the_default_desktop_window_stacks_its_tabs_and_the_wider_views_keep_one_row() {
-    assert!(DEFAULT_SIZE.0 < STACK_MODES_BELOW, "the default window is narrow");
-    assert!(
-        PROGRAMMER_MIN_WIDTH >= STACK_MODES_BELOW,
-        "the wider views keep the tabs and the buttons in one row"
-    );
-}
+/// The default desktop window is narrow: it stacks its tabs under the buttons; the views that need
+/// more room (the programmer's) are wide enough to keep the tabs and the buttons in one row.
+const _: () = assert!(DEFAULT_SIZE.0 < STACK_MODES_BELOW);
+const _: () = assert!(PROGRAMMER_MIN_WIDTH >= STACK_MODES_BELOW);
 
 #[test]
 fn a_phone_is_on_its_side_when_it_is_wide_and_short() {
