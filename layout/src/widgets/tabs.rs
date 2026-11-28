@@ -2102,6 +2102,11 @@ pub(crate) struct StripScrollData {
     /// The classes that mark a pill among the strip's children (the tabs, the application button of
     /// a ribbon): what the scroll-into-view counts and measures.
     pub(crate) pill_classes: Vec<String>,
+    /// Whether the strip keeps its pills out of the gaps of the band at rest by writing room in front
+    /// of the ones that would stand in one ([`crate::widgets::tab_strip::room_around_cutouts`]).
+    /// `false` for a strip whose pills are placed by other means (a row of icons at positions of its
+    /// own).
+    pub(crate) camera_room: bool,
 }
 
 impl StripScrollData {
@@ -2122,6 +2127,7 @@ impl StripScrollData {
             gap: gap_px,
             lanes,
             pill_classes,
+            camera_room: true,
         }
     }
 }
@@ -2228,6 +2234,32 @@ fn scroll_selected_into_lane(
         .into_iter()
         .filter(|n| data.pill_classes.iter().any(|class| roving::has_class(info, *n, class)))
         .collect();
+    let Some(view) = info.get_node_size(strip).map(|size| size.width) else {
+        return Update::DoNothing;
+    };
+    let widths: Vec<f32> = tabs
+        .iter()
+        .map(|tab| info.get_node_size(*tab).map_or(0.0, |size| size.width))
+        .collect();
+    // Nothing laid out yet (a mount before the first frame of the strip): nothing to place or scroll.
+    if view <= 0.0 || widths.iter().any(|width| *width <= 0.0) {
+        return Update::DoNothing;
+    }
+    // At rest no pill stands under a camera: the pill that would starts the next lane, which is room in
+    // front of it, written as the pill's own left margin (a write at run time follows the node across
+    // the app's rebuilds). A strip with no camera in it asks for none, and the same write takes away
+    // the room that a window of another shape had given.
+    #[allow(clippy::cast_precision_loss)] // a few px
+    let room = if data.camera_room {
+        tab_strip::room_around_cutouts(&widths, data.lead, data.gap, &data.lanes, TOUCH_LEAD as f32)
+    } else {
+        vec![0.0; widths.len()]
+    };
+    if data.camera_room {
+        for (tab, extra) in tabs.iter().zip(&room) {
+            info.set_css_property(*tab, CssProperty::margin_left(LayoutMarginLeft::px(*extra)));
+        }
+    }
     let selected = pill.or_else(|| {
         tabs.iter().copied().find(|tab| {
             roving::children_of(info, *tab)
@@ -2238,21 +2270,15 @@ fn scroll_selected_into_lane(
     let Some(index) = selected.and_then(|pill| tabs.iter().position(|n| *n == pill)) else {
         return Update::DoNothing;
     };
-    let Some(view) = info.get_node_size(strip).map(|size| size.width) else {
-        return Update::DoNothing;
-    };
-    // Where each pill stands on the strip: from the room before the first and the widths, so the
-    // answer does not depend on how the engine reports positions of scrolled content.
+    // Where each pill stands on the strip: from the room before the first, the widths and the room
+    // just given, so the answer does not depend on how the engine reports positions of scrolled
+    // content.
     let mut spans = Vec::with_capacity(tabs.len());
     let mut x = data.lead;
-    for tab in &tabs {
-        let width = info.get_node_size(*tab).map_or(0.0, |size| size.width);
-        spans.push((x, width));
+    for (width, extra) in widths.iter().zip(&room) {
+        x += extra;
+        spans.push((x, *width));
         x += width + data.gap;
-    }
-    // Nothing laid out yet (a mount before the first frame of the strip): nothing to scroll.
-    if view <= 0.0 || spans.iter().any(|span| span.1 <= 0.0) {
-        return Update::DoNothing;
     }
     let content = x - data.gap + data.trail;
     let max = tab_strip::max_scroll(content, view);
