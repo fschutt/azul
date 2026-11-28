@@ -324,8 +324,8 @@
     ]
   },
   {
-    "name": "azmail_the_rails_quick_access_buttons_run_the_ribbons_commands",
-    "description": "The collapsed rail holds the app's own quick-access buttons at its bottom: Send / Receive, flag, read, and Compose last, nearest the thumb. Flag and read cannot run with no message selected; with one selected they can; Compose opens a message window.",
+    "name": "azmail_the_rail_holds_the_quick_access_buttons_at_its_bottom",
+    "description": "The collapsed rail holds the app's own quick-access buttons (Send / Receive, Follow up, Unread / Read, and Compose last, nearest the thumb); with a message selected they are there and the picture shows them. Running them is covered by the unit tests of the commands (every button runs the command of its name).",
     "only_on": [
       "linux",
       "macos",
