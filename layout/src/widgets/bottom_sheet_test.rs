@@ -275,7 +275,7 @@ fn a_sheet_taken_out_leaves_an_empty_one() {
 fn the_root_keeps_one_identity_whatever_detent_or_height_the_app_builds_it_at() {
     // A drag's override follows the node's identity through a rebuild; the override is handed back when the pointer is up, so
     // nothing of it reaches the next build and the key need not change with the detent.
-    let key = |s: BottomSheet| s.dom().root.key;
+    let key = |s: BottomSheet| s.dom().root.get_key();
     let peek = key(sheet());
     assert!(peek.is_some(), "the sheet's root is keyed");
     assert_eq!(peek, key(sheet()), "the same sheet is the same node across a rebuild");
