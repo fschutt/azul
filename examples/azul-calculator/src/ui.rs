@@ -171,7 +171,8 @@ const DEFAULT_SIZE: (f32, f32) = (340.0, 560.0);
 /// The smallest window the small calculator still fits.
 const MIN_SIZE: (f32, f32) = (300.0, 460.0);
 
-/// Under this width the mode tabs have a row of their own under History and Settings.
+/// Under this width the mode tabs of a desktop window have a row of their own under History and
+/// Settings.
 pub const STACK_MODES_BELOW: f32 = 520.0;
 /// From this width on the window is the programmer calculator - and from [`PROGRAMMER_MIN_HEIGHT`]:
 /// a phone on its side is wide but short, and the programmer's panel over its keys needs the height.
@@ -244,18 +245,25 @@ pub fn view_for_size(width: f32, height: f32) -> View {
     }
 }
 
-/// The views the mode tabs offer in a window of `width` x `height`, in their order: the graphing
-/// one only where the window can hold it (a phone has no tab for it).
+/// The views the mode tabs offer in a window of `width` x `height`, in their order: the
+/// programmer and the graphing ones only where the window can hold them (a phone has tabs for the
+/// standard calculator, the dates and the units: the programmer's bits and word size and the
+/// graph need room and a pointer's precision).
 #[must_use]
 pub fn tab_pins(width: f32, height: f32) -> Vec<Pin> {
-    tab_pins_for(view_for_size(width, height) == View::Graph)
+    let by_size = view_for_size(width, height);
+    tab_pins_for(by_size != View::Micro, by_size == View::Graph)
 }
 
-/// [`tab_pins`] for a window that can (`graph`) or cannot hold the graphing view: the layout
-/// callback learns that from its recorded size queries, not from the size itself.
+/// [`tab_pins`] for a window that can (`programmer`, `graph`) or cannot hold the programmer and
+/// the graphing views: the layout callback learns that from its recorded size queries, not from
+/// the size itself.
 #[must_use]
-pub fn tab_pins_for(graph: bool) -> Vec<Pin> {
-    let mut pins = vec![Pin::Standard, Pin::Programmer];
+pub fn tab_pins_for(programmer: bool, graph: bool) -> Vec<Pin> {
+    let mut pins = vec![Pin::Standard];
+    if programmer {
+        pins.push(Pin::Programmer);
+    }
     if graph {
         pins.push(Pin::Graphing);
     }
@@ -264,17 +272,23 @@ pub fn tab_pins_for(graph: bool) -> Vec<Pin> {
     pins
 }
 
-/// The view a pinned choice shows in a window of `width` x `height`: the pinned view, except the
-/// graphing one in a window too small for it, which shows what the size alone would.
+/// The view a pinned choice shows when the window's size alone would show `by_size`: the pinned
+/// view, except the programmer and the graphing ones in a window too small for them, which show
+/// what the size alone would.
+#[must_use]
+pub fn pinned_view(pin: Pin, by_size: View) -> View {
+    match pin.view() {
+        Some(View::Graph) if by_size != View::Graph => by_size,
+        Some(View::Programmer) if by_size == View::Micro => View::Micro,
+        Some(view) => view,
+        None => by_size,
+    }
+}
+
+/// [`pinned_view`] in a window of `width` x `height`.
 #[must_use]
 pub fn view_of_pin(pin: Pin, width: f32, height: f32) -> View {
-    match pin.view() {
-        Some(View::Graph) if view_for_size(width, height) != View::Graph => {
-            view_for_size(width, height)
-        }
-        Some(view) => view,
-        None => view_for_size(width, height),
-    }
+    pinned_view(pin, view_for_size(width, height))
 }
 
 /// [`view_for_size`] through the layout callback's RECORDED size queries:
@@ -1344,10 +1358,10 @@ fn icon_button(app: &RefAny, icon: &str, name: &str, id: AzString, cb: ButtonOnC
 
 /// The mode tabs, then History (in the views that have it) and Settings. On a desktop the row is
 /// the window's top edge (no title bar): the controls' room is kept free at its ends and the
-/// empty part of it moves the window. In a window narrower than [`STACK_MODES_BELOW`] the tabs
-/// get a row of their own under History and Settings (four tabs and two buttons do not fit one
-/// row of a phone or of the default window), and a phone scrolls the tabs sideways if they still
-/// do not fit.
+/// empty part of it moves the window. In a desktop window narrower than [`STACK_MODES_BELOW`] the
+/// tabs get a row of their own under History and Settings (the window's controls, the tabs and
+/// two buttons do not fit one row of the default window); a phone's row scrolls the tabs sideways
+/// if they do not fit.
 fn modes_row(
     s: &CalcApp,
     app: &RefAny,
@@ -1478,8 +1492,11 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
     // The window's size reaches this callback only through its recorded queries (a resize that
     // flips one builds the window again).
     let by_size = view_of_window(&info);
-    let stacked = info.window_width_less_than(STACK_MODES_BELOW);
+    let narrow = info.window_width_less_than(STACK_MODES_BELOW);
     let phone = azul_appkit::insets::phone_window(&info);
+    // A phone's three tabs and two buttons fit one row; the default desktop window's controls
+    // (the traffic lights) leave no room for them, so the tabs get a row of their own there.
+    let stacked = narrow && !phone;
     let touch = cfg!(any(target_os = "android", target_os = "ios"));
     let safe = azul_appkit::insets::SafeInsets::of(&info);
     // The room the window's controls take at the top (a desktop's: the traffic lights, the
@@ -1491,13 +1508,10 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
     };
     let s = &mut *guard;
     s.phone = phone;
-    s.tab_pins = tab_pins_for(by_size == View::Graph);
-    let view = match s.pin.view() {
-        // The graphing view in a window too small for it shows what the size alone would.
-        Some(View::Graph) if by_size != View::Graph => by_size,
-        Some(pinned) => pinned,
-        None => by_size,
-    };
+    s.tab_pins = tab_pins_for(by_size != View::Micro, by_size == View::Graph);
+    // The programmer and the graphing views in a window too small for them show what the size
+    // alone would.
+    let view = pinned_view(s.pin, by_size);
     s.enter_view(view);
     let settings = kit::settings_open(&s.kit);
     let content = if settings {
