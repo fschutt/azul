@@ -310,11 +310,12 @@ pub const BORDER_GRAB: f32 = 10.0;
 
 /// An Inspector width held between its minimum and what the container spares: at most
 /// [`INSPECTOR_WIDTH_MAX_SHARE`] of it and never so much that the body beside it is narrower
-/// than [`BODY_MIN_WIDTH`]; no number is the default. The minimum wins over the maximum in a
-/// container too narrow for both.
+/// than [`BODY_MIN_WIDTH`]; no number (and 0, "the app said nothing") is the default; a negative
+/// width is the minimum. The minimum wins over the maximum in a container too narrow for both.
+/// A container that is not known (no number) puts no upper limit.
 #[must_use]
 pub fn clamp_inspector_width(wanted: f32, container_w: f32) -> f32 {
-    let wanted = if wanted.is_finite() && wanted > 0.0 { wanted } else { INSPECTOR_WIDTH_DEFAULT };
+    let wanted = if !wanted.is_finite() || wanted == 0.0 { INSPECTOR_WIDTH_DEFAULT } else { wanted };
     let container = if container_w.is_finite() { container_w.max(0.0) } else { 0.0 };
     if container <= 0.0 {
         return wanted.max(INSPECTOR_WIDTH_MIN);
@@ -325,17 +326,21 @@ pub fn clamp_inspector_width(wanted: f32, container_w: f32) -> f32 {
     wanted.clamp(INSPECTOR_WIDTH_MIN, max)
 }
 
-/// The tallest the bottom pane may be in a container `container_h` tall.
+/// The tallest the bottom pane may be in a container `container_h` tall; a container that is not
+/// known (no number: the DOM is being built, no layout has run) puts no limit.
 #[must_use]
 pub fn pane_max(container_h: f32) -> f32 {
-    let container = if container_h.is_finite() { container_h.max(0.0) } else { 0.0 };
-    (container * PANE_MAX_SHARE).max(PANE_PEEK)
+    if !container_h.is_finite() {
+        return f32::MAX;
+    }
+    (container_h.max(0.0) * PANE_MAX_SHARE).max(PANE_PEEK)
 }
 
-/// A pane height held between the peek and [`pane_max`]; no number is the default.
+/// A pane height held between the peek and [`pane_max`]; no number (and 0, "the app said
+/// nothing") is the default, a negative height the peek.
 #[must_use]
 pub fn clamp_pane_height(wanted: f32, container_h: f32) -> f32 {
-    let wanted = if wanted.is_finite() && wanted > 0.0 { wanted } else { PANE_HEIGHT_DEFAULT };
+    let wanted = if !wanted.is_finite() || wanted == 0.0 { PANE_HEIGHT_DEFAULT } else { wanted };
     wanted.clamp(PANE_PEEK, pane_max(container_h))
 }
 

@@ -43,7 +43,7 @@ use azul_css::AzString;
 
 use super::{
     inspector::{Inspector, OptionInspector},
-    sidebar::{OptionSidebar, Sidebar, SidebarEvent, SidebarEventKind, SidebarOnEvent},
+    sidebar::{OptionSidebar, OptionSidebarOnEvent, Sidebar, SidebarEvent, SidebarEventKind, SidebarOnEvent},
     sidebar_layout::{pushes_main, FormFactor, SidebarState},
 };
 use crate::callbacks::CallbackInfo;
@@ -188,7 +188,7 @@ fn styled(mut dom: Dom, css: &str) -> Dom {
 /// What the catcher carries: the app's callback and the event it reports (the sidebar asks to be
 /// the rail).
 struct CatcherRef {
-    on_event: super::sidebar::OptionSidebarOnEvent,
+    on_event: OptionSidebarOnEvent,
 }
 
 extern "C" fn on_catcher_click(mut data: RefAny, info: CallbackInfo) -> Update {
@@ -273,7 +273,9 @@ fn build(frame: AppFrame) -> Dom {
             "position: absolute; left: 0px; top: 0px; right: 0px; bottom: 0px; z-index: 40;",
         )
         .with_ids_and_classes(classes(&[FRAME_CATCHER_CLASS]));
-        if let Some(on_event) = catcher_on_event {
+        // with no callback of the app to tell there is nothing to ask: the catcher only keeps the
+        // pushed view from taking the tap
+        if let Some(on_event) = catcher_on_event.filter(OptionSidebarOnEvent::is_some) {
             catcher = catcher.with_callbacks(
                 alloc::vec![CoreCallbackData {
                     event: EventFilter::Hover(HoverEventFilter::Click),

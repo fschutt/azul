@@ -172,8 +172,10 @@ fn the_right_dock_s_width_stays_between_200_and_60_percent_and_leaves_the_body_2
 #[test]
 fn a_dock_width_that_is_no_number_is_the_default_held_to_the_limits() {
     assert!(near(clamp_inspector_width(f32::NAN, 1200.0), INSPECTOR_WIDTH_DEFAULT));
-    assert!(near(clamp_inspector_width(-5.0, 1200.0), INSPECTOR_WIDTH_DEFAULT));
+    assert!(near(clamp_inspector_width(0.0, 1200.0), INSPECTOR_WIDTH_DEFAULT));
     assert!(near(clamp_inspector_width(f32::INFINITY, 1200.0), INSPECTOR_WIDTH_DEFAULT));
+    // a negative width is no width the pane can have: the minimum
+    assert!(near(clamp_inspector_width(-5.0, 1200.0), INSPECTOR_WIDTH_MIN));
     // an unknown container: the width is only held to the minimum
     assert!(near(clamp_inspector_width(320.0, f32::NAN), 320.0));
     assert!(near(clamp_inspector_width(120.0, 0.0), 200.0));
@@ -188,7 +190,13 @@ fn the_bottom_pane_stays_between_the_peek_and_85_percent_of_its_container() {
     assert!(near(clamp_pane_height(f32::NAN, 800.0), PANE_HEIGHT_DEFAULT));
     // a container too short for the peek still gets the peek
     assert!(near(pane_max(10.0), PANE_PEEK));
-    assert!(near(pane_max(f32::NAN), PANE_PEEK));
+    // a container that is not known puts no limit: the DOM is being built
+    assert!(pane_max(f32::NAN) > 1.0e6 && pane_max(f32::INFINITY) > 1.0e6);
+    assert!(near(clamp_pane_height(300.0, f32::NAN), 300.0));
+    // a negative height is the peek, 0 and no number the default
+    assert!(near(clamp_pane_height(-30.0, 800.0), PANE_PEEK));
+    assert!(near(clamp_pane_height(0.0, 800.0), PANE_HEIGHT_DEFAULT));
+    assert!(near(clamp_pane_height(f32::INFINITY, 800.0), PANE_HEIGHT_DEFAULT));
 }
 
 #[test]
@@ -212,7 +220,7 @@ fn a_pane_released_near_an_end_settles_on_it_and_one_between_stays() {
 fn the_pane_grows_as_the_finger_goes_up_and_the_right_dock_as_the_pointer_goes_left() {
     // grabbed at y 700 with the pane 168 tall; the finger at 600 made it 100 taller
     assert!(near(dragged_pane_height(168.0, 700.0, 600.0, 900.0), 268.0));
-    assert!(near(dragged_pane_height(168.0, 700.0, 800.0, 900.0), PANE_PEEK), "down: no lower than the peek");
+    assert!(near(dragged_pane_height(168.0, 700.0, 900.0, 900.0), PANE_PEEK), "down: no lower than the peek");
     assert!(near(dragged_inspector_width(320.0, 900.0, 800.0, 1400.0), 420.0));
     assert!(near(dragged_inspector_width(320.0, 900.0, 1000.0, 1400.0), 220.0));
     // a position that is no number moves nothing
