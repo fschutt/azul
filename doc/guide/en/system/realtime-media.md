@@ -589,9 +589,9 @@ is mounted). Do the same in your own app.
   hysteresis beyond the sticky uplink steps (a rendition switch costs a keyframe).
   Uplink fitting (a weak publisher stepping its top rendition down) and
   "active speaker" audio culling are not done.
-- Video: bitrate that follows the link, HEVC / AV1, and H.264 encode outside Apple
-  (Media Foundation, VAAPI / Vulkan Video, MediaCodec); until then those
-  platforms send JPEG.
+- Video: bitrate that follows the link, HEVC / AV1, and H.264 encode through
+  Media Foundation and VAAPI (VideoToolbox, MediaCodec and Vulkan Video encode
+  today); a platform without an H.264 encoder sends JPEG.
 - Signed announcements on the meeting server; browser participants.
 
 ## What is on-device
@@ -621,10 +621,16 @@ hardware backends are platform-specific:
   selects: **gpu-video** (Vulkan Video) on Linux/Windows desktop, **VideoToolbox**
   on Apple (Vulkan Video can't build there - no MoltenVK video), **MediaCodec**
   on Android. The handles + the selection are exposed cross-platform; the codec
-  FFI itself is the on-device part. Today only VideoToolbox encodes; elsewhere
-  `open` hands out a handle whose `recv_packet` never yields, so check with a test
-  frame before relying on it (AzMeet does). Send the packets as messages, not
-  frames (see "Sending media between apps").
+  FFI itself is the on-device part. VideoToolbox (Apple), MediaCodec (Android)
+  and Vulkan Video (a GPU with H.264 encode, `video-native`) encode today;
+  elsewhere `open` hands out a handle that is not open (`is_open()` is false).
+  MediaCodec takes NV12, RGBA8 and BGRA8 frames with even sides from 16 to 4096
+  pixels, names its codec (`PlatformCapability::video_codec` says
+  `MediaCodec (c2.android.avc.encoder, software)` or the vendor's hardware codec),
+  and answers a little after its input: `flush()` waits for the packets of every
+  frame handed over. Check with a test frame before relying on a codec (AzMeet
+  does). Send the packets as messages, not frames (see "Sending media between
+  apps").
 
 ## Testing without hardware
 

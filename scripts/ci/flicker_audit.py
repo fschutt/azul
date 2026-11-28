@@ -550,10 +550,18 @@ def ios_audit(args):
     report = {"idle": None, "flash": None, "pan": "not verified on iOS: the Simulator has no touch from the command line"}
     lines = [f"# Flicker and jitter audit (iOS Simulator, {backend} renderer)", ""]
     dev.simctl("ui", args.udid, "appearance", "light")
+    # THE HOME SCREEN FIRST: without its signature `wait_for_front` takes the springboard for the app (it is not one flat colour), and the first
+    # run of this audit recorded twenty seconds of the home screen as "the cold start" and judged an idle springboard
+    dev.terminate()
+    dev.settle(2.0)
+    try:
+        dev.home_sig = dev.capture("home", keep=False)[0]
+    except RuntimeError:
+        dev.home_sig = None
 
     # ---- 1. idle: pictures only (the iOS CPU path writes no present lines)
     dev.launch(cold=True)
-    dev.wait_for_front(timeout=first_frame)
+    shown = dev.wait_for_front(timeout=first_frame)
     dev.settle(5.0)
     sigs = []
     for _ in range(6):
@@ -565,8 +573,14 @@ def ios_audit(args):
     diffs = [q.sig_diff(a, b) for a, b in zip(sigs, sigs[1:])]
     ok, text = idle_verdict([], diffs)
     text = text.replace("0 presents in 3 s; ", "")
-    report["idle"] = {"ok": ok, "detail": text + " (pictures only: the iOS shell writes no present lines)"}
-    lines += ["## 1. Idle", "", f"- {'PASS' if ok else 'FLAGGED'}: {text} (six pictures half a second apart; the iOS shell writes no present lines)", ""]
+    on_home = bool(sigs) and dev.home_sig is not None and q.sig_diff(sigs[0], dev.home_sig) <= q.LAUNCHER_BELOW
+    if shown is None or on_home or not sigs:
+        ok = False
+        text = ("the app showed no picture of its own (" + ("the home screen is still on" if on_home else "no first frame within " + str(int(first_frame)) + " s") + "): "
+                + text)
+    report["idle"] = {"ok": ok, "detail": text + " (pictures only: the iOS shell writes no present lines)", "first_picture_s": None if shown is None else round(shown, 1)}
+    lines += ["## 1. Idle", "", f"- {'PASS' if ok else 'FAIL'}: {text} (six pictures half a second apart; the iOS shell writes no present lines)"
+              + (f"; the app's first picture came {shown:.1f} s after the launch" if shown is not None else ""), ""]
 
     # ---- 2. flash frames over a recording
     lines += ["## 2. Flash frames (recording of: cold start, dark mode on and off, rotation there and back when the Simulator's menu can be pressed, leaving the app and back)", ""]
@@ -588,7 +602,8 @@ def ios_audit(args):
 
         mark("cold start")
         dev.launch(cold=True)
-        dev.wait_for_front(timeout=first_frame)
+        shown_at = dev.wait_for_front(timeout=first_frame)
+        mark("first picture of the app" if shown_at is not None else "NO picture of the app within the wait")
         dev.settle(2.5)
         mark("dark mode on")
         dev.simctl("ui", args.udid, "appearance", "dark")
@@ -606,10 +621,16 @@ def ios_audit(args):
         else:
             lines += [f"- rotation not recorded: {msg}", ""]
         mark("leave the app")
-        dev.open_other_app()
+        # the Simulator's own home shortcut (Cmd-Shift-H): the screen after it is the springboard, which is a normal picture; another app (Settings)
+        # opens on a flat grey of its own for up to four seconds and was flagged as if it were ours
+        homed, hmsg = dev.gui_keystroke_with(("command down", "shift down"), "h") if hasattr(dev, "gui_keystroke_with") else (False, "")
+        if not homed:
+            lines += [f"- leaving with the home shortcut failed ({hmsg}): Settings is opened instead, and its own flat first screen can be flagged", ""]
+            dev.open_other_app()
         dev.settle(2.5)
         mark("back in front")
         dev.launch(cold=False)
+        dev.wait_for_front(timeout=first_frame)
         dev.settle(3.0)
         proc.send_signal(signal.SIGINT)
         try:
