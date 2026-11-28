@@ -46,5 +46,21 @@ class DefaultFilesTests(unittest.TestCase):
         self.assertTrue(all(sorted(a) == sorted(ios[0]) for a in android), (android, ios))
 
 
+class DisplayFeaturesTests(unittest.TestCase):
+    """The iOS session keeps what the app's window knows of the phone's display (the cutouts the strip builds its lanes around the island from)."""
+
+    TEXT = (HERE / "ios_qa.sh").read_text(encoding="utf-8")
+
+    def test_the_plain_start_and_every_extra_app_are_asked_for_their_display_features(self):
+        self.assertEqual(self.TEXT.count('"op":"get_display_features"'), 2)
+        self.assertIn("display-features-start.json", self.TEXT)
+        self.assertIn("$xn-display-features.json", self.TEXT)
+        self.assertEqual(self.TEXT.count("SIMCTL_CHILD_AZ_DEBUG=8797"), 2)
+
+    def test_the_script_is_valid_shell(self):
+        import subprocess
+        self.assertEqual(subprocess.run(["bash", "-n", str(HERE / "ios_qa.sh")]).returncode, 0)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

@@ -118,7 +118,10 @@ if [ "$session" = tabs ]; then
       sleep 5
     fi
     td="$out/tabs/$orient"; mkdir -p "$td/shots" "$td/videos"
-    xcrun simctl launch "$udid" "$bid" >"$td/launch.log" 2>&1; sleep 30
+    # the engine's debug server (AZ_DEBUG, a mobile-e2e app) answers what the window knows of this phone's display: the cutouts the tab strip builds its
+    # lanes from, the status bar, the corners (get_display_features), kept beside the pictures: the Simulator has the island, does the app hear of it?
+    env SIMCTL_CHILD_AZ_DEBUG=8797 xcrun simctl launch "$udid" "$bid" >"$td/launch.log" 2>&1; sleep 30
+    curl -s -m 10 -X POST http://127.0.0.1:8797/ -d '{"op":"get_display_features"}' >"$td/display-features-start.json" 2>&1 || echo "no debug server answered on 8797"
     xcrun simctl io "$udid" screenshot "$td/device-light-start.png" >/dev/null 2>&1 || true
     xcrun simctl ui "$udid" appearance dark >/dev/null 2>&1; sleep 8
     xcrun simctl io "$udid" screenshot "$td/device-dark-start.png" >/dev/null 2>&1 || true
@@ -140,7 +143,8 @@ if [ "$session" = tabs ]; then
       [ -n "$xbid" ] || { echo "no app in $xzip"; continue; }
       xcrun simctl install "$udid" "$xapp" >"$td/$xn-install.log" 2>&1 || echo "$xn did not install"
       xcrun simctl terminate "$udid" "$xbid" >/dev/null 2>&1 || true
-      xcrun simctl launch "$udid" "$xbid" >"$td/$xn-launch.log" 2>&1; sleep 30
+      env SIMCTL_CHILD_AZ_DEBUG=8797 xcrun simctl launch "$udid" "$xbid" >"$td/$xn-launch.log" 2>&1; sleep 30
+      curl -s -m 10 -X POST http://127.0.0.1:8797/ -d '{"op":"get_display_features"}' >"$td/$xn-display-features.json" 2>&1 || echo "no debug server answered on 8797 ($xn)"
       xcrun simctl io "$udid" screenshot "$td/$xn-light.png" >/dev/null 2>&1 || true
       xcrun simctl ui "$udid" appearance dark >/dev/null 2>&1; sleep 8
       xcrun simctl io "$udid" screenshot "$td/$xn-dark.png" >/dev/null 2>&1 || true
