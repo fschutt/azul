@@ -1,7 +1,7 @@
 [
   {
     "name": "azul_widgets_sounds_every_request_of_the_sound_board_is_recorded_with_its_route",
-    "description": "The Sounds section under AZ_BACKEND=headless (a headless window plays nothing and records every request of play_system_sound). A press of a sound button asks for that sound; assert_sound counts the REQUESTS, which is the same on every platform, while the route a request takes differs (Android: the AudioManager click, iOS: a haptic, a desktop: none). The recording keeps the request of a sound that did not play too, with the reason, so a second press within the sound's minimum interval is a request that was dropped, not one that was never made. A haptic button is not a sound.",
+    "description": "The Sounds section under AZ_BACKEND=headless (a headless window plays nothing and records every request of play_system_sound). A press of a sound button (the texts of the buttons are unique on the page: a click finds the first text node that CONTAINS its text) asks for that sound; assert_sound counts the REQUESTS, which is the same on every platform, while the route a request takes differs (Android: the AudioManager click, iOS: a haptic, a desktop: none). The recording keeps the request of a sound that did not play too, with the reason, so a second press within the sound's minimum interval is a request that was dropped, not one that was never made. A haptic button is not a sound.",
     "steps": [
       {
         "op": "scroll_into_view",
@@ -48,7 +48,7 @@
       },
       {
         "op": "scroll_into_view",
-        "text": "Error",
+        "text": "Bell",
         "block": "center",
         "behavior": "instant"
       },
@@ -57,14 +57,14 @@
       },
       {
         "op": "click",
-        "text": "Error"
+        "text": "Bell"
       },
       {
         "op": "wait_frame"
       },
       {
         "op": "assert_sound",
-        "sound": "Error",
+        "sound": "Bell",
         "count": 1
       },
       {
@@ -74,7 +74,7 @@
       },
       {
         "op": "assert_no_sound",
-        "sound": "Bell"
+        "sound": "Error"
       },
       {
         "op": "scroll_into_view",
@@ -94,7 +94,7 @@
       },
       {
         "op": "assert_sound",
-        "sound": "Error",
+        "sound": "Bell",
         "count": 1
       },
       {
