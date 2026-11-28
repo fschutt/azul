@@ -2440,6 +2440,10 @@ fn bind_endpoint(relay: &Relay, relay_only: bool) -> IrohEndpoint {
             .with_relay_mode(IrohRelayMode::Custom)
             .with_relay_url(url.as_str()),
     };
+    // Local-network discovery (mDNS) is what makes iOS and macOS ask for the Local Network permission, and the
+    // endpoint is bound before the first screen: it is on only where it is the way peers find each other (no relay
+    // at all). With a relay they meet through it and still form direct paths over the LAN.
+    let config = config.with_local_discovery(matches!(relay, Relay::Off));
     IrohEndpoint::bind(config.with_relay_only(relay_only))
 }
 
@@ -2786,7 +2790,8 @@ fn start_rooms(worker: String, from: &str) {
     configure_video(&mut me, &probe_video());
     configure_network(&mut me);
     apply_launch_args(&mut me);
-    open_devices_at_start(&mut me);
+    // No device opens here: the camera and the microphone open when the user turns one on or starts or
+    // joins a meeting (`apply_join_defaults`), so a fresh install shows no permission dialog at launch.
     run(me);
 }
 
@@ -2856,12 +2861,11 @@ mod service_down_tests {
     }
 
     #[test]
-    fn the_start_screen_shows_the_camera_at_once_even_with_no_meetings_service() {
-        let mut s = lobby_without_a_service();
-        open_devices_at_start(&mut s);
+    fn the_start_screen_opens_no_device_until_the_user_turns_one_on() {
+        let s = lobby_without_a_service();
         let view = snapshot(&s);
         assert!(matches!(view.screen, ui::UiScreen::Lobby), "the start screen");
-        assert!(view.cam, "its camera preview is on from the start");
-        assert!(view.mic, "and the microphone's level shows");
+        assert!(!view.cam, "no camera is open at launch: it would ask for its permission before anything needs it");
+        assert!(!view.mic, "nor the microphone");
     }
 }
