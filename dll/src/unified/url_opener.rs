@@ -8,11 +8,12 @@
 /// Opens `url` in the system's default handler; `true` once the opener started.
 #[must_use]
 pub fn open(url: &azul_core::url::Url) -> bool {
-    #[cfg(target_os = "android")]
+    // The Android opener lives in the desktop module (`az_desktop`: the builds that have a shell); an engine-only build has none.
+    #[cfg(all(target_os = "android", az_desktop))]
     {
         crate::desktop::extra::url_opener::open(url.href.as_str())
     }
-    #[cfg(not(target_os = "android"))]
+    #[cfg(not(all(target_os = "android", az_desktop)))]
     {
         url.open()
     }
