@@ -11,6 +11,8 @@ const IOS_CLIPBOARD_RS: &str = include_str!("ios/clipboard.rs");
 const IOS_WEBVIEW_RS: &str = include_str!("ios/webview.rs");
 const IOS_SYSTEM_FONT_RS: &str = include_str!("ios/system_font.rs");
 const IOS_OPEN_URL_RS: &str = include_str!("ios/open_url.rs");
+const IOS_SYSTEM_CONFIGURATION_RS: &str = include_str!("ios/system_configuration.rs");
+const IOS_SYSTEM_CONFIGURATION_TABLE_RS: &str = include_str!("common/ios_system_configuration.rs");
 const AUTH_APPLE_RS: &str = include_str!("../extra/auth_session/apple.rs");
 const PERMISSION_IOS_RS: &str = include_str!("../extra/permission/ios.rs");
 const GAMEPAD_APPLE_RS: &str = include_str!("../extra/gamepad/apple.rs");
@@ -813,6 +815,42 @@ fn url_open_on_ios_asks_uikit_on_the_main_thread() {
         assert!(code.contains(needed), "ios/open_url.rs: `{needed}` is missing");
     }
     at(IOS_MOD_RS, "mod open_url;", "the iOS shell declares the opener");
+}
+
+/// E63: AzMeet and AzCompanion did not build for iOS because the networking dependencies of the `iroh` feature reference 23
+/// SystemConfiguration symbols that the iOS SDK marks unavailable (`scripts/ci/ios_symbol_gate.py` refuses such a binary). The
+/// engine DEFINES every one of them (`ios/system_configuration.rs`; the table is `common/ios_system_configuration.rs`, tested on
+/// every host): a symbol of the table without a definition is an import again and the gate fails again. The definitions answer
+/// "nothing is configured" (NULL, an empty array, an empty string) and never panic, and the constants are set before `main`.
+#[test]
+fn every_systemconfiguration_symbol_the_gate_listed_is_defined_by_the_ios_shell() {
+    let table = code_of(IOS_SYSTEM_CONFIGURATION_TABLE_RS);
+    let shim = code_of(IOS_SYSTEM_CONFIGURATION_RS);
+    // the rows of the table: `symbol("<name>", ShimKind::<kind>, <user>),`
+    let names: Vec<&str> = table
+        .lines()
+        .filter_map(|line| line.trim().strip_prefix("symbol(\"")?.split('"').next())
+        .collect();
+    assert_eq!(names.len(), 23, "the table lists the 23 symbols of the gate: {names:?}");
+    for name in &names {
+        if name.starts_with("kSC") {
+            // a constant: one of the names handed to `constants!`
+            at(&shim, &format!("    {name},"), "ios/system_configuration.rs: the constants! list");
+        } else {
+            at(&shim, &format!("pub extern \"C\" fn {name}("), "ios/system_configuration.rs");
+        }
+    }
+    // 15 functions + the macro that defines the 8 constants, each exported under its C name
+    assert_eq!(shim.matches("#[no_mangle]").count(), 16, "every definition is exported under its C name");
+    // the constructor that fills the constants before main, and the immortal object they hold
+    at(&shim, "#[link_section = \"__DATA,__mod_init_func\"]", "the constants are set by the loader's initialiser list");
+    at(&shim, "let null_object = kCFNull;", "the constants hold CFNull (immortal: released once per store built)");
+    // a phone app aborts on a panic, and these functions are called from the dependencies' threads
+    for banned in [".unwrap()", ".expect(", "panic!", "unreachable!", "todo!"] {
+        assert!(!shim.contains(banned), "ios/system_configuration.rs must not contain `{banned}`");
+    }
+    // not for Mac Catalyst (the real functions exist there), and declared by the shell
+    in_order(IOS_MOD_RS, "#[cfg(not(target_abi = \"macabi\"))]", "mod system_configuration;", "ios/mod.rs");
 }
 
 /// `ASWebAuthenticationPresentationContextProviding` is a protocol apps adopt and Apple's own classes do not, so the runtime
