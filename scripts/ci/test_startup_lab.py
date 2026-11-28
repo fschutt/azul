@@ -7,6 +7,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import mobile_qa as q  # noqa: E402
 import startup_lab as lab  # noqa: E402
+import startup_strip_pair as pair  # noqa: E402
 
 
 def sig(colour, bar=None):
@@ -116,6 +117,24 @@ class LogTests(unittest.TestCase):
 
     def test_a_line_that_is_no_threadtime_line_has_no_time(self):
         self.assertIsNone(lab.logcat_ms("--------- beginning of main"))
+
+
+class PairTests(unittest.TestCase):
+    def test_the_picture_of_a_cold_start_runs_from_just_before_the_app_to_just_after_the_settled_picture(self):
+        labels = list("L" * 10 + "S" * 8 + "B" * 6 + "1" * 4 + "2" * 20)
+        picks = pair.pick_frames(labels)
+        self.assertEqual(picks[0], 8, "two frames before the first frame of the app phase")
+        self.assertEqual(picks[-1], 34, "six frames after the first settled picture (frame 28), every second frame")
+        self.assertTrue(all(b - a == 2 for a, b in zip(picks, picks[1:])))
+
+    def test_a_recording_with_no_settled_picture_runs_to_its_end_and_a_long_one_is_cut_short(self):
+        self.assertEqual(pair.pick_frames(list("LLSSBB"))[-1], 4)
+        self.assertEqual(len(pair.pick_frames(list("L" + "S" * 500))), 84)
+
+    def test_the_rows_are_fourteen_wide_and_the_second_recording_follows_the_first_in_the_frame_list(self):
+        rows = pair.rows_of(list(range(0, 36, 2)), offset=100)
+        self.assertEqual([len(r) for r in rows], [14, 4])
+        self.assertEqual(rows[0][0], 100)
 
 
 class RealRowsTests(unittest.TestCase):
