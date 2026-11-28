@@ -3855,6 +3855,7 @@ impl Device {
             ext_unbind: bool,
             swizzle: bool,
             storage: bool,
+            render_fill: bool,
         }
         let base = Way {
             name: "",
@@ -3866,6 +3867,7 @@ impl Device {
             ext_unbind: false,
             swizzle: false,
             storage: true,
+            render_fill: false,
         };
         let ways = [
             Way { name: "ladder order (min, mag, wrap), storage, upload", ..base },
@@ -3877,7 +3879,9 @@ impl Device {
             Way { name: "+ external texture unbind (the emulator's)", mag_first: true, unbind_pbo: true, alignment: true, usage: true, fbo: true, ext_unbind: true, ..base },
             Way { name: "+ swizzle set to bgra and back", mag_first: true, unbind_pbo: true, alignment: true, usage: true, fbo: true, ext_unbind: true, swizzle: true, ..base },
             Way { name: "the first way with glTexImage2D instead of storage", storage: false, ..base },
-            Way { name: "everything, with glTexImage2D instead of storage", mag_first: true, unbind_pbo: true, alignment: true, usage: true, fbo: true, ext_unbind: true, swizzle: true, storage: false },
+            Way { name: "everything, with glTexImage2D instead of storage", mag_first: true, unbind_pbo: true, alignment: true, usage: true, fbo: true, ext_unbind: true, swizzle: true, storage: false, render_fill: false },
+            Way { name: "the first way, filled by a clear in a framebuffer (no upload)", render_fill: true, ..base },
+            Way { name: "everything, filled by a clear in a framebuffer (no upload)", mag_first: true, unbind_pbo: true, alignment: true, usage: true, fbo: true, ext_unbind: true, swizzle: true, render_fill: true, ..base },
         ];
         const VS: &str = "#version 300 es\nout vec2 vUv;\nvoid main() {\n    vec2 p = vec2(float((gl_VertexID << 1) & 2), float(gl_VertexID & 2));\n    vUv = p;\n    gl_Position = vec4(p * 2.0 - 1.0, 0.0, 1.0);\n}\n";
         const FS: &str = "#version 300 es\nprecision mediump float;\nuniform sampler2D sTex;\nin vec2 vUv;\nout vec4 oColour;\nvoid main() {\n    oColour = texture(sTex, vUv);\n}\n";
@@ -3988,7 +3992,18 @@ impl Device {
                 ctx.pixel_store_i(gl::UNPACK_ALIGNMENT, 1);
             }
             ctx.bind_texture(gl::TEXTURE_2D, texture);
-            ctx.tex_sub_image_2d(gl::TEXTURE_2D, 0, 0, 0, 64, 64, gl::RGBA, gl::UNSIGNED_BYTE, &red);
+            if way.render_fill {
+                let fbo = ctx.gen_framebuffers(1)[0];
+                extra_fbos.push(fbo);
+                ctx.bind_framebuffer(gl::DRAW_FRAMEBUFFER, fbo);
+                ctx.framebuffer_texture_2d(gl::DRAW_FRAMEBUFFER, gl::COLOR_ATTACHMENT0, gl::TEXTURE_2D, texture, 0);
+                ctx.viewport(0, 0, 64, 64);
+                ctx.disable(gl::SCISSOR_TEST);
+                ctx.clear_color(1.0, 0.0, 0.0, 1.0);
+                ctx.clear(gl::COLOR_BUFFER_BIT);
+            } else {
+                ctx.tex_sub_image_2d(gl::TEXTURE_2D, 0, 0, 0, 64, 64, gl::RGBA, gl::UNSIGNED_BYTE, &red);
+            }
             if way.swizzle {
                 ctx.tex_parameter_i(gl::TEXTURE_2D, gl::TEXTURE_SWIZZLE_R, gl::BLUE as gl::GLint);
                 ctx.tex_parameter_i(gl::TEXTURE_2D, gl::TEXTURE_SWIZZLE_G, gl::GREEN as gl::GLint);
