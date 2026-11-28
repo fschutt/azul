@@ -233,6 +233,13 @@ impl EncoderConfig {
 /// (read as I420, the layout most codecs give it).
 pub(super) const ENCODER_INPUT_FORMATS: [i32; 3] = [21, 19, 0x7F42_0888];
 
+/// The output colour formats a decoder is asked for, in the order of preference: NV12 (21), I420
+/// (19), then none (the codec's own, which is the flexible format that only an `image-data` can
+/// read). A Codec2 decoder gives the client the layout it asked for; a hardware decoder gives
+/// NV12; the old software decoders (`OMX.google.*`) only I420. The first the codec configures
+/// and starts with is used.
+pub(super) const DECODER_OUTPUT_HINTS: [Option<i32>; 3] = [Some(21), Some(19), None];
+
 /// What to do after a codec call failed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum Recovery {
