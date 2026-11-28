@@ -829,6 +829,10 @@ pub(crate) struct Strip {
     pub right: f32,
     /// The width the ribbon is laid out in, px: the window's less the sidebar's column.
     pub width: f32,
+    /// The room the ribbon's content (the location, the bands) leaves at its left, px: on a phone
+    /// the rail stands over that edge under the tab row (`Sidebar::phone_content_inset`); the tab
+    /// row itself stays the whole width.
+    pub inset: f32,
 }
 
 /// The tab strip's offsets for `strip`: the platform's row of tab buttons that IS the title bar,
@@ -871,6 +875,7 @@ pub(crate) fn ribbon(s: &DriveState, app: &RefAny, strip: &Strip) -> Dom {
         })
         .with_labels(TabLabels::Auto)
         .with_available_width(strip.width)
+        .with_content_inset(strip.inset.max(0.0))
         // The strip's tab button: the location tabs' count, the overview on a click.
         .with_strip_end(
             TabOverviewButton::create(s.tabs.len())
@@ -994,6 +999,7 @@ mod tests {
             left: 60.0,
             right: 0.0,
             width: 900.0,
+            inset: 0.0,
         });
         assert_eq!(offsets.left, 60.0);
         assert_eq!(offsets.right, platform.right);
@@ -1002,6 +1008,7 @@ mod tests {
             left: -5.0,
             right: 0.0,
             width: 900.0,
+            inset: 0.0,
         });
         assert_eq!(none.left, 0.0);
     }

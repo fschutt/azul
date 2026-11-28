@@ -109,7 +109,13 @@ extern "C" fn pane_view(mut data: RefAny, info: VirtualViewCallbackInfo) -> Virt
     };
     let size = info.bounds.get_logical_size();
     let (w, h) = (size.width.max(1.0), size.height.max(1.0));
-    VirtualViewReturn::with_dom(content(&s, &app, dark), rect(w, h), rect(w, h))
+    // The view's document is the box it draws in, as the folder's lines are: the stage fills it.
+    let root = Dom::create_div()
+        .with_css(format!(
+            "display: flex; flex-direction: column; width: {w}px; height: {h}px;"
+        ))
+        .with_child(content(&s, &app, dark));
+    VirtualViewReturn::with_dom(root, rect(w, h), rect(w, h))
 }
 
 /// Draws the phone's pane again in place (its virtual view reads the state when it draws), without

@@ -60,6 +60,8 @@ pub(crate) fn frame(s: &DriveState, app: &RefAny, look: &Look) -> Dom {
         left: sidebar.header_left_pad(),
         right: look.insets.right,
         width: (look.window.0 - s.sidebar_px()).max(1.0),
+        // A phone's rail stands over the left edge under the tab row: the content clears it.
+        inset: sidebar.phone_content_inset(),
     };
     let header = ui_ribbon::ribbon(s, app, &strip);
     let body = ui_view::content(s, app, s.content_size(look.window));

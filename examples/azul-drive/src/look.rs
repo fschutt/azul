@@ -433,7 +433,7 @@ pub(crate) const SNIPPET_KIND: &str = themed!(
 /// The preview's stage: the picture, the page, the text - on a soft gradient over the leaf.
 pub(crate) const PREVIEW_STAGE: &str = themed!(
     "display: flex; flex-direction: column; align-items: center; justify-content: center; \
-     flex-shrink: 0; height: 236px; padding: 16px; box-sizing: border-box; overflow: hidden;",
+     flex-grow: 1; min-height: 0px; padding: 16px; box-sizing: border-box; overflow: hidden;",
     "border-bottom: 1px solid #E2E6EB;",
     "border-bottom: 1px solid #333333;",
     "background: linear-gradient(to bottom, #EFEDE7, #FBFAF6); border-bottom: 1px solid #E0DDD7;",

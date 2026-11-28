@@ -236,6 +236,12 @@ impl CommandBar {
     }
 }
 
+/// Whether the typed `text` is the window's own: a `?` search or a `:` command, which run no program.
+#[must_use]
+pub(crate) fn windows_own(text: &str) -> bool {
+    matches!(classify(text), Line::Search(_) | Line::Command(_))
+}
+
 /// The height the line takes from the window now (px).
 pub(crate) fn height(s: &DriveState) -> f32 {
     let bar = &s.command_bar;
@@ -909,6 +915,9 @@ pub(crate) fn footer(s: &DriveState, app: &RefAny) -> Dom {
             "azdrive-bar-tip",
             &[("keys", Arg::from(keys))],
         ))));
+    // The shell's prompt and buttons are for the lines that run a program: while a `?` search or a `:`
+    // command is typed the line keeps its status.
+    let shell_look = bar.expanded && !windows_own(&bar.input);
     let mut row = Dom::create_div().with_css(LINE_ROW);
     // The git chip of the folder (its switcher opens above the line).
     if let Some(chip) = ui_git::chip(s, app, TransientAnchor::Top) {
@@ -918,7 +927,7 @@ pub(crate) fn footer(s: &DriveState, app: &RefAny) -> Dom {
                 .with_child(chip),
         );
     }
-    if bar.expanded {
+    if shell_look {
         // The prompt of the folder the line runs in.
         row.add_child(
             Dom::create_div()
@@ -942,7 +951,7 @@ pub(crate) fn footer(s: &DriveState, app: &RefAny) -> Dom {
         );
     }
     row.add_child(input);
-    if bar.expanded {
+    if shell_look {
         let running = bar.running();
         let empty = bar.input.trim().is_empty();
         row.add_child(bar_button(
@@ -979,6 +988,8 @@ pub(crate) fn footer(s: &DriveState, app: &RefAny) -> Dom {
             BarAct::OpenTerminal,
             cwd.is_none().then(|| t_text(&why_not(s))),
         ));
+    }
+    if bar.expanded {
         row.add_child(bar_button(
             app,
             "azdrive-cli-fold",
@@ -1458,3 +1469,7 @@ extern "C" fn on_history_done(mut app: RefAny, mut msg: RefAny, mut info: Callba
     }
     Update::DoNothing
 }
+
+#[cfg(test)]
+#[path = "ui_command_bar_test.rs"]
+mod ui_command_bar_test;

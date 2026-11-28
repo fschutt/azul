@@ -105,7 +105,7 @@ pub(crate) fn preview_pane(s: &DriveState, app: &RefAny, _dark: bool) -> Dom {
                         .with_css(
                             "padding: 8px 12px; font-family: monospace; font-size: 12px; \
                              white-space: pre-wrap; overflow-y: auto; flex-grow: 1; \
-                             min-height: 0px;",
+                             min-height: 0px; align-self: stretch;",
                         )
                         .with_child(Dom::create_span_with_text(AzString::from(shown)))
                 }
