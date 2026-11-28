@@ -998,6 +998,8 @@ mod a_button_fades_into_its_hover_face;
 mod a_button_is_a_touch_target_on_a_phone;
 #[path = "a_break_of_the_reading_policy_falls_between_two_lines.rs"]
 mod a_break_of_the_reading_policy_falls_between_two_lines;
+#[path = "a_touch_beside_a_small_control_presses_it.rs"]
+mod a_touch_beside_a_small_control_presses_it;
 #[path = "a_segmented_item_is_a_touch_target_on_a_phone.rs"]
 mod a_segmented_item_is_a_touch_target_on_a_phone;
 #[path = "a_toolbar_tool_is_a_touch_target_on_a_phone.rs"]

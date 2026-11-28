@@ -4372,6 +4372,25 @@ impl CommonWindowState {
             let cpu_ht = &*cpu_ht;
             let nodes =
                 cpu_ht.hit_test_scrolled_stamped(position, &resolve, &resolve_tf, &frame_stamps);
+            // A finger beside a small control still presses it: on a phone (a window whose
+            // platform has a touch floor) a touch that lands on no interactive box's own pixels
+            // is for the nearest one within the floor's reach (`azul_layout::hit_slop`). A mouse
+            // never gets here with a floor: a desktop window has none.
+            let nodes = lw
+                .system_style
+                .as_ref()
+                .and_then(|style| azul_layout::hit_slop::touch_floor(&style.platform))
+                .and_then(|floor| {
+                    cpu_ht.touch_slop_hit(
+                        position,
+                        floor,
+                        &[],
+                        &resolve,
+                        &resolve_tf,
+                        Some(&frame_stamps),
+                    )
+                })
+                .map_or(nodes, |hit| vec![hit]);
             return crate::desktop::wr_translate2::convert_cpu_hit_test_to_full(
                 cpu_ht,
                 &nodes,

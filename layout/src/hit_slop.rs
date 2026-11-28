@@ -25,23 +25,48 @@
 //! A mouse never uses it (a pointer is as precise as a pixel), and a desktop window has no floor
 //! ([`touch_floor`]).
 
-use azul_core::geom::{LogicalPosition, LogicalRect, LogicalSize};
+use azul_core::{
+    dom::{EventFilter, HoverEventFilter, NodeData},
+    geom::{LogicalPosition, LogicalRect, LogicalSize},
+};
+use azul_css::system::Platform;
 
 /// The least a touch target is on Android, in logical px (Material: 48 dp).
 pub const ANDROID_TOUCH_TARGET_PX: f32 = 48.0;
 /// The least a touch target is on iOS, in logical px (Apple: 44 pt).
 pub const IOS_TOUCH_TARGET_PX: f32 = 44.0;
 
-/// The floor a touch hit-slop grows boxes to on the platform `os` (`"android"`, `"ios"`, as
-/// `std::env::consts::OS` and the system style name them); `None` where a finger has no slop: a
-/// desktop.
+/// The floor a touch hit-slop grows boxes to on `platform`, in logical px: Android's 48 and
+/// iOS's 44, the same numbers as the widgets' touch floors; `None` where a finger has no slop (a
+/// desktop: the platform of the window decides, as it does for every `@os(..)` rule).
 #[must_use]
-pub fn touch_floor(os: &str) -> Option<f32> {
-    match os {
-        "android" => Some(ANDROID_TOUCH_TARGET_PX),
-        "ios" => Some(IOS_TOUCH_TARGET_PX),
+pub const fn touch_floor(platform: &Platform) -> Option<f32> {
+    match platform {
+        Platform::Android => Some(ANDROID_TOUCH_TARGET_PX),
+        Platform::Ios => Some(IOS_TOUCH_TARGET_PX),
         _ => None,
     }
+}
+
+/// Whether a node takes a press: a click, mouse-button or touch callback, or it is focusable (a
+/// tab index, a button, a link, an input). These are the boxes the hit-slop may widen.
+#[must_use]
+pub fn node_is_interactive(node: &NodeData) -> bool {
+    node.is_focusable()
+        || node.callbacks.as_ref().iter().any(|callback| {
+            matches!(
+                callback.event,
+                EventFilter::Hover(
+                    HoverEventFilter::Click
+                        | HoverEventFilter::MouseDown
+                        | HoverEventFilter::LeftMouseDown
+                        | HoverEventFilter::MouseUp
+                        | HoverEventFilter::LeftMouseUp
+                        | HoverEventFilter::TouchStart
+                        | HoverEventFilter::TouchEnd
+                )
+            )
+        })
 }
 
 /// An interactive box the touch can be for.
