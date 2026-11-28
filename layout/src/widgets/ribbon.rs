@@ -6028,8 +6028,9 @@ const fn advance_milli_em(c: char) -> u32 {
     }
 }
 
-/// The width of `text` set at `font_px`, as the ribbon estimates it.
-fn text_px(text: &str, font_px: f32) -> f32 {
+/// The width of `text` set at `font_px`, as the ribbon estimates it (and the tab strip's
+/// `text_pill_width` after it).
+pub(crate) fn text_px(text: &str, font_px: f32) -> f32 {
     let milli: u64 = text.chars().map(|c| u64::from(advance_milli_em(c))).sum();
     milli as f32 / 1000.0 * font_px * TEXT_WIDTH_FACTOR
 }
