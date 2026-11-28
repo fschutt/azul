@@ -76,7 +76,6 @@ api_functions=(
   ShareRequest.with_title
   ShareRequest.with_anchor
   ShareRequest.with_open_with
-  ShareStatus.is_shown
   CallbackInfo.share
   CallbackInfo.can_share
   CallbackInfo.set_open_handler
