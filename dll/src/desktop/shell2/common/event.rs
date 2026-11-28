@@ -5480,9 +5480,13 @@ pub trait PlatformWindow {
                 startup.layout_end(layout_no, passes, "");
                 return Ok(result);
             }
-            // The startup timeline (`AZ_STARTUP=1`) says why this layout runs again.
+            // The startup timeline (`AZ_STARTUP=1`) says why this layout runs again, and whose callback asked.
+            let asker = self.get_common_mut().regeneration_asker();
+            let via = asker.map_or_else(String::new, |asker| {
+                format!(" via={}", describe_refresh_asker(self.get_layout_window(), asker))
+            });
             startup.mark_with("layout_extra_pass", || {
-                format!("#{layout_no} lifecycle_refresh={lifecycle_wants_pass} docks_changed={docks_changed}")
+                format!("#{layout_no} lifecycle_refresh={lifecycle_wants_pass} docks_changed={docks_changed}{via}")
             });
             result = self.regenerate_layout_once()?;
             passes += 1;
@@ -11979,7 +11983,8 @@ pub trait PlatformWindow {
         if !unmount_invocations.is_empty() {
             let borrows = self.prepare_callback_invocation();
             let mut all_changes: Vec<azul_layout::callbacks::CallbackChange> = Vec::new();
-            for (callback_data, _event) in &unmount_invocations {
+            let mut unmount_asker: Option<RefreshAsker> = None;
+            for (callback_data, event) in &unmount_invocations {
                 let mut callback =
                     azul_layout::callbacks::Callback::from_core(callback_data.callback.clone());
                 let (changes, update) = borrows.layout_window.invoke_single_callback(
@@ -11995,10 +12000,17 @@ pub trait PlatformWindow {
                 );
                 if !matches!(update, azul_core::callbacks::Update::DoNothing) {
                     any_refresh = true;
+                    unmount_asker.get_or_insert(RefreshAsker::Event {
+                        event: event.event_type,
+                        node: event.target,
+                    });
                 }
                 all_changes.extend(changes);
             }
             drop(borrows);
+            if let Some(asker) = unmount_asker {
+                self.get_common_mut().note_refresh_asker(asker);
+            }
             for change in &all_changes {
                 let _ = self.apply_user_change(change);
             }
