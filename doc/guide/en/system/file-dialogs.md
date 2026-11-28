@@ -184,17 +184,49 @@ fn save_bytes(
     suggested_name: AzString,
     mime: AzString,
     bytes: U8Vec,
-) -> bool;                              // fire-and-forget export
+) -> bool;                              // fire-and-forget export (a desktop and the browser; NOT a phone)
+
+fn open_folder(
+    title: AzString,
+    default_path: OptionString,
+    data: RefAny,
+    on_result: ResumeCallbackType,
+) -> RequestId;                         // FolderPickResult { locator: OptionString, error: OptionString }
+
+fn export_bytes(
+    suggested_name: AzString,
+    mime: AzString,
+    bytes: U8Vec,
+    data: RefAny,
+    on_result: ResumeCallbackType,
+) -> RequestId;                         // ExportResult { saved_as: OptionString, error: OptionString }
 ```
 
-Cancelling resolves with `path: None` / an empty `paths` / `target: None` and
-`error: None`. A dialog that FAILED resolves the same way but with `error:
-Some(reason)`: an app that wants to tell the user why nothing happened reads
-`error`; a cancel is never reported as one. On a phone, a request the platform
-cannot serve yet (a save dialog, a folder on Android) fails with its reason
-instead of showing a dialog whose answer would be thrown away, and
-`save_bytes` answers `false` (and logs why) instead of writing a folder the
-user did not choose and saying `true`.
+Cancelling resolves with `path: None` / an empty `paths` / `target: None` /
+`locator: None` / `saved_as: None` and `error: None`. A dialog that FAILED
+resolves the same way but with `error: Some(reason)`: an app that wants to tell
+the user why nothing happened reads `error`; a cancel is never reported as one.
+On a phone, a request the platform cannot serve (`save_file`, and
+`open_directory` on Android, where a folder is a permission and not a path)
+fails with its reason instead of showing a dialog whose answer would be thrown
+away, and `save_bytes` answers `false` (and logs why) instead of writing a
+folder the user did not choose and saying `true`.
+
+On a phone, ask for:
+
+* a FILE with `open_file` / `open_multiple_files`: the answer is the path of a
+  working copy in the app's own storage, which every decoder and `std::fs`
+  open (the same folder a file another app opens yours with lands in; copies
+  are capped like those and say why when one could not be made);
+* a FOLDER with `open_folder`: the answer is a `locator`, the folder as
+  `CallbackInfo::documents()` takes it (see "Files and folders the user owns"
+  below). On Android the system's tree picker is shown and the grant is KEPT, so the
+  folder is still in `Documents::places()` after a restart; on iOS and on a desktop
+  the locator is the folder's path;
+* a place to SAVE a rendered document with `export_bytes`: the system's "save as"
+  is shown, the bytes are written where the person chose, and `saved_as` names what
+  they were saved under only after the write came back. A cancel and a failure
+  are different answers, and no empty file is left behind by a write that failed.
 
 Filters are extension-only: pass bare extensions like `"png"`, `"jpg"` (no
 leading dot, no glob), plus a human-readable label. `open_directory` and
@@ -288,6 +320,38 @@ extern "C" fn on_open(data: RefAny, info: CallbackInfo) -> Update {
   to write it back.
 - Scenarios play the system with `{"op": "simulate_open", "files": [...]}`.
 
+## Files and folders the user owns
+
+A path is not enough on a phone. Android gives an app the folders the person GRANTS (a tree of documents named by a `content://` URI, with a
+permission the person can take back), iOS security-scoped folders; neither is something `std::fs` can open. `CallbackInfo::documents()` hands out a
+`Documents` handle that works by LOCATOR, an opaque string the platform made (a path on a desktop, an Android `content://` URI) which the app stores,
+shows by its entry's `name`, and hands back:
+
+```rust,ignore
+let documents = info.documents();            // Clone + Send + Sync: take it here, move it to a worker thread
+// on the worker (every call blocks until the platform answers; a cloud provider may take seconds):
+documents.places();                          // the app's storage, every folder the person granted, "All files" where given
+documents.children(locator);                 // Result<DocumentEntryVec, DocumentError>, folders first
+documents.stat(locator);                     // name, MIME type, size, date, what may be done with it
+documents.read(locator, offset, len);        // a range (at most 64 MiB a call): a file is never read whole by the engine
+documents.write(locator, bytes);             // replaces a file
+documents.create_file(parent, name, mime);   // never over a name that is taken (`Exists`)
+documents.create_dir(parent, name);
+documents.rename(locator, new_name);
+documents.delete(locator);
+documents.forget(locator);                   // release a granted folder (the folder itself is untouched)
+documents.all_files_access();                // Granted / NotGranted / Unavailable (Android's MANAGE_EXTERNAL_STORAGE, a flavour only)
+```
+
+Every failure says what to do next: `Denied` (the person took the grant back, or never gave it: ask for the folder again with `open_folder`),
+`NotFound` (it vanished: forget it), `TimedOut` (a slow provider: retry or tell the person; a provider that never answers is refused after eight late
+calls instead of collecting a thread per retry), `Exists`, `NotADirectory`, `Unsupported`, `Cancelled`, `Failed(reason)`. `DocumentError::describe()` is
+the sentence for the person. A listing is cut at 20 000 entries and the cut is logged; a name is one plain segment (no `/`, `\`, NUL, at most 255 bytes).
+
+What a provider cannot do is said, not hidden: a write through Android's storage framework is in place (there is no atomic replace across providers; keep
+the working copy until the write came back), and a provider that renames instead of failing is checked first (`create_file` over a name that is taken
+answers `Exists`). The app asks for "All files access" only in a build that declared it and only from the tap of a person; it is never asked at launch.
+
 ## Message boxes
 
 ```rust,no_run
@@ -345,6 +409,7 @@ has no cancel event everywhere, so closing it without a change resolves as
 
 ## Limitations
 
+- `Documents` calls block until the platform answers: take the handle in a callback, call from a worker thread.
 - All dialog calls block the calling thread until dismissed. Inside a callback
   this stops event delivery to every window in your app. For long-running
   operations triggered after the dialog closes, spawn a background thread.
