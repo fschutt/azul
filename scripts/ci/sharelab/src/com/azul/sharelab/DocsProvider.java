@@ -26,6 +26,8 @@ public final class DocsProvider extends ContentProvider {
             write(dir, "unicode äöü 😀.txt", "umlauts and an emoji in the name\n".getBytes(StandardCharsets.UTF_8));
             write(dir, "big.bin", new byte[3 * 1024 * 1024]);
             write(dir, "card.vcf", "BEGIN:VCARD\nVERSION:3.0\nFN:Lab Contact\nEND:VCARD\n".getBytes(StandardCharsets.UTF_8));
+            // the one document an app may WRITE (the proof of "open, edit, save back"); it starts from the same text every time
+            write(dir, "edit.md", "# Edit me\n\nThe text before an app saved it back.\n".getBytes(StandardCharsets.UTF_8));
         } catch (IOException e) {
             return false;
         }
@@ -82,6 +84,13 @@ public final class DocsProvider extends ContentProvider {
         File f = file(uri);
         if (f == null) {
             throw new FileNotFoundException(String.valueOf(uri));
+        }
+        if (mode.indexOf('w') >= 0) {
+            // only the document made for it can be written, and only through a grant that includes writing
+            if (!"edit.md".equals(f.getName())) {
+                throw new SecurityException("read-only document: " + f.getName());
+            }
+            return ParcelFileDescriptor.open(f, ParcelFileDescriptor.parseMode(mode));
         }
         return ParcelFileDescriptor.open(f, ParcelFileDescriptor.MODE_READ_ONLY);
     }

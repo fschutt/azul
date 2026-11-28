@@ -336,7 +336,14 @@ fn stat(env: &mut JNIEnv<'_>, activity: &JObject<'_>, locator: &str, what: &str)
     let resolver = resolver(env, activity)?;
     let uri = parse_uri(env, &document)?;
     let constants = constants(env)?;
-    let Some(cursor) = query(env, &resolver, &uri, &constants.columns)? else {
+    // a plain content URI (not a document of a tree) answers the two columns every openable file has: asked for more, a provider
+    // may refuse the query
+    let projection: Vec<String> = if matches!(parsed, Locator::Content { .. }) {
+        vec![constants.columns[1].clone(), constants.columns[3].clone()]
+    } else {
+        constants.columns.clone()
+    };
+    let Some(cursor) = query(env, &resolver, &uri, &projection)? else {
         return decided(DocumentError::NotFound(AzString::from(what)));
     };
     let entry = first_entry(env, &cursor, &constants, document, what);

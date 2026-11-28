@@ -7,7 +7,7 @@
 //!   delete / rename", a folder by its MIME type, a size a provider does not know, a name a provider does not give;
 //! * the LOCATOR of a document: `content://<authority>/tree/<tree id>` (the root of a folder the person granted),
 //!   `.../tree/<tree id>/document/<document id>` (a document inside it) and `content://<authority>/document/<document id>` (one
-//!   document the person picked) are parsed and built here ([`Locator`]), with the framework's own percent-encoding
+//!   document the person picked, and any other `content://` URI a provider made) are parsed and built here ([`Locator`]), with the framework's own percent-encoding
 //!   ([`android_encode`]), so that the locator of a child is made by text and equals the one `DocumentsContract` would build;
 //! * a provider's exception -> a [`DocumentError`] ([`classify_failure`]): a `SecurityException` is "the grant is gone"
 //!   (`Denied`, ask for the folder again), a `FileNotFoundException` is "it vanished" (`NotFound`) unless its text is the
@@ -101,6 +101,12 @@ pub enum Locator {
         /// The id of the document.
         doc_id: String,
     },
+    /// Any other `content://` URI a provider made (a `FileProvider` URI of a mail app, `MediaStore`'s `content://media/...`): not a
+    /// document of a tree, but a file that can be read and, where the grant allows, written. It has no folder, no children, no id.
+    Content {
+        /// The URI, as the provider made it.
+        uri: String,
+    },
 }
 
 impl Locator {
@@ -124,16 +130,21 @@ impl Locator {
                 doc_id: decode(doc)?,
             }),
             ["document", doc] => Some(Self::Document { authority, doc_id: decode(doc)? }),
+            // a URI that starts like a document URI and is not one is damaged: it is not guessed at
+            ["tree" | "document", ..] => None,
+            [first, ..] if !first.is_empty() => Some(Self::Content { uri: locator.to_string() }),
             _ => None,
         }
     }
 
-    /// The id of the document this locator addresses (the root's id for a [`Locator::Tree`]).
+    /// The id of the document this locator addresses (the root's id for a [`Locator::Tree`], the URI itself for a [`Locator::Content`]).
     #[must_use]
     pub fn document_id(&self) -> &str {
         match self {
             Self::Tree { tree_id, .. } => tree_id,
             Self::TreeDocument { doc_id, .. } | Self::Document { doc_id, .. } => doc_id,
+            // no id of the provider's: the URI is what names it
+            Self::Content { uri } => uri,
         }
     }
 
@@ -144,7 +155,7 @@ impl Locator {
             Self::Tree { authority, tree_id } | Self::TreeDocument { authority, tree_id, .. } => {
                 Some(alloc::format!("content://{authority}/tree/{}", android_encode(tree_id)))
             }
-            Self::Document { .. } => None,
+            Self::Document { .. } | Self::Content { .. } => None,
         }
     }
 
@@ -165,6 +176,7 @@ impl Locator {
             Self::Document { authority, doc_id } => {
                 alloc::format!("content://{authority}/document/{}", android_encode(doc_id))
             }
+            Self::Content { uri } => uri.clone(),
         }
     }
 
@@ -202,6 +214,10 @@ pub fn initial_uri_for(default_path: &str) -> Option<String> {
 #[must_use]
 pub fn readable_name(locator: &str) -> String {
     match Locator::parse(locator) {
+        Some(Locator::Content { uri }) => {
+            let last = uri.rsplit('/').find(|piece| !piece.is_empty()).unwrap_or(&uri);
+            percent_decode(last).unwrap_or_else(|| last.to_string())
+        }
         Some(parsed) => name_from_id(parsed.document_id()).to_string(),
         None => locator.to_string(),
     }

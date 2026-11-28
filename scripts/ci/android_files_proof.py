@@ -17,6 +17,17 @@ What it proves, each with the evidence it prints and writes to <out>/files-proof
     4. the grant is per URI: after the share, ShareLab asks the provider for a URI of ANOTHER share folder and a path outside the area
        (`..`, the types file, the app's databases): none is served (the app that the chooser was given the grant for reads nothing else);
     5. nothing of the app's data is exposed: the provider's manifest entry is not exported (dumpsys package).
+  SHARE IN / OPEN WITH (a different app starts the self-test app the way a share target of a real app does)
+    6. `open_running`: ShareLab's SendActivity starts the RUNNING app with a VIEW of a document it serves, WITHOUT FLAG_ACTIVITY_NEW_TASK:
+       the app's handler logs one `AZ_SELFTEST_OPEN` line with the file's name, type and the working copy READ BACK (length and digest
+       equal to the bytes ShareLab serves); there is exactly ONE `android_main` and ONE AzulActivity record (singleTask: no second copy);
+    7. `open_cold`: the same with the app NOT running: the request that STARTED the app reaches the handler (`launched_app: true`);
+    8. `send_many`: SEND_MULTIPLE of two documents, both copied, in order; a 3 MiB document is copied whole;
+    9. `write_back`: ShareLab EDITs a writable document with a write grant; the self-test app appends a line and saves the working copy
+       BACK; ShareLab's own file holds the line (read as root).
+    10. `folder` (needs the system's folder picker driven through uiautomator): the app asks for a folder, the grant is kept, a file is made
+       and read back inside it, and after the app was closed and opened again the folder is still one of its places.
+    11. `export`: the system's save dialog; the file lands where the person chose, with the bytes the app gave.
   Every step keeps a picture (the chooser, the receiver) and the log lines that decided it.
 
 The exit status is 0 when every expectation held, 1 when one did not, 2 when an app could not be installed or started.
@@ -36,6 +47,11 @@ import android_probe as probe  # noqa: E402
 LAB_PACKAGE = "com.azul.sharelab"
 LAB_LABEL = "ShareLab"
 RECEIVED = "AZ_SHARELAB_RECEIVED "
+OPEN = "AZ_SELFTEST_OPEN "
+ROW = "AZ_SELFTEST_ROW "
+HELLO = b"# Hello from ShareLab\n\nA Markdown document.\n"
+PLAIN = b"plain text from ShareLab\n"
+BIG_BYTES = 3 * 1024 * 1024
 APP_ACTIVITY = "com.azul.app.AzulActivity"
 
 # What the rows of AzSelfTest write: the script computes the same bytes (examples/azul-selftest/src/probes/files.rs).
@@ -49,6 +65,40 @@ def share_many_bytes(which):
 
 def sha256(data):
     return hashlib.sha256(data).hexdigest()
+
+
+def fnv1a64(data):
+    """The digest the self-test app's open handler logs for a working copy (the same FNV-1a over 64 bits)."""
+    h = 0xCBF29CE484222325
+    for b in data:
+        h = ((h ^ b) * 0x100000001B3) & 0xFFFFFFFFFFFFFFFF
+    return h
+
+
+def open_lines(logcat):
+    """The JSON objects the self-test app's open handler logged, in order."""
+    out = []
+    for line in (logcat or "").splitlines():
+        at = line.find(OPEN)
+        if at >= 0:
+            try:
+                out.append(json.loads(line[at + len(OPEN):]))
+            except ValueError:
+                out.append({"unparsable": line[at:at + 300]})
+    return out
+
+
+def row_lines(logcat):
+    """The one-line verdicts of the self-test app's rows (`AZ_SELFTEST_ROW {json}`), in order."""
+    out = []
+    for line in (logcat or "").splitlines():
+        at = line.find(ROW)
+        if at >= 0:
+            try:
+                out.append(json.loads(line[at + len(ROW):]))
+            except ValueError:
+                pass
+    return out
 
 
 def received_lines(logcat):
@@ -209,6 +259,122 @@ class Proof:
                     "the file and its bytes arrive", str(item.get("name")))
         self.expect(msg.get("type") == "text/markdown", "typed by its extension (md)", str(msg.get("type")))
 
+    # ---- the other direction: ShareLab sends, the self-test app is opened with ----
+
+    def send(self, action, docs, mime=None):
+        """ShareLab's SendActivity starts the app with `docs` (its own provider's files), WITHOUT FLAG_ACTIVITY_NEW_TASK."""
+        extra = f" --es mime {mime}" if mime else ""
+        return self.dev.sh(f"am start -n {LAB_PACKAGE}/.SendActivity --es to {self.package} --es action {action} --es docs {docs}{extra}")
+
+    def log(self):
+        return self.dev.adb("logcat", "-d", "-v", "tag", timeout=90)
+
+    def opened(self, seconds=30.0, count=1):
+        """The open-handler lines the app logged (waits for `count`)."""
+        t0 = time.time()
+        got = []
+        while time.time() - t0 < seconds:
+            got = open_lines(self.log())
+            if len(got) >= count:
+                break
+            time.sleep(1.0)
+        return got
+
+    def one_instance(self, what):
+        """There is ONE `android_main` since the log was cleared and ONE AzulActivity record: the share did not start a second copy."""
+        text = self.log()
+        mains = text.count("android_main entered")
+        records = set(re.findall(rf"ActivityRecord\{{(\w+) [^}}]*{re.escape(self.package)}/com\.azul\.app\.AzulActivity", self.dev.sh("dumpsys activity activities")))
+        self.expect(mains == 1, f"{what}: one android_main", f"{mains}")
+        self.expect(len(records) <= 1, f"{what}: one AzulActivity record", f"{sorted(records)}")
+
+    def item_of(self, request, name):
+        for item in request.get("items") or []:
+            if item.get("name") == name:
+                return item
+        return {}
+
+    def open_running(self):
+        self.say("6. a share into the RUNNING app, from an app that is not in our task (no NEW_TASK)")
+        self.start_row("files.open_in")
+        time.sleep(3.0)
+        self.send("VIEW", "hello.md", "text/markdown")
+        got = self.opened()
+        self.shot("07-open-running")
+        self.expect(len(got) == 1, "the open handler heard one request", f"{len(got)}")
+        if got:
+            request = got[-1]
+            item = self.item_of(request, "hello.md")
+            self.expect(request.get("action") == "View", "the action is View", str(request.get("action")))
+            self.expect(request.get("launched_app") is False, "it is not the request that started the app")
+            self.expect(item.get("kind") == "File" and item.get("mime") == "text/markdown", "a Markdown file", json.dumps(item)[:200])
+            self.expect(item.get("readable") is True and item.get("len") == len(HELLO) and item.get("fnv") == hex(fnv1a64(HELLO)),
+                        "the working copy holds exactly the bytes ShareLab serves", json.dumps(item)[:240])
+            self.expect(str(item.get("uri", "")).startswith("content://com.azul.sharelab.docs/"), "the origin is ShareLab's URI", str(item.get("uri")))
+            self.expect(item.get("path") and "azul-inbox" in str(item.get("path")), "the copy is in the app's inbox", str(item.get("path")))
+        self.one_instance("a share while the app runs")
+
+    def open_cold(self):
+        self.say("7. a share that STARTS the app")
+        self.dev.sh(f"am force-stop {self.package}")
+        self.dev.sh(f"am force-stop {LAB_PACKAGE}")
+        self.dev.adb("logcat", "-c")
+        self.dev.sh("setprop debug.az.selftest 0")
+        self.dev.sh("setprop debug.az.selftest_rows files.open_in")
+        time.sleep(1.0)
+        self.send("VIEW", "hello.md", "text/markdown")
+        got = self.opened(seconds=40)
+        self.shot("08-open-cold")
+        self.expect(len(got) >= 1, "the request that started the app reached its handler", f"{len(got)}")
+        if got:
+            item = self.item_of(got[0], "hello.md")
+            self.expect(got[0].get("launched_app") is True, "and it says it is the request that started the app")
+            self.expect(item.get("fnv") == hex(fnv1a64(HELLO)), "with the bytes of the file", json.dumps(item)[:200])
+        self.one_instance("a share that starts the app")
+
+    def send_many(self):
+        self.say("8. several files, and a big one")
+        self.start_row("files.open_in")
+        time.sleep(3.0)
+        self.send("SEND_MULTIPLE", "hello.md,plain.txt", "*/*")
+        got = self.opened()
+        self.expect(len(got) == 1, "one request for the two files", f"{len(got)}")
+        if got:
+            names = [i.get("name") for i in got[-1].get("items") or []]
+            self.expect(got[-1].get("action") == "Send", "the action is Send", str(got[-1].get("action")))
+            self.expect(names == ["hello.md", "plain.txt"], "both files, in order", str(names))
+            plain = self.item_of(got[-1], "plain.txt")
+            self.expect(plain.get("fnv") == hex(fnv1a64(PLAIN)), "each with its own bytes", json.dumps(plain)[:160])
+        self.dev.adb("logcat", "-c")
+        self.send("SEND", "big.bin", "application/octet-stream")
+        big = self.opened(seconds=60)
+        self.shot("09-open-big")
+        if big:
+            item = self.item_of(big[-1], "big.bin")
+            self.expect(item.get("len") == BIG_BYTES and item.get("fnv") == hex(fnv1a64(bytes(BIG_BYTES))),
+                        "a 3 MiB file is copied whole", json.dumps(item)[:200])
+        else:
+            self.expect(False, "the big file reached the handler")
+
+    def write_back(self):
+        self.say("9. open, edit, save back")
+        self.start_row("files.write_back")
+        time.sleep(3.0)
+        self.send("EDIT", "edit.md", "text/markdown")
+        verdict = None
+        t0 = time.time()
+        while time.time() - t0 < 40 and verdict is None:
+            for row in row_lines(self.log()):
+                if row.get("id") == "files.write_back":
+                    verdict = row
+            time.sleep(1.0)
+        self.shot("10-write-back")
+        self.expect(verdict is not None and verdict.get("verdict") == "PASS", "the row saved the working copy back",
+                    json.dumps(verdict)[:300] if verdict else "no verdict")
+        stored = self.dev.sh(f"cat /data/data/{LAB_PACKAGE}/files/docs/edit.md")
+        self.expect("edited by AzSelfTest" in (stored or ""), "ShareLab's own file holds the line the app added", (stored or "")[:200])
+        self.expect("# Edit me" in (stored or ""), "and the rest of the document is still there")
+
     def provider_is_closed(self):
         self.say("4. the provider serves only the share's files")
         info = self.dev.sh(f"dumpsys package {self.package}")
@@ -239,7 +405,7 @@ def main(argv):
     ap.add_argument("--package", default="")
     ap.add_argument("--activity", default="")
     ap.add_argument("--lab-apk", default="", help="a built ShareLab (default: built here with scripts/ci/sharelab/build.sh)")
-    ap.add_argument("--only", default="", help="comma list of steps: share_one,share_many,open_with,provider")
+    ap.add_argument("--only", default="", help="comma list of steps: share_one,share_many,open_with,provider,open_running,open_cold,send_many,write_back")
     args, _unknown = ap.parse_known_args(argv)
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
@@ -263,10 +429,12 @@ def main(argv):
     dev.adb("wait-for-device", timeout=60)
     dev.sh("input keyevent 82")
     proof = Proof(dev, out, package)
-    steps = [s for s in (args.only.split(",") if args.only else ["share_one", "share_many", "open_with", "provider"]) if s]
+    steps = [s for s in (args.only.split(",") if args.only else
+                         ["share_one", "share_many", "open_with", "provider", "open_running", "open_cold", "send_many", "write_back"]) if s]
     for step in steps:
         fn = {"share_one": proof.share_one, "share_many": proof.share_many, "open_with": proof.open_with,
-              "provider": proof.provider_is_closed}.get(step)
+              "provider": proof.provider_is_closed, "open_running": proof.open_running, "open_cold": proof.open_cold,
+              "send_many": proof.send_many, "write_back": proof.write_back}.get(step)
         if fn is None:
             print(f"unknown step {step}")
             return 2

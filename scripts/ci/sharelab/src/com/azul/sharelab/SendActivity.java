@@ -16,6 +16,7 @@ import java.util.ArrayList;
  *
  *   am start -n com.azul.sharelab/.SendActivity --es to com.azul.AzSelfTest --es action VIEW --es docs hello.md [--es mime text/markdown]
  *   am start -n com.azul.sharelab/.SendActivity --es to com.azul.AzSelfTest --es action SEND_MULTIPLE --es docs hello.md,plain.txt
+ *   am start -n com.azul.sharelab/.SendActivity --es to com.azul.AzSelfTest --es action EDIT --es docs edit.md --es mime text/markdown   (with a WRITE grant)
  *   (--ez newtask true adds FLAG_ACTIVITY_NEW_TASK; --es text 'a line' adds EXTRA_TEXT; --es link 'https://example.org/x' for a link)
  */
 public final class SendActivity extends Activity {
@@ -47,6 +48,12 @@ public final class SendActivity extends Activity {
                 } else if (in.getStringExtra("link") != null) {
                     out.setData(Uri.parse(in.getStringExtra("link")));
                 }
+            } else if ("EDIT".equals(action)) {
+                out = new Intent(Intent.ACTION_EDIT);
+                if (!uris.isEmpty()) {
+                    out.setDataAndType(uris.get(0), mime != null ? mime : "*/*");
+                }
+                out.addFlags(Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
             } else if ("SEND_MULTIPLE".equals(action)) {
                 out = new Intent(Intent.ACTION_SEND_MULTIPLE);
                 out.setType(mime != null ? mime : "*/*");

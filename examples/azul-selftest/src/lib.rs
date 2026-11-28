@@ -137,6 +137,13 @@ impl SelfTest {
 
     fn finish(&mut self, idx: usize, verdict: Verdict, ms: u64) {
         let def = self.rows[idx].0;
+        // the verdict of this row, as soon as it is known (the report comes when the queue is empty): one line a harness reads
+        println!(
+            "AZ_SELFTEST_ROW {{\"id\":{},\"verdict\":{},\"detail\":{},\"ms\":{ms}}}",
+            report::json_string(def.id),
+            report::json_string(verdict.code()),
+            report::json_string(verdict.detail())
+        );
         self.rows[idx].1 = Some(RowResult {
             id: def.id.to_string(),
             group: def.group.to_string(),

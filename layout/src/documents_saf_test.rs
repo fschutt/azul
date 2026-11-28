@@ -194,7 +194,6 @@ fn what_is_not_a_document_uri_is_not_a_locator() {
         "file:///storage/emulated/0/a.txt",
         "content://",
         "content:///tree/x",
-        "content://media/external/images/media/12",
         "content://x/tree/",
         "content://x/tree/a/document",
         "content://x/tree/a/document/",
@@ -299,5 +298,26 @@ fn a_document_uri_is_passed_on_in_the_frameworks_form_and_nothing_else_is_guesse
     );
     for none in ["", "/data/user/0/com.x/files", "/storage/emulated/0/", "/sdcard/../etc", "/storage/emulated/0/a//b", "relative/path", "https://x/y"] {
         assert_eq!(initial_uri_for(none), None, "{none:?}");
+    }
+}
+
+#[test]
+fn any_other_content_uri_is_a_file_that_can_be_read_and_written_where_the_grant_allows() {
+    for uri in [
+        "content://media/external/images/media/12",
+        "content://com.azul.sharelab.docs/edit.md",
+        "content://com.example.mail.fileprovider/attachments/Report%20Q3.pdf",
+    ] {
+        let parsed = Locator::parse(uri).unwrap_or_else(|| panic!("{uri}"));
+        assert_eq!(parsed, Locator::Content { uri: uri.to_string() });
+        assert_eq!(parsed.document_uri(), uri, "the URI the provider made is the one used");
+        assert_eq!(parsed.tree_uri(), None, "no folder around it");
+        assert_eq!(parsed.child("x"), None);
+    }
+    assert_eq!(readable_name("content://com.example.mail.fileprovider/attachments/Report%20Q3.pdf"), "Report Q3.pdf");
+    assert_eq!(readable_name("content://media/external/images/media/12"), "12");
+    // damaged URIs of the document forms are not taken for such files
+    for damaged in ["content://x/tree/", "content://x/document/a/b", "content://x/tree/a/doc/b", "content://x/tree"] {
+        assert_eq!(Locator::parse(damaged), None, "{damaged}");
     }
 }

@@ -59,6 +59,24 @@ class LogTests(unittest.TestCase):
         self.assertIsNone(ios.report_row("", "files.share_one"))
 
 
+class OpenInTests(unittest.TestCase):
+    def test_the_digest_of_a_working_copy_is_the_one_the_app_logs(self):
+        # the app logs `"fnv":"0x..."` with Rust's {:#x}: lower case hex without padding
+        self.assertEqual(hex(android.fnv1a64(b"")), "0xcbf29ce484222325")
+        self.assertEqual(hex(android.fnv1a64(android.HELLO)), hex(fnv1a64(android.HELLO)))
+        self.assertEqual(android.BIG_BYTES, 3 * 1024 * 1024)
+
+    def test_the_open_handlers_and_the_rows_lines_are_read_from_a_logcat(self):
+        log = ('11-28 10:00:00.1 1 2 I RustStdoutStderr: AZ_SELFTEST_OPEN {"action":"View","launched_app":false,"items":[{"name":"hello.md","len":45}]}\n'
+               '11-28 10:00:01.1 1 2 I RustStdoutStderr: AZ_SELFTEST_ROW {"id":"files.write_back","verdict":"PASS","detail":"saved","ms":1200}\n'
+               '11-28 10:00:02.1 1 2 I RustStdoutStderr: AZ_SELFTEST_OPEN {broken\n')
+        opened = android.open_lines(log)
+        self.assertEqual(opened[0]["items"][0]["name"], "hello.md")
+        self.assertIn("unparsable", opened[1])
+        rows = android.row_lines(log)
+        self.assertEqual([(r["id"], r["verdict"]) for r in rows], [("files.write_back", "PASS")])
+
+
 class PlistTests(unittest.TestCase):
     def test_the_declarations_of_a_built_app_are_read_from_its_info_plist(self):
         with tempfile.TemporaryDirectory() as d:
