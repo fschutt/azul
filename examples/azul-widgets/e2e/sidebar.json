@@ -1655,5 +1655,572 @@
         "selector": ".__azul-native-preview-banner"
       }
     ]
+  },
+  {
+    "name": "azul_widgets_geometry_probe_desktop",
+    "description": "Reads the geometry of the frame's parts on a desktop (every assertion passes and says what it measured): the numbers the pointer scenarios are written from.",
+    "only_on": [
+      "linux",
+      "windows",
+      "macos"
+    ],
+    "steps": [
+      {
+        "op": "resize",
+        "width": 1100,
+        "height": 900
+      },
+      {
+        "op": "set_mode",
+        "mode": "light"
+      },
+      {
+        "op": "set_theme",
+        "theme": "flora"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "scroll_into_view",
+        "selector": "#sidebar-demo-frame",
+        "block": "center",
+        "behavior": "instant"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "assert_layout",
+        "selector": "#sidebar-demo-frame",
+        "property": "x",
+        "expected": 0,
+        "tolerance": 100000
+      },
+      {
+        "op": "assert_layout",
+        "selector": "#sidebar-demo-frame",
+        "property": "y",
+        "expected": 0,
+        "tolerance": 100000
+      },
+      {
+        "op": "assert_layout",
+        "selector": "#sidebar-demo-frame",
+        "property": "width",
+        "expected": 0,
+        "tolerance": 100000
+      },
+      {
+        "op": "assert_layout",
+        "selector": "#sidebar-demo-frame",
+        "property": "height",
+        "expected": 0,
+        "tolerance": 100000
+      },
+      {
+        "op": "assert_layout",
+        "selector": ".__azul-native-sidebar-rail",
+        "property": "x",
+        "expected": 0,
+        "tolerance": 100000
+      },
+      {
+        "op": "assert_layout",
+        "selector": ".__azul-native-sidebar-rail",
+        "property": "y",
+        "expected": 0,
+        "tolerance": 100000
+      },
+      {
+        "op": "assert_layout",
+        "selector": ".__azul-native-sidebar-rail",
+        "property": "width",
+        "expected": 0,
+        "tolerance": 100000
+      },
+      {
+        "op": "assert_layout",
+        "selector": ".__azul-native-sidebar-rail",
+        "property": "height",
+        "expected": 0,
+        "tolerance": 100000
+      },
+      {
+        "op": "assert_layout",
+        "selector": ".__azul-native-sidebar-slop",
+        "property": "x",
+        "expected": 0,
+        "tolerance": 100000
+      },
+      {
+        "op": "assert_layout",
+        "selector": ".__azul-native-sidebar-slop",
+        "property": "y",
+        "expected": 0,
+        "tolerance": 100000
+      },
+      {
+        "op": "assert_layout",
+        "selector": ".__azul-native-sidebar-slop",
+        "property": "width",
+        "expected": 0,
+        "tolerance": 100000
+      },
+      {
+        "op": "assert_layout",
+        "selector": ".__azul-native-sidebar-slop",
+        "property": "height",
+        "expected": 0,
+        "tolerance": 100000
+      },
+      {
+        "op": "assert_layout",
+        "selector": ".__azul-native-sidebar-quick-button",
+        "property": "x",
+        "expected": 0,
+        "tolerance": 100000
+      },
+      {
+        "op": "assert_layout",
+        "selector": ".__azul-native-sidebar-quick-button",
+        "property": "y",
+        "expected": 0,
+        "tolerance": 100000
+      },
+      {
+        "op": "assert_layout",
+        "selector": ".__azul-native-sidebar-quick-button",
+        "property": "width",
+        "expected": 0,
+        "tolerance": 100000
+      },
+      {
+        "op": "assert_layout",
+        "selector": ".__azul-native-sidebar-quick-button",
+        "property": "height",
+        "expected": 0,
+        "tolerance": 100000
+      },
+      {
+        "op": "assert_layout",
+        "selector": ".__azul-native-sidebar-toggle",
+        "property": "x",
+        "expected": 0,
+        "tolerance": 100000
+      },
+      {
+        "op": "assert_layout",
+        "selector": ".__azul-native-sidebar-toggle",
+        "property": "y",
+        "expected": 0,
+        "tolerance": 100000
+      },
+      {
+        "op": "assert_layout",
+        "selector": ".__azul-native-sidebar-toggle",
+        "property": "width",
+        "expected": 0,
+        "tolerance": 100000
+      },
+      {
+        "op": "assert_layout",
+        "selector": ".__azul-native-sidebar-toggle",
+        "property": "height",
+        "expected": 0,
+        "tolerance": 100000
+      },
+      {
+        "op": "assert_layout",
+        "selector": ".__azul-native-preview-pane",
+        "property": "x",
+        "expected": 0,
+        "tolerance": 100000
+      },
+      {
+        "op": "assert_layout",
+        "selector": ".__azul-native-preview-pane",
+        "property": "y",
+        "expected": 0,
+        "tolerance": 100000
+      },
+      {
+        "op": "assert_layout",
+        "selector": ".__azul-native-preview-pane",
+        "property": "width",
+        "expected": 0,
+        "tolerance": 100000
+      },
+      {
+        "op": "assert_layout",
+        "selector": ".__azul-native-preview-pane",
+        "property": "height",
+        "expected": 0,
+        "tolerance": 100000
+      },
+      {
+        "op": "assert_layout",
+        "selector": ".__azul-native-preview-grip",
+        "property": "x",
+        "expected": 0,
+        "tolerance": 100000
+      },
+      {
+        "op": "assert_layout",
+        "selector": ".__azul-native-preview-grip",
+        "property": "y",
+        "expected": 0,
+        "tolerance": 100000
+      },
+      {
+        "op": "assert_layout",
+        "selector": ".__azul-native-preview-grip",
+        "property": "width",
+        "expected": 0,
+        "tolerance": 100000
+      },
+      {
+        "op": "assert_layout",
+        "selector": ".__azul-native-preview-grip",
+        "property": "height",
+        "expected": 0,
+        "tolerance": 100000
+      },
+      {
+        "op": "assert_layout",
+        "selector": ".__azul-native-preview-right",
+        "property": "x",
+        "expected": 0,
+        "tolerance": 100000
+      },
+      {
+        "op": "assert_layout",
+        "selector": ".__azul-native-preview-right",
+        "property": "y",
+        "expected": 0,
+        "tolerance": 100000
+      },
+      {
+        "op": "assert_layout",
+        "selector": ".__azul-native-preview-right",
+        "property": "width",
+        "expected": 0,
+        "tolerance": 100000
+      },
+      {
+        "op": "assert_layout",
+        "selector": ".__azul-native-preview-right",
+        "property": "height",
+        "expected": 0,
+        "tolerance": 100000
+      },
+      {
+        "op": "assert_layout",
+        "selector": ".__azul-native-app-frame-main",
+        "property": "x",
+        "expected": 0,
+        "tolerance": 100000
+      },
+      {
+        "op": "assert_layout",
+        "selector": ".__azul-native-app-frame-main",
+        "property": "y",
+        "expected": 0,
+        "tolerance": 100000
+      },
+      {
+        "op": "assert_layout",
+        "selector": ".__azul-native-app-frame-main",
+        "property": "width",
+        "expected": 0,
+        "tolerance": 100000
+      },
+      {
+        "op": "assert_layout",
+        "selector": ".__azul-native-app-frame-main",
+        "property": "height",
+        "expected": 0,
+        "tolerance": 100000
+      }
+    ]
+  },
+  {
+    "name": "azul_widgets_geometry_probe_phone",
+    "description": "Reads the geometry of the frame's parts on a phone (every assertion passes and says what it measured).",
+    "only_on": [
+      "linux",
+      "windows",
+      "macos"
+    ],
+    "steps": [
+      {
+        "op": "resize",
+        "width": 411,
+        "height": 900
+      },
+      {
+        "op": "set_mode",
+        "mode": "light"
+      },
+      {
+        "op": "set_theme",
+        "theme": "flora"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "scroll_into_view",
+        "selector": "#sidebar-demo-frame",
+        "block": "center",
+        "behavior": "instant"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "click",
+        "selector": "#sidebar-form-phone"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "scroll_into_view",
+        "selector": "#sidebar-demo-frame",
+        "block": "center",
+        "behavior": "instant"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "assert_layout",
+        "selector": "#sidebar-demo-frame",
+        "property": "x",
+        "expected": 0,
+        "tolerance": 100000
+      },
+      {
+        "op": "assert_layout",
+        "selector": "#sidebar-demo-frame",
+        "property": "y",
+        "expected": 0,
+        "tolerance": 100000
+      },
+      {
+        "op": "assert_layout",
+        "selector": "#sidebar-demo-frame",
+        "property": "width",
+        "expected": 0,
+        "tolerance": 100000
+      },
+      {
+        "op": "assert_layout",
+        "selector": "#sidebar-demo-frame",
+        "property": "height",
+        "expected": 0,
+        "tolerance": 100000
+      },
+      {
+        "op": "assert_layout",
+        "selector": ".__azul-native-app-frame-rail",
+        "property": "x",
+        "expected": 0,
+        "tolerance": 100000
+      },
+      {
+        "op": "assert_layout",
+        "selector": ".__azul-native-app-frame-rail",
+        "property": "y",
+        "expected": 0,
+        "tolerance": 100000
+      },
+      {
+        "op": "assert_layout",
+        "selector": ".__azul-native-app-frame-rail",
+        "property": "width",
+        "expected": 0,
+        "tolerance": 100000
+      },
+      {
+        "op": "assert_layout",
+        "selector": ".__azul-native-app-frame-rail",
+        "property": "height",
+        "expected": 0,
+        "tolerance": 100000
+      },
+      {
+        "op": "assert_layout",
+        "selector": ".__azul-native-sidebar-rail",
+        "property": "x",
+        "expected": 0,
+        "tolerance": 100000
+      },
+      {
+        "op": "assert_layout",
+        "selector": ".__azul-native-sidebar-rail",
+        "property": "y",
+        "expected": 0,
+        "tolerance": 100000
+      },
+      {
+        "op": "assert_layout",
+        "selector": ".__azul-native-sidebar-rail",
+        "property": "width",
+        "expected": 0,
+        "tolerance": 100000
+      },
+      {
+        "op": "assert_layout",
+        "selector": ".__azul-native-sidebar-rail",
+        "property": "height",
+        "expected": 0,
+        "tolerance": 100000
+      },
+      {
+        "op": "assert_layout",
+        "selector": ".__azul-native-preview-pane",
+        "property": "x",
+        "expected": 0,
+        "tolerance": 100000
+      },
+      {
+        "op": "assert_layout",
+        "selector": ".__azul-native-preview-pane",
+        "property": "y",
+        "expected": 0,
+        "tolerance": 100000
+      },
+      {
+        "op": "assert_layout",
+        "selector": ".__azul-native-preview-pane",
+        "property": "width",
+        "expected": 0,
+        "tolerance": 100000
+      },
+      {
+        "op": "assert_layout",
+        "selector": ".__azul-native-preview-pane",
+        "property": "height",
+        "expected": 0,
+        "tolerance": 100000
+      },
+      {
+        "op": "assert_layout",
+        "selector": ".__azul-native-preview-grip",
+        "property": "x",
+        "expected": 0,
+        "tolerance": 100000
+      },
+      {
+        "op": "assert_layout",
+        "selector": ".__azul-native-preview-grip",
+        "property": "y",
+        "expected": 0,
+        "tolerance": 100000
+      },
+      {
+        "op": "assert_layout",
+        "selector": ".__azul-native-preview-grip",
+        "property": "width",
+        "expected": 0,
+        "tolerance": 100000
+      },
+      {
+        "op": "assert_layout",
+        "selector": ".__azul-native-preview-grip",
+        "property": "height",
+        "expected": 0,
+        "tolerance": 100000
+      },
+      {
+        "op": "assert_layout",
+        "selector": ".__azul-native-preview-bottom",
+        "property": "x",
+        "expected": 0,
+        "tolerance": 100000
+      },
+      {
+        "op": "assert_layout",
+        "selector": ".__azul-native-preview-bottom",
+        "property": "y",
+        "expected": 0,
+        "tolerance": 100000
+      },
+      {
+        "op": "assert_layout",
+        "selector": ".__azul-native-preview-bottom",
+        "property": "width",
+        "expected": 0,
+        "tolerance": 100000
+      },
+      {
+        "op": "assert_layout",
+        "selector": ".__azul-native-preview-bottom",
+        "property": "height",
+        "expected": 0,
+        "tolerance": 100000
+      },
+      {
+        "op": "assert_layout",
+        "selector": ".__azul-native-app-frame-header",
+        "property": "x",
+        "expected": 0,
+        "tolerance": 100000
+      },
+      {
+        "op": "assert_layout",
+        "selector": ".__azul-native-app-frame-header",
+        "property": "y",
+        "expected": 0,
+        "tolerance": 100000
+      },
+      {
+        "op": "assert_layout",
+        "selector": ".__azul-native-app-frame-header",
+        "property": "width",
+        "expected": 0,
+        "tolerance": 100000
+      },
+      {
+        "op": "assert_layout",
+        "selector": ".__azul-native-app-frame-header",
+        "property": "height",
+        "expected": 0,
+        "tolerance": 100000
+      },
+      {
+        "op": "assert_layout",
+        "selector": ".__azul-native-app-frame-body",
+        "property": "x",
+        "expected": 0,
+        "tolerance": 100000
+      },
+      {
+        "op": "assert_layout",
+        "selector": ".__azul-native-app-frame-body",
+        "property": "y",
+        "expected": 0,
+        "tolerance": 100000
+      },
+      {
+        "op": "assert_layout",
+        "selector": ".__azul-native-app-frame-body",
+        "property": "width",
+        "expected": 0,
+        "tolerance": 100000
+      },
+      {
+        "op": "assert_layout",
+        "selector": ".__azul-native-app-frame-body",
+        "property": "height",
+        "expected": 0,
+        "tolerance": 100000
+      }
+    ]
   }
 ]
