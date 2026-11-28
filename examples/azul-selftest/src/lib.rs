@@ -152,6 +152,20 @@ impl SelfTest {
         self.rows[run.idx].0.widget.map(|widget| (widget, elapsed))
     }
 
+    /// The app's lifecycle handler heard `event` (`CallbackInfo::get_lifecycle_event`): the running row's scratch keeps the codes of
+    /// `probes::lifecycle` in the order they came.
+    pub fn note_lifecycle(&mut self, event: azul::callbacks::LifecycleEvent) {
+        use azul::callbacks::LifecycleEvent;
+        if let Some(run) = self.running.as_mut() {
+            run.scratch.push(match event {
+                LifecycleEvent::Paused => probes::lifecycle::PAUSED,
+                LifecycleEvent::Resumed => probes::lifecycle::RESUMED,
+                LifecycleEvent::LowMemory => 3,
+                LifecycleEvent::WillTerminate => 4,
+            });
+        }
+    }
+
     /// A frame of the running row's capture widget arrived (the widget's callback, on the loop thread, between two ticks): the
     /// row's scratch keeps `[frames, width, height, loudest sample in millionths]` and the row's next tick reads it.
     pub fn note_media_frame(&mut self, width: u32, height: u32, loudest_micro: u64) {
@@ -376,7 +390,18 @@ extern "C" fn tick(mut data: RefAny, mut info: TimerCallbackInfo) -> TimerCallba
     }
 }
 
+/// The app's lifecycle handler: what it hears goes to the running row.
+extern "C" fn on_lifecycle(mut data: RefAny, info: CallbackInfo) -> Update {
+    if let Some(event) = info.get_lifecycle_event().into_option() {
+        if let Some(mut state) = data.downcast_mut::<SelfTest>() {
+            state.note_lifecycle(event);
+        }
+    }
+    Update::DoNothing
+}
+
 extern "C" fn on_created(data: RefAny, mut info: CallbackInfo) -> Update {
+    info.set_lifecycle_handler(data.clone(), on_lifecycle);
     let timer = Timer::create(data.clone(), tick, info.get_system_time_fn())
         .with_interval(Duration::System(SystemTimeDiff::from_millis(TICK_MS)));
     info.add_timer(TimerId::unique(), timer);
