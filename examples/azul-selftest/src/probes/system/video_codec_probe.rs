@@ -54,7 +54,10 @@ const FIRST_FRAME_WAIT: Duration = Duration::from_millis(500);
 
 /// The row.
 pub fn video_codec(_ctx: &mut Ctx<'_>) -> Step {
-    Step::Done(verdict())
+    let verdict = verdict();
+    // One short line of its own: logcat cuts the report line at about 4 KB, which is before this row.
+    eprintln!("AZ_SELFTEST_ROW system.video_codec {} {}", verdict.code(), verdict.detail());
+    Step::Done(verdict)
 }
 
 fn verdict() -> Verdict {
