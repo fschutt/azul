@@ -2355,11 +2355,47 @@ mod autotest_generated {
             properties(&s.resolved_thumb_style()),
         );
         let dom = s.dom();
-        assert_eq!(theme_probe::unthemed(&dom), track_props);
+        // The design width is not inline: it is a UA-priority rule on the track's class
+        // (`track_width_default`), so an app's own css can beat it.
+        let track_inline: Vec<CssProperty> = track_props
+            .into_iter()
+            .filter(|p| !matches!(p, CssProperty::Width(_)))
+            .collect();
+        assert_eq!(theme_probe::unthemed(&dom), track_inline);
         assert_eq!(
             theme_probe::unthemed(&dom.children.as_ref()[0]),
             thumb_props
         );
+        let sheets = dom.css.as_ref();
+        assert_eq!(sheets.len(), 1, "the track's width default is one sheet");
+        let rules = sheets[0].rules.as_ref();
+        assert_eq!(rules.len(), 1);
+        assert_eq!(rules[0].priority, azul_css::css::rule_priority::UA);
+        assert_eq!(
+            rules[0].declarations.as_ref(),
+            &[azul_css::css::CssDeclaration::Static(CssProperty::const_width(
+                LayoutWidth::const_px(TRACK_WIDTH)
+            ))]
+        );
+    }
+
+    #[test]
+    fn a_track_the_app_styled_keeps_its_inline_width_and_gets_no_default() {
+        let mut s = Slider::create(75.0, 0.0, 100.0).with_theme(crate::widgets::themes::UiTheme::Flat);
+        let mut style = s.resolved_track_style().as_slice().to_vec();
+        style.push(CssPropertyWithConditions::simple(CssProperty::const_width(
+            LayoutWidth::const_px(120),
+        )));
+        s.track_style = OptionCssPropertyWithConditionsVec::Some(
+            CssPropertyWithConditionsVec::from_vec(style),
+        );
+        let dom = s.dom();
+        assert!(
+            dom.css.as_ref().is_empty(),
+            "a track the app styled has no default sheet"
+        );
+        assert!(inline_properties(&dom)
+            .contains(&CssProperty::const_width(LayoutWidth::const_px(120))));
     }
 
     #[test]
