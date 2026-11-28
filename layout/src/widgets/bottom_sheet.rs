@@ -34,8 +34,8 @@
 //! through ONE callback ([`BottomSheetOnEvent`]) and rebuilds with the detent it heard (a sheet whose
 //! app does not store it goes back to the detent it was built at, when the app next builds). A drag
 //! in flight survives a rebuild (`merge_sheet_state`): while the pointer is down it wins. The live
-//! height of a drag is a runtime override of the sheet's node (the engine's override channel: cheap
-//! for every step); when the pointer is up the node's own style takes the settled height and the
+//! height of a drag is a runtime override of the sheet's node (written with `set_css_property`, which
+//! pins it); when the pointer is up the node's own style takes the settled height and the
 //! override is handed back, so the app's next build is the truth again and a detent the app sets
 //! later is obeyed. The node is keyed, so it keeps its identity (and the override of a drag in
 //! flight) through a rebuild whatever the app builds around it.
@@ -563,10 +563,11 @@ fn height_property(px: f32) -> CssProperty {
     CssProperty::const_height(LayoutHeight::px(px))
 }
 
-/// A step of a drag: the live height, on the engine's override channel (cheap for every frame, and it follows the node through a
-/// rebuild while the pointer is down).
+/// A step of a drag: the live height, written like any restyle (laid out at once; the override it pins follows the node through a
+/// rebuild while the pointer is down, and is handed back at rest). The override channel alone (`override_css_property`) is the
+/// per-frame animation path: the runner does not lay out for it after a touch.
 fn follow_pointer(info: &mut CallbackInfo, root: DomNodeId, px: f32) {
-    info.override_css_property(root, height_property(px));
+    info.set_css_property(root, height_property(px));
 }
 
 /// The sheet rests at `px`: the node's own style says so, and the drag's override is handed back, so the app's next build is the
