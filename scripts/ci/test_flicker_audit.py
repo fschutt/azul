@@ -42,6 +42,30 @@ class PresentTests(unittest.TestCase):
         self.assertIsNone(f.frame_time_stats(ev[:1]))
 
 
+class BurstTests(unittest.TestCase):
+    """the engine-perf agent's finding: the 489 ms 'max' of build 4's pan was the gap BETWEEN two swipes (0.4 s of sleep and adb's latency), not a frame"""
+
+    def swipes(self):
+        one = [t * 1000 for t in range(0, 700, 50)]                       # a swipe: 14 presents 50 ms apart
+        two = [t * 1000 for t in range(1190, 1890, 50)]                    # 490 ms after the end of the first one
+        return [{"us": us} for us in one + two]
+
+    def test_the_gap_between_two_swipes_is_not_a_frame_interval(self):
+        st = f.frame_time_stats(self.swipes())
+        self.assertEqual((st["max"], st["n"]), (50.0, 26), "only the intervals inside a swipe are frames")
+        self.assertEqual(st["p50"], 50.0)
+
+    def test_the_bursts_and_the_gaps_between_them_are_told(self):
+        bursts, gaps = f.split_bursts(self.swipes())
+        self.assertEqual([len(b) for b in bursts], [14, 14])
+        self.assertEqual(gaps, [540.0])
+
+    def test_one_burst_has_no_gap(self):
+        bursts, gaps = f.split_bursts([{"us": t * 1000} for t in (0, 16, 33)])
+        self.assertEqual((len(bursts), gaps), (1, []))
+        self.assertEqual(f.split_bursts([]), ([], []))
+
+
 class IdleTests(unittest.TestCase):
     def events(self, specs):
         return [{"us": i * 500000, "kind": k, "rows": r, "share": r / 2400} for i, (k, r) in enumerate(specs)]

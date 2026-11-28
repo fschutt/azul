@@ -73,9 +73,26 @@ def percentile(values, p):
     return v[lo] + (v[hi] - v[lo]) * (k - lo)
 
 
-def frame_time_stats(events):
-    """p50 / p95 / max of the intervals between presents, and their count."""
-    iv = intervals_ms(events)
+BURST_GAP_MS = 200      # presents further apart than this are two bursts (two swipes), not one slow frame
+
+
+def split_bursts(events, gap_ms=BURST_GAP_MS):
+    """The presents split where two of them are more than `gap_ms` apart -> ([[event, ...], ...], [the gaps between the bursts in ms]). A pan
+    is several swipes with a pause between them: the pause is not a frame."""
+    bursts, gaps = [], []
+    for e in events:
+        if bursts and (e["us"] - bursts[-1][-1]["us"]) / 1000.0 <= gap_ms:
+            bursts[-1].append(e)
+        else:
+            if bursts:
+                gaps.append(round((e["us"] - bursts[-1][-1]["us"]) / 1000.0, 1))
+            bursts.append([e])
+    return bursts, gaps
+
+
+def frame_time_stats(events, gap_ms=BURST_GAP_MS):
+    """p50 / p95 / max of the intervals between presents INSIDE a burst (the pauses between swipes are no frames), and their count."""
+    iv = [x for burst in split_bursts(events, gap_ms)[0] for x in intervals_ms(burst)]
     if not iv:
         return None
     return {"n": len(iv), "p50": round(percentile(iv, 0.5), 1), "p95": round(percentile(iv, 0.95), 1), "max": round(max(iv), 1)}
@@ -421,10 +438,12 @@ def android_audit(args):
         stats = frame_time_stats(events)
         sig_after, _w, _h, shot_after = d.capture(f"pan-{slug}-after")
         moved = q.sig_diff(sig_before, sig_after)
-        entry = {"app": name, "presents": len(events), "engine_frame_ms": stats, "picture_changed": round(moved, 3),
+        entry = {"app": name, "presents": len(events), "bursts": len(split_bursts(events)[0]), "burst_gaps_ms": split_bursts(events)[1],
+                 "engine_frame_ms": stats, "picture_changed": round(moved, 3),
                  "permission_dialog": dialog, "shots": [shot_before, shot_after]}
         report["pan"].append(entry)
-        lines.append(f"- {name}: {len(events)} presents during three pans; engine present interval " + (f"p50 {stats['p50']} / p95 {stats['p95']} / max {stats['max']} ms (n={stats['n']})" if stats else "n/a (fewer than two presents)"))
+        bursts, gaps = split_bursts(events)
+        lines.append(f"- {name}: {len(events)} presents in {len(bursts)} burst(s) during three pans; engine present interval inside a burst " + (f"p50 {stats['p50']} / p95 {stats['p95']} / max {stats['max']} ms (n={stats['n']}; the pauses between swipes, {gaps} ms, are not frames)" if stats else "n/a (fewer than two presents in a burst)"))
         lines.append(f"  - the picture after the pans differs {moved:.3f} from the one before (shots/{shot_before}, shots/{shot_after})"
                      + (" - the pans moved nothing" if moved < q.SAME_BELOW else ""))
         if dialog:
