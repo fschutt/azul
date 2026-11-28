@@ -188,6 +188,87 @@ class ScrollSampleTests(unittest.TestCase):
         self.assertFalse(f.scroll_verdict(back, +1)[0])
 
 
+class ScrollCheckTests(unittest.TestCase):
+    """scroll_check end to end on a fake device and a fake debug server: the page scrolls with the finger, then back"""
+
+    class Dev:
+        def __init__(self):
+            self.calls = []
+            self.offset = 0.0
+
+        def adb(self, *a, **k):
+            self.calls.append(("adb",) + a)
+            return ""
+
+        def sh(self, cmd, **k):
+            self.calls.append(("sh", cmd))
+            return ""
+
+        def launch(self, cold=True):
+            self.calls.append(("launch", cold))
+
+        def wait_for_front(self, timeout=0):
+            return 1.0
+
+        def settle(self, s):
+            pass
+
+        def swipe(self, x1, y1, x2, y2, ms):
+            import time as _t
+            direction = 1 if y2 < y1 else -1                   # the finger moves up: the page scrolls down
+            for _ in range(10):
+                self.offset = max(0.0, self.offset + direction * 60.0)
+                _t.sleep(0.03)
+
+    def test_a_page_that_follows_the_finger_passes_and_the_calls_are_made(self):
+        import mobile_e2e
+        dev = self.Dev()
+
+        class Server:
+            def __init__(self, port):
+                pass
+
+            def ready(self, seconds):
+                return 0.1, {}
+
+            def op(self, op, timeout=3, **params):
+                return {"data": {"value": {"scroll_states": [{"node_id": 4, "scroll_y": dev.offset, "max_scroll_y": 1500}]}}}
+
+        real = mobile_e2e.Server
+        mobile_e2e.Server = Server
+        try:
+            lines, entry = [], {}
+            f.scroll_check(dev, (540, 1800, 540, 600, 700), lines, entry, port=8796)
+        finally:
+            mobile_e2e.Server = real
+        self.assertTrue(entry["scroll"]["ok"], entry["scroll"])
+        self.assertIn(("adb", "forward", "tcp:8796", "tcp:8796"), dev.calls)
+        self.assertTrue(any(c[0] == "sh" and "AZ_DEBUG=8796" in c[1] for c in dev.calls))
+        self.assertEqual(len(lines), 2)
+        self.assertIn("PASS", lines[0])
+
+    def test_a_server_that_does_not_answer_is_not_verified_not_failed(self):
+        import mobile_e2e
+        dev = self.Dev()
+
+        class Server:
+            def __init__(self, port):
+                pass
+
+            def ready(self, seconds):
+                return None, "connection refused"
+
+        real = mobile_e2e.Server
+        mobile_e2e.Server = Server
+        try:
+            lines, entry = [], {}
+            f.scroll_check(dev, (540, 1800, 540, 600, 700), lines, entry)
+        finally:
+            mobile_e2e.Server = real
+        self.assertIsNone(entry["scroll"]["ok"])
+        self.assertIn("NOT VERIFIED", lines[0])
+
+
 class MonotonicTests(unittest.TestCase):
     def test_an_offset_that_advances_is_fine(self):
         self.assertEqual(f.monotonic([0, 30, 90, 200, 360, 420, 430]), (True, 0.0))
