@@ -1,12 +1,12 @@
 [
   {
     "name": "an inline box broken across lines draws one box per line, its side borders at its ends",
-    "description": "LAYOUT23 proof 3. A span with a border, a background and side padding around words that cross a line break, with a <b> inside it: each line gets one yellow box; the left border only on the first line, the right one only on the last; the padding moves the text once, not per word or per nested <b> (see the screenshot). The paragraph is three lines at its 220 px.",
+    "description": "LAYOUT23 proof 3. A span with a border, a background and side padding around words that cross a line break, with a <b> inside it: each line gets one yellow box; the left border only on the first line, the right one only on the last; the padding moves the text once, not per word or per nested <b> (see the screenshot). The paragraph is three lines: they end at the <br/>s inside the box and every line is far shorter than the paragraph's 220 px, so the number of lines does not depend on the font the host draws it in.",
     "setup": { "window_width": 300, "window_height": 200, "dpi": 96 },
     "steps": [
       { "op": "mount",
         "html": [
-          "<p id=\"para\">Some words before <span id=\"box\" class=\"box\">a boxed run of text that <b>crosses</b> the line break</span> and after.</p>"
+          "<p id=\"para\">Words <span id=\"box\" class=\"box\">boxed run<br/><b>crosses</b> the<br/>line break</span> end.</p>"
         ],
         "css": [
           "body { margin: 0; }",

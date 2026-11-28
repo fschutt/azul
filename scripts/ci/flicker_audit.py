@@ -28,10 +28,13 @@ import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import layout_audit as la  # noqa: E402
 import mobile_qa as q  # noqa: E402
 
 FRAME_W, FRAME_H = 108, 240           # the size a video is cut to for the analysis and the strips
 FPS = 30                              # the rate the video is resampled to (a screenrecord of a static screen has few frames)
+MAX_BLACK_MS = 100                     # a black screen between two normal frames longer than this FAILS the flash audit (shorter ones are told)
+BLACK_LUMA = 24                        # a flat frame whose mean luminance (of 255) is below this is black
 VIDEO_FLAT_FRACTION = 0.98              # a frame of a recording that is this much one colour between the system bars is flat
 FLASH_DIFF = 0.06                     # a frame this far from both neighbours ...
 NEIGHBOURS_ALIKE = 0.02               # ... while the neighbours are this close to each other is a flash
@@ -71,9 +74,26 @@ def percentile(values, p):
     return v[lo] + (v[hi] - v[lo]) * (k - lo)
 
 
-def frame_time_stats(events):
-    """p50 / p95 / max of the intervals between presents, and their count."""
-    iv = intervals_ms(events)
+BURST_GAP_MS = 200      # presents further apart than this are two bursts (two swipes), not one slow frame
+
+
+def split_bursts(events, gap_ms=BURST_GAP_MS):
+    """The presents split where two of them are more than `gap_ms` apart -> ([[event, ...], ...], [the gaps between the bursts in ms]). A pan
+    is several swipes with a pause between them: the pause is not a frame."""
+    bursts, gaps = [], []
+    for e in events:
+        if bursts and (e["us"] - bursts[-1][-1]["us"]) / 1000.0 <= gap_ms:
+            bursts[-1].append(e)
+        else:
+            if bursts:
+                gaps.append(round((e["us"] - bursts[-1][-1]["us"]) / 1000.0, 1))
+            bursts.append([e])
+    return bursts, gaps
+
+
+def frame_time_stats(events, gap_ms=BURST_GAP_MS):
+    """p50 / p95 / max of the intervals between presents INSIDE a burst (the pauses between swipes are no frames), and their count."""
+    iv = [x for burst in split_bursts(events, gap_ms)[0] for x in intervals_ms(burst)]
     if not iv:
         return None
     return {"n": len(iv), "p50": round(percentile(iv, 0.5), 1), "p95": round(percentile(iv, 0.95), 1), "max": round(max(iv), 1)}
@@ -147,17 +167,34 @@ def flat_runs(sigs):
     return runs
 
 
-def flag_frames(sigs):
-    """[{index, kind, detail, frames?}]: the frames of a recording that flicker. kinds: `flat` (a run of frames of one colour between two
-    normal frames: `frames` long, from `index`), `flash` (a frame unlike both neighbours that match each other) and `out-of-order` (a
-    state A shown again after B and then B again: A B A B)."""
+def mean_luma(sig):
+    """The mean luminance (0..255) of a signature between the system bars."""
+    if len(sig) == q.COLS * q.ROWS * 3:
+        sig = sig[q.SYSTEM_BAR_ROWS[0] * q.COLS * 3:(q.ROWS - q.SYSTEM_BAR_ROWS[1]) * q.COLS * 3]
+    pixels = len(sig) // 3
+    if not pixels:
+        return 0.0
+    return sum(0.299 * sig[i] + 0.587 * sig[i + 1] + 0.114 * sig[i + 2] for i in range(0, pixels * 3, 3)) / pixels
+
+
+def flag_frames(sigs, fps=FPS, max_black_ms=MAX_BLACK_MS):
+    """[{index, kind, detail, fail, frames?, ms?, black?}]: the frames of a recording that flicker. kinds: `flat` (a run of frames of one
+    colour between two normal frames: `frames` long, from `index`; BLACK when its luminance is under BLACK_LUMA), `flash` (a frame
+    unlike both neighbours that match each other) and `out-of-order` (a state A shown again after B and then B again: A B A B).
+    `fail`: a black run longer than `max_black_ms`, a flat run of another colour, a flash, a state out of order. A black run of
+    `max_black_ms` or less is told (fail False): one black frame at 30 fps is 33 ms."""
     flagged = []
     n = len(sigs)
     flat = set()
     for start, end in flat_runs(sigs):
         length = end - start
-        flagged.append({"index": start, "kind": "flat", "frames": length,
-                        "detail": f"{length} frame(s) ({length / FPS:.2f} s) of one flat colour between two normal frames"})
+        ms = round(1000.0 * length / fps)
+        black = mean_luma(sigs[start + length // 2]) < BLACK_LUMA      # the middle of the run: a fade into black starts light
+        what = "BLACK" if black else "flat"
+        fail = (ms > max_black_ms) if black else True
+        flagged.append({"index": start, "kind": "flat", "frames": length, "ms": ms, "black": black, "fail": fail,
+                        "detail": f"{length} frame(s) ({length / fps:.2f} s) of one {what} colour between two normal frames"
+                                  + (f" (limit {max_black_ms} ms)" if black else "")})
         flat.update(range(start, end))
     for i in range(1, n - 1):
         if i in flat:
@@ -165,12 +202,14 @@ def flag_frames(sigs):
         before, here, after = sigs[i - 1], sigs[i], sigs[i + 1]
         d1, d2, around = q.sig_diff(here, before), q.sig_diff(here, after), q.sig_diff(before, after)
         if d1 > FLASH_DIFF and d2 > FLASH_DIFF and around < NEIGHBOURS_ALIKE:
-            flagged.append({"index": i, "kind": "flash", "detail": f"differs {d1:.2f} / {d2:.2f} from its neighbours, which match ({around:.3f})"})
+            flagged.append({"index": i, "kind": "flash", "fail": True,
+                            "detail": f"differs {d1:.2f} / {d2:.2f} from its neighbours, which match ({around:.3f})"})
     runs = runs_of(sigs)
     for k in range(len(runs) - 3):
         a, b, a2, b2 = (sigs[runs[k + j][0]] for j in range(4))
         if q.sig_diff(a, a2) < SAME_STATE and q.sig_diff(b, b2) < SAME_STATE and q.sig_diff(a, b) > FLASH_DIFF:
-            flagged.append({"index": runs[k + 2][0], "kind": "out-of-order", "detail": f"the state of frame {runs[k][0]} is shown again at {runs[k + 2][0]} after another one, and that one again at {runs[k + 3][0]}"})
+            flagged.append({"index": runs[k + 2][0], "kind": "out-of-order", "fail": True,
+                            "detail": f"the state of frame {runs[k][0]} is shown again at {runs[k + 2][0]} after another one, and that one again at {runs[k + 3][0]}"})
     seen, unique = set(), []
     for f in sorted(flagged, key=lambda f: f["index"]):
         if (f["index"], f["kind"]) not in seen:
@@ -263,6 +302,98 @@ def write_strip(path, frames, rows):
     return True
 
 
+def scroll_samples_during(srv, run_swipe, scroller_id, interval=0.04):
+    """Runs `run_swipe()` (a finger pan through the OS) while a thread asks the debug server for the page scroller's offset every `interval`
+    seconds -> [(seconds since the start, scroll_y)]. The server answers on the engine's UI thread, so the samples are what the engine
+    held at those moments; they are sampled in a swipe of their own: the questions cost the engine work, the frame times are not taken in
+    this one."""
+    samples, stop = [], threading.Event()
+    t0 = time.time()
+
+    def sample():
+        while not stop.is_set():
+            try:
+                for state in la.scroll_states(srv.op("get_scroll_states", timeout=3)):
+                    if state.get("node_id") == scroller_id:
+                        samples.append((round(time.time() - t0, 3), float(state.get("scroll_y", 0.0))))
+            except Exception:  # noqa: BLE001 - a missed sample is a missed sample
+                pass
+            time.sleep(interval)
+
+    thread = threading.Thread(target=sample, daemon=True)
+    thread.start()
+    try:
+        run_swipe()
+        time.sleep(0.4)
+    finally:
+        stop.set()
+        thread.join(timeout=5)
+    return samples
+
+
+def scroll_verdict(samples, direction, tolerance=1.0):
+    """-> (ok, text): the offsets of a pan advance the way the finger moves (`direction` +1: the page scrolls down, the offset grows; -1: it
+    comes back) and never snap back by more than `tolerance` px; at least three samples and a net move."""
+    values = [v for _t, v in samples]
+    if len(values) < 3:
+        return False, f"only {len(values)} offset sample(s): too few to judge"
+    ok, worst = monotonic(values, direction, tolerance)
+    moved = (values[-1] - values[0]) * direction
+    ok = ok and moved > 0
+    return ok, f"{len(values)} samples, {values[0]:.0f} -> {values[-1]:.0f} px, worst step back {worst} px" + ("" if moved > 0 else ", it did not move")
+
+
+def scroll_check(dev, pan, lines, entry, port=8796):
+    """The offset of the page scroller while a real finger pans it (adb's input) up and back: advances the way the finger moves, never snaps
+    back. Needs the debug server of the e2e app: relaunched with AZ_DEBUG, its own cold start, after the frame times were taken."""
+    import mobile_e2e as e2e
+    x1, y1, x2, y2, ms = pan
+    dev.adb("forward", f"tcp:{port}", f"tcp:{port}")
+    dev.sh(f"setprop debug.az.env 'AZ_LOG=info;AZ_DEBUG={port}'")
+    dev.launch(cold=True)
+    dev.wait_for_front(timeout=60)
+    srv = e2e.Server(port)
+    ready, why = srv.ready(60)
+    if ready is None:
+        entry["scroll"] = {"ok": None, "detail": f"the debug server did not answer: {why}"}
+        lines.append(f"  - scroll offset NOT VERIFIED: the debug server did not answer ({why})")
+        return
+    dev.settle(2.0)
+    states = la.scroll_states(srv.op("get_scroll_states"))
+    page = next((st for st in states if st.get("max_scroll_y", 0) > 100), None)
+    if not page:
+        entry["scroll"] = {"ok": None, "detail": "no scroller with more than 100 px to scroll"}
+        lines.append("  - scroll offset NOT VERIFIED: the engine names no scroller with more than 100 px to scroll")
+        return
+    up = scroll_samples_during(srv, lambda: dev.swipe(x1, y1, x2, y2, ms), page["node_id"])
+    down = scroll_samples_during(srv, lambda: dev.swipe(x2, y2, x1, y1, ms), page["node_id"])
+    ok_up, text_up = scroll_verdict(up, +1)
+    ok_down, text_down = scroll_verdict(down, -1)
+    entry["scroll"] = {"ok": ok_up and ok_down, "up": text_up, "down": text_down, "samples_up": up, "samples_down": down}
+    lines.append(f"  - scroll offset, finger up: {'PASS' if ok_up else 'FAIL'}: {text_up}")
+    lines.append(f"  - scroll offset, finger back down: {'PASS' if ok_down else 'FAIL'}: {text_down}")
+
+
+def flash_section(frames, marks, out, lines, report):
+    """The flash-frame verdict of a recording cut into `frames`, with the scenario `marks` [(seconds, label)]: appends to `lines` and `report`,
+    writes strips/flagged-frames.png for the flags."""
+    sigs = [signature_of(f) for f in frames]
+    flagged = flag_frames(sigs)
+    failing = [f for f in flagged if f.get("fail", True)]
+    ok = not failing
+    report["flash"] = {"ok": ok, "frames": len(frames), "flagged": flagged, "marks": marks, "max_black_ms": MAX_BLACK_MS}
+    verdict = (f"PASS: no black screen over {MAX_BLACK_MS} ms, no flat colour, no flash, nothing out of order" if ok
+               else f"FAIL: {len(failing)} flag(s) of {len(flagged)}")
+    lines += [f"- {len(frames)} frames at {FPS} fps ({len(frames) / FPS:.0f} s); scenario marks (s): " + ", ".join(f"{t} {l}" for t, l in marks),
+              f"- {verdict}"]
+    for f in flagged[:30]:
+        label = max((m for m in marks if m[0] <= f["index"] / FPS + 0.3), default=(0, "?"))[1]
+        lines.append(f"  - {'FAIL' if f.get('fail', True) else 'told'}: frame {f['index']} (t = {f['index'] / FPS:.1f} s, after '{label}'): {f['kind']}: {f['detail']}")
+    if flagged and write_strip(Path(out) / "strips" / "flagged-frames.png", frames, [strip_indices(f, len(frames)) for f in flagged[:10]]):
+        lines.append("  - strips/flagged-frames.png: one row per flag: a flat run as the frame before it, its first, middle and last frame and the one after; any other flag with two frames on each side")
+    lines.append("")
+
+
 def android_audit(args):
     run = q.Run(args.out, "android", {"label": "flicker audit"})
     out = Path(args.out)
@@ -353,18 +484,7 @@ def android_audit(args):
             lines += ["- the recording could not be cut into frames.", ""]
             report["flash"] = {"ok": None, "detail": "no frames"}
         else:
-            sigs = [signature_of(f) for f in frames]
-            flagged = flag_frames(sigs)
-            ok = not flagged
-            report["flash"] = {"ok": ok, "frames": len(frames), "flagged": flagged, "marks": marks}
-            lines += [f"- {len(frames)} frames at {FPS} fps ({len(frames) / FPS:.0f} s); scenario marks (s): " + ", ".join(f"{t} {l}" for t, l in marks),
-                      f"- {'PASS: no flagged frame' if ok else 'FLAGGED: ' + str(len(flagged)) + ' frame(s)'}"]
-            for f in flagged[:30]:
-                label = max((m for m in marks if m[0] <= f["index"] / FPS + 0.3), default=(0, "?"))[1]
-                lines.append(f"  - frame {f['index']} (t = {f['index'] / FPS:.1f} s, after '{label}'): {f['kind']}: {f['detail']}")
-            if flagged and write_strip(out / "strips" / "flagged-frames.png", frames, [strip_indices(f, len(frames)) for f in flagged[:10]]):
-                lines.append("  - strips/flagged-frames.png: one row per flag: a flat run as the frame before it, its first, middle and last frame and the one after; any other flag with two frames on each side")
-            lines.append("")
+            flash_section(frames, marks, out, lines, report)
 
     # ---- 3. pan jitter
     lines += ["## 3. Pan jitter (a finger pan through adb's input: the real finger path)", ""]
@@ -391,15 +511,118 @@ def android_audit(args):
         stats = frame_time_stats(events)
         sig_after, _w, _h, shot_after = d.capture(f"pan-{slug}-after")
         moved = q.sig_diff(sig_before, sig_after)
-        entry = {"app": name, "presents": len(events), "engine_frame_ms": stats, "picture_changed": round(moved, 3),
+        entry = {"app": name, "presents": len(events), "bursts": len(split_bursts(events)[0]), "burst_gaps_ms": split_bursts(events)[1],
+                 "engine_frame_ms": stats, "picture_changed": round(moved, 3),
                  "permission_dialog": dialog, "shots": [shot_before, shot_after]}
         report["pan"].append(entry)
-        lines.append(f"- {name}: {len(events)} presents during three pans; engine present interval " + (f"p50 {stats['p50']} / p95 {stats['p95']} / max {stats['max']} ms (n={stats['n']})" if stats else "n/a (fewer than two presents)"))
+        bursts, gaps = split_bursts(events)
+        lines.append(f"- {name}: {len(events)} presents in {len(bursts)} burst(s) during three pans; engine present interval inside a burst " + (f"p50 {stats['p50']} / p95 {stats['p95']} / max {stats['max']} ms (n={stats['n']}; the pauses between swipes, {gaps} ms, are not frames)" if stats else "n/a (fewer than two presents in a burst)"))
         lines.append(f"  - the picture after the pans differs {moved:.3f} from the one before (shots/{shot_before}, shots/{shot_after})"
                      + (" - the pans moved nothing" if moved < q.SAME_BELOW else ""))
         if dialog:
             lines.append(f"  - A SYSTEM DIALOG STANDS OVER THE APP before the pans, they went to the dialog: {dialog}")
+        if name.startswith("AzWidgets") and args.apk_e2e and not dialog:
+            scroll_check(d, pan, lines, entry)
     lines += ["", "Notes: the engine's present lines carry the engine's own clock; an emulator on a shared runner is not a phone, the shares and the order matter."]
+    (out / "flicker.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
+    (out / "flicker.json").write_text(json.dumps(report, indent=1), encoding="utf-8")
+    print("\n".join(lines))
+    return 0
+
+
+def ios_audit(args):
+    """The idle and flash-frame audits on the iOS Simulator. A finger pan is NOT run: the Simulator has no touch from the command line
+    (simctl has none; a drag through the Simulator window needs a window server the runner may not give), so the pan jitter of iOS is
+    said to be not verified, never guessed."""
+    import os
+    import signal
+    run = q.Run(args.out, "ios", {"label": "flicker audit (iOS)"})
+    out = Path(args.out)
+    (out / "strips").mkdir(parents=True, exist_ok=True)
+    exe = args.exe or args.bundle.rsplit(".", 1)[-1]
+    dev = q.IOS(run, args.udid, args.bundle, exe, args.app)
+    backend = args.backend or "cpu"
+    if args.backend:
+        dev.base_env["AZ_BACKEND"] = args.backend
+    first_frame = q.first_frame_timeout_for(backend, args.first_frame_timeout)
+    report = {"idle": None, "flash": None, "pan": "not verified on iOS: the Simulator has no touch from the command line"}
+    lines = [f"# Flicker and jitter audit (iOS Simulator, {backend} renderer)", ""]
+    dev.simctl("ui", args.udid, "appearance", "light")
+
+    # ---- 1. idle: pictures only (the iOS CPU path writes no present lines)
+    dev.launch(cold=True)
+    dev.wait_for_front(timeout=first_frame)
+    dev.settle(5.0)
+    sigs = []
+    for _ in range(6):
+        try:
+            sigs.append(dev.capture("idle", keep=False)[0])
+        except RuntimeError:
+            pass
+        time.sleep(0.5)
+    diffs = [q.sig_diff(a, b) for a, b in zip(sigs, sigs[1:])]
+    ok, text = idle_verdict([], diffs)
+    text = text.replace("0 presents in 3 s; ", "")
+    report["idle"] = {"ok": ok, "detail": text + " (pictures only: the iOS shell writes no present lines)"}
+    lines += ["## 1. Idle", "", f"- {'PASS' if ok else 'FLAGGED'}: {text} (six pictures half a second apart; the iOS shell writes no present lines)", ""]
+
+    # ---- 2. flash frames over a recording
+    lines += ["## 2. Flash frames (recording of: cold start, dark mode on and off, rotation there and back when the Simulator's menu can be pressed, leaving the app and back)", ""]
+    if not ensure_ffmpeg():
+        lines += ["- ffmpeg is not installed on this runner: the recording was not cut into frames.", ""]
+        report["flash"] = {"ok": None, "detail": "no ffmpeg"}
+    else:
+        video = out / "flicker.mp4"
+        dev.terminate()
+        dev.settle(1.0)
+        proc = subprocess.Popen(["xcrun", "simctl", "io", args.udid, "recordVideo", "--codec=h264", "--force", str(video)],
+                                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        time.sleep(2.0)
+        t0 = time.time()
+        marks = []
+
+        def mark(label):
+            marks.append((round(time.time() - t0, 1), label))
+
+        mark("cold start")
+        dev.launch(cold=True)
+        dev.wait_for_front(timeout=first_frame)
+        dev.settle(2.5)
+        mark("dark mode on")
+        dev.simctl("ui", args.udid, "appearance", "dark")
+        dev.settle(3.0)
+        mark("dark mode off")
+        dev.simctl("ui", args.udid, "appearance", "light")
+        dev.settle(3.0)
+        pressed, msg = dev.gui_keystroke(28)
+        if pressed:
+            mark("rotate to landscape")
+            dev.settle(3.5)
+            mark("rotate to portrait")
+            dev.gui_keystroke(29)
+            dev.settle(3.5)
+        else:
+            lines += [f"- rotation not recorded: {msg}", ""]
+        mark("leave the app")
+        dev.open_other_app()
+        dev.settle(2.5)
+        mark("back in front")
+        dev.launch(cold=False)
+        dev.settle(3.0)
+        proc.send_signal(signal.SIGINT)
+        try:
+            proc.wait(timeout=30)
+        except subprocess.TimeoutExpired:
+            proc.terminate()
+        frames = cut_frames(video)
+        if not frames:
+            lines += ["- the recording could not be cut into frames.", ""]
+            report["flash"] = {"ok": None, "detail": "no frames"}
+        else:
+            flash_section(frames, marks, out, lines, report)
+
+    lines += ["## 3. Pan jitter", "", "- NOT VERIFIED on iOS: the Simulator has no touch from the command line (the Android audit pans with adb's input; here nothing equivalent exists without a window server).", "",
+              "Notes: the recording is the Simulator's framebuffer (a rotation shows as a sideways portrait frame); a Simulator on a shared runner is not a phone."]
     (out / "flicker.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
     (out / "flicker.json").write_text(json.dumps(report, indent=1), encoding="utf-8")
     print("\n".join(lines))
@@ -425,8 +648,16 @@ def main(argv):
     a.add_argument("--apk-e2e", default="")
     a.add_argument("--maps", default="")
     a.add_argument("--serial", default="")
+    i = sub.add_parser("ios")
+    i.add_argument("--out", required=True)
+    i.add_argument("--udid", required=True)
+    i.add_argument("--bundle", required=True)
+    i.add_argument("--exe", default="")
+    i.add_argument("--app", default="")
+    i.add_argument("--backend", default="", choices=["", "cpu", "gpu", "auto"])
+    i.add_argument("--first-frame-timeout", type=float, default=60.0)
     args = ap.parse_args(argv)
-    return android_audit(args)
+    return ios_audit(args) if args.platform == "ios" else android_audit(args)
 
 
 if __name__ == "__main__":
