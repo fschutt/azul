@@ -9,6 +9,8 @@
 //! 4. `instanced`: a VAO with a vertex buffer, an index buffer and a per-instance buffer holding a `vec4` and an `ivec4` (integer
 //!    attribute, divisor 1), drawn with `glDrawElementsInstanced`, sampling the same texture: `composite` of WebRender;
 //! 5. `data_textures`: an RGBA32F and an RGBA32I texture fetched with `texelFetch`: WebRender's GPU cache and prim headers;
+//! 5d. `pbo_upload`: the same two textures filled through a pixel unpack buffer (`glMapBufferRange`, `glUnmapBuffer`, `glTexSubImage2D` from an
+//!     offset with `GL_UNPACK_ROW_LENGTH`, the buffer mapped a second time unsynchronized): WebRender's `TextureUploader`;
 //! 5a. `vertex_fetch`: WebRender's data path in the vertex stage (an integer instance attribute names a texel of an integer texture which names
 //!     the texels of a float texture, `texelFetch` in the vertex shader);
 //! 5b. `scatter`: WebRender's GPU cache update, points with a `gl_PointSize` shader into an RGBA32F texture through its framebuffer;
@@ -654,6 +656,121 @@ fn phase_data_textures(gl: &GenericGlContext, target: Target, programs: &Program
     result
 }
 
+/// 5d. The device's texture upload path (`TextureUploader` without buffer storage): a pixel unpack buffer is given its storage with
+/// `glBufferData`, mapped with `glMapBufferRange(WRITE)`, filled, unmapped, and `glTexSubImage2D` reads it from offset 0 with
+/// `GL_UNPACK_ROW_LENGTH` set (the float data texture); the SAME buffer is mapped a second time with `MAP_UNSYNCHRONIZED_BIT` (the
+/// recycled one), filled with other data and read by a second upload (the integer data texture). The window shows the two textures
+/// the way `data_textures` does: floats in the top half, integers in the bottom half.
+fn phase_pbo_upload(gl: &GenericGlContext, target: Target, programs: &Programs) -> Row {
+    let (float_program, int_program) = match (&programs.fetch_float, &programs.fetch_int) {
+        (Ok(f), Ok(i)) => (*f, *i),
+        (Err(why), _) | (_, Err(why)) => return failed("pbo_upload", format!("a program did not build: {why}")),
+    };
+    let size = target.size;
+    window_target(gl, target);
+    gl.clear_color(0.2, 0.2, 0.2, 1.0);
+    gl.clear(glconst::COLOR_BUFFER_BIT);
+
+    let textures = gl.gen_textures(2);
+    let (float_texture, int_texture) = (
+        textures.first().copied().unwrap_or(0),
+        textures.get(1).copied().unwrap_or(0),
+    );
+    gl.active_texture(glconst::TEXTURE0);
+    for (texture, format) in [(float_texture, glconst::RGBA32F), (int_texture, glconst::RGBA32I)] {
+        bind_2d(gl, target, texture);
+        gl.tex_parameter_i(glconst::TEXTURE_2D, glconst::TEXTURE_MIN_FILTER, glconst::NEAREST as i32);
+        gl.tex_parameter_i(glconst::TEXTURE_2D, glconst::TEXTURE_MAG_FILTER, glconst::NEAREST as i32);
+        gl.tex_storage_2d(glconst::TEXTURE_2D, 1, format, 4, 1);
+    }
+    let floats: [f32; 16] = [
+        1.0, 0.0, 0.0, 1.0, 0.0, 1.0, 0.0, 1.0, 0.0, 0.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0,
+    ];
+    let float_bytes: Vec<u8> = floats.iter().flat_map(|v| v.to_ne_bytes()).collect();
+    let ints: [i32; 16] = [255, 0, 0, 255, 0, 255, 0, 255, 0, 0, 255, 255, 255, 255, 255, 255];
+    let int_bytes: Vec<u8> = ints.iter().flat_map(|v| v.to_ne_bytes()).collect();
+    let length = isize::try_from(float_bytes.len()).unwrap_or(64);
+
+    let pbo = gl.gen_buffers(1).first().copied().unwrap_or(0);
+    gl.bind_buffer(glconst::PIXEL_UNPACK_BUFFER, pbo);
+    gl.buffer_data_untyped(glconst::PIXEL_UNPACK_BUFFER, length, std::ptr::null(), glconst::STREAM_DRAW);
+    let mut problems: Vec<String> = Vec::new();
+    // First use: a freshly allocated buffer, mapped for writing.
+    let mapped = gl.map_buffer_range(glconst::PIXEL_UNPACK_BUFFER, 0, length, glconst::MAP_WRITE_BIT);
+    if mapped.is_null() {
+        problems.push("glMapBufferRange returned null (first use)".to_owned());
+    } else {
+        // SAFETY: the driver returned a writable mapping of `length` bytes, which is `float_bytes.len()`.
+        unsafe { std::ptr::copy_nonoverlapping(float_bytes.as_ptr(), mapped.cast::<u8>(), float_bytes.len()) };
+        if gl.unmap_buffer(glconst::PIXEL_UNPACK_BUFFER) == 0 {
+            problems.push("glUnmapBuffer said the data was lost (first use)".to_owned());
+        }
+        gl.pixel_store_i(glconst::UNPACK_ROW_LENGTH, 4);
+        bind_2d(gl, target, float_texture);
+        gl.tex_sub_image_2d_pbo(glconst::TEXTURE_2D, 0, 0, 0, 4, 1, glconst::RGBA, glconst::FLOAT, 0);
+        gl.pixel_store_i(glconst::UNPACK_ROW_LENGTH, 0);
+    }
+    // Second use: the buffer comes back from the pool and is mapped again without waiting.
+    let mapped = gl.map_buffer_range(
+        glconst::PIXEL_UNPACK_BUFFER,
+        0,
+        length,
+        glconst::MAP_WRITE_BIT | glconst::MAP_UNSYNCHRONIZED_BIT,
+    );
+    if mapped.is_null() {
+        problems.push("glMapBufferRange returned null (second use)".to_owned());
+    } else {
+        // SAFETY: as above.
+        unsafe { std::ptr::copy_nonoverlapping(int_bytes.as_ptr(), mapped.cast::<u8>(), int_bytes.len()) };
+        if gl.unmap_buffer(glconst::PIXEL_UNPACK_BUFFER) == 0 {
+            problems.push("glUnmapBuffer said the data was lost (second use)".to_owned());
+        }
+        gl.pixel_store_i(glconst::UNPACK_ROW_LENGTH, 4);
+        bind_2d(gl, target, int_texture);
+        gl.tex_sub_image_2d_pbo(glconst::TEXTURE_2D, 0, 0, 0, 4, 1, glconst::RGBA_INTEGER, glconst::INT, 0);
+        gl.pixel_store_i(glconst::UNPACK_ROW_LENGTH, 0);
+    }
+    gl.bind_buffer(glconst::PIXEL_UNPACK_BUFFER, 0);
+
+    let (w, h) = (int(size.0), int(size.1));
+    bind_2d(gl, target, float_texture);
+    gl.viewport(0, h / 2, w, h - h / 2);
+    gl.use_program(float_program);
+    let location = gl.get_uniform_location(float_program, "sData");
+    gl.uniform_1i(location, 0);
+    full_screen(gl, float_program, 0.0);
+    bind_2d(gl, target, int_texture);
+    gl.viewport(0, 0, w, h / 2);
+    gl.use_program(int_program);
+    let location = gl.get_uniform_location(int_program, "sData");
+    gl.uniform_1i(location, 0);
+    full_screen(gl, int_program, 0.0);
+    gl.finish();
+
+    let (uw, uh) = (size.0.max(8), size.1.max(8));
+    let bands = [RED, GREEN, BLUE, WHITE];
+    let mut checks: Vec<(&str, [u8; 4], [u8; 4])> = Vec::new();
+    let names_float = ["float band 1", "float band 2", "float band 3", "float band 4"];
+    let names_int = ["integer band 1", "integer band 2", "integer band 3", "integer band 4"];
+    for (i, name) in names_float.into_iter().enumerate() {
+        let x = uw * (2 * u32::try_from(i).unwrap_or(0) + 1) / 8;
+        checks.push((name, bands[i], px(gl, x, 3 * uh / 4)));
+    }
+    for (i, name) in names_int.into_iter().enumerate() {
+        let x = uw * (2 * u32::try_from(i).unwrap_or(0) + 1) / 8;
+        checks.push((name, bands[i], px(gl, x, uh / 4)));
+    }
+    let error = gl.get_error();
+    let mut result = row("pbo_upload", &checks, error, &problems.join("; "));
+    result.ok &= problems.is_empty();
+
+    gl.bind_texture(glconst::TEXTURE_2D, 0);
+    gl.delete_textures(&[float_texture, int_texture]);
+    gl.delete_buffers(&[pbo]);
+    gl.viewport(0, 0, w, h);
+    result
+}
+
 /// 5c. WebRender's data path in the vertex shader: two instances of a quad, each with an integer attribute that names a texel of an
 /// RGBA32I texture, which names the texels (rectangle, colour) of an RGBA32F texture, all fetched with `texelFetch` in the VERTEX stage.
 /// The left half of the window must come out red and the right half blue.
@@ -1170,13 +1287,14 @@ fn phase_shared_depth(gl: &GenericGlContext, target: Target, programs: &Programs
 }
 
 /// The phases, by name, in the order the ladder runs them.
-pub const PHASES: [&str; 11] = [
+pub const PHASES: [&str; 12] = [
     "clear",
     "shader",
     "dummy_texture",
     "fbo_sample",
     "instanced",
     "data_textures",
+    "pbo_upload",
     "vertex_fetch",
     "scatter",
     "depth",
@@ -1207,6 +1325,7 @@ pub fn run_ladder(gl: &GenericGlContext, target: Target, show: &mut dyn FnMut(&'
             "fbo_sample" => phase_fbo_sample(gl, target, &programs),
             "instanced" => phase_instanced(gl, target, &programs),
             "data_textures" => phase_data_textures(gl, target, &programs),
+            "pbo_upload" => phase_pbo_upload(gl, target, &programs),
             "vertex_fetch" => phase_vertex_fetch(gl, target, &programs),
             "scatter" => phase_scatter(gl, target, &programs),
             "depth" => phase_depth(gl, target, &programs),
