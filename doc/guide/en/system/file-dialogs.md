@@ -208,6 +208,86 @@ An app that only exports a blob of bytes (a PDF, an image) should call
 `save_bytes` instead: a native save dialog on desktop, a download in the
 browser, and no path ever reaches the app.
 
+## Sharing a file with another app
+
+`CallbackInfo::share` hands files, a text or a link to ANOTHER app through the system's share sheet: Android's chooser, iOS's
+activity view. Call it from the callback of the user's tap on a Share button; it answers at once with what happened.
+
+```rust,ignore
+extern "C" fn on_share_clicked(data: RefAny, mut info: CallbackInfo) -> Update {
+    let request = ShareRequest::file(report_path(&data))   // a path this app can read
+        .with_title("Quarterly report".into());
+    match info.share(request) {
+        ShareStatus::Shown => {}                                   // the sheet is up
+        ShareStatus::Unsupported(why) => show_toast(&data, why),   // a desktop: offer "reveal in file manager" instead
+        ShareStatus::Failed(why) | ShareStatus::Refused(why) => show_toast(&data, why),
+    }
+    Update::RefreshDom
+}
+```
+
+- `ShareRequest::file`, `::files`, `::text`, `::url` start a request, `with_item` adds more, `with_title` is the sheet's title (and
+  the subject of a mail made from it), `with_anchor(rect)` is where an iPad's popover points (the Share button's rect in window
+  coordinates).
+- `with_open_with(true)` on a request of ONE file is "Open with...": only the apps that can open the file are offered.
+- The files are COPIED for the receiver under the name the request gives them (`ShareItem::with_name`) and the type of their
+  extension (`ShareItem::with_mime` overrides it): the receiver is never shown the app's data folder, and the copies are removed
+  after a day. A request is checked against limits (64 items, 256 MiB a file, 512 MiB in all, safe unique names); one over a limit is
+  `Refused` with the reason.
+- `CallbackInfo::can_share` says whether this platform has a share sheet: ask it before a Share button is shown. A desktop answers
+  `Unsupported` (with the reason) and `false`: offer what the platform has (reveal the file, copy the link).
+- In a headless or scripted run nothing is shown: the request is checked and recorded, and the scenario reads it with the
+  `assert_shared` step (`{"op": "share", ...}` makes the call without an app button).
+
+On a phone, "Export as a file" is a share: write the file into the app's own folder and share it. (`FileDialog::save_bytes` answers
+`false` on a phone until a save dialog is behind it: it never writes a folder the user did not choose and says `true`.)
+
+## Being opened with a file
+
+The files and links an app opens are declared in ONE place, its entry in `scripts/demo_apps.toml`, and the phone builds make the
+intent filters of Android and the document types of iOS from it:
+
+```toml
+[[app.documents]]
+name = "Markdown document"            # what the system's "Open with" list shows
+role = "editor"                       # "viewer" | "editor"
+extensions = ["md", "markdown"]       # matched by name where a provider says no type
+mime = ["text/markdown"]
+uti = "net.daringfireball.markdown"   # iOS: the type's identifier (uti_conforms_to = [...] only for a type the app defines)
+
+[app.links]
+schemes = ["mailto", "geo"]
+```
+
+The app installs ONE handler for everything the system asks it to open, usually in its window's create callback:
+
+```rust,ignore
+extern "C" fn on_open(data: RefAny, info: CallbackInfo) -> Update {
+    let Some(request) = info.get_open_request().into_option() else { return Update::DoNothing };
+    for item in request.items.as_ref() {
+        match item.kind {
+            OpenedKind::File => match item.path.as_ref() {
+                Some(path) => open_document(&data, path.as_str(), item.name.as_str()),   // a WORKING COPY: std::fs opens it
+                None => show_error(&data, item.error.as_ref()),                          // too large, the provider failed
+            },
+            OpenedKind::Url => handle_link(&data, item.text.as_str()),
+            OpenedKind::Text => insert_text(&data, item.text.as_str()),
+        }
+    }
+    Update::RefreshDom
+}
+// in the create callback: info.set_open_handler(data.clone(), on_open);
+```
+
+- A request that arrives before the handler is installed (the one that STARTED the app) is kept, up to 16, and delivered when the
+  handler is set. `request.launched_app` says that it started the app.
+- A file is never a `content://` URI for the app: the engine copies it into `<app files>/azul-inbox/<token>/<name>` on a worker
+  thread (256 MiB a file, 1 GiB a request) and hands the path of the copy, with the name, type and size the system said and where it
+  came from (`item.uri`). An item that could not be copied is still an item: no `path`, and `error` says why.
+- `request.action` is `View`, `Edit` or `Send` (the file was SHARED to the app); `item.writable` is set where the sender allows the app
+  to write it back.
+- Scenarios play the system with `{"op": "simulate_open", "files": [...]}`.
+
 ## Message boxes
 
 ```rust,no_run
