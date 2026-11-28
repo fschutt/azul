@@ -700,7 +700,8 @@ class QaOnlyAppTest(unittest.TestCase):
         buf = io.StringIO()
         with mock.patch.object(demo_apps, "load", lambda path=demo_apps.MANIFEST: self.m), contextlib.redirect_stdout(buf):
             self.assertEqual(demo_apps.main(["check"]), 0)
-        self.assertIn(f"ok - {len(self.m['app'])} apps (+ 1 QA-only), ", buf.getvalue())
+        # the stand-in of the fixture and the real one of the manifest (AzSelfTest)
+        self.assertIn(f"ok - {len(self.m['app'])} apps (+ {len(self.m['qa_app'])} QA-only), ", buf.getvalue())
 
     def test_the_qa_only_command_and_the_ios_qa_script_know_it_has_no_shipped_build(self):
         with mock.patch.object(demo_apps, "load", lambda path=demo_apps.MANIFEST: self.m), contextlib.redirect_stderr(io.StringIO()):
