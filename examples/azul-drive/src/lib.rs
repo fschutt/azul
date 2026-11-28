@@ -2902,7 +2902,7 @@ fn issue(info: &mut CallbackInfo, call: &KeyringCall) {
     match call {
         KeyringCall::Get(key) => info.keyring_get_in(shared(), key.as_str()),
         KeyringCall::Store(key, secret) => {
-            info.keyring_store_in(shared(), key.as_str(), secret.as_str(), false)
+            info.keyring_store_in(shared(), key.as_str(), secret.as_str())
         }
         #[cfg(not(feature = "encryption"))]
         KeyringCall::Delete(key) => info.keyring_delete_in(shared(), key.as_str()),
@@ -2929,7 +2929,12 @@ pub(crate) fn keyring(
 fn keyring_problem(result: &KeyringResult) -> &'static str {
     match result {
         KeyringResult::NotFound => "azdrive-keyring-not-found",
-        KeyringResult::Denied => "azdrive-keyring-denied",
+        // The system refused, the user said no, or the keyring would have to ask: the user acts.
+        KeyringResult::Denied
+        | KeyringResult::WouldPrompt
+        | KeyringResult::Cancelled
+        | KeyringResult::Failed
+        | KeyringResult::LockedOut => "azdrive-keyring-denied",
         KeyringResult::Unavailable => "azdrive-keyring-unavailable",
         _ => "azdrive-keyring-failed",
     }

@@ -426,7 +426,8 @@ pub mod tls;
 /// Throwaway certificate authorities and a loopback TLS server, for tests only.
 #[cfg(all(feature = "tls-testing", not(target_arch = "wasm32")))]
 pub mod tls_testing;
-/// System-keyring POD types — `KeyringRequest` + `KeyringResult`.
+/// System-keyring POD types — `KeyringRequest` + `KeyringResult`, the protection levels
+/// (`KeyringProtection`) and the quiet probes (`KeyringNeed`, `KeyringSupport`).
 ///
 /// Stateful manager lives in `azul_layout::managers::keyring`.
 pub mod keyring;

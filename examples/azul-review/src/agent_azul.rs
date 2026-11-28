@@ -101,7 +101,9 @@ impl Keychain for AzulKeychain {
         match Keyring::get_blocking(AzString::from(item)) {
             KeyringResult::Retrieved(secret) => Ok(Some(secret.as_str().to_string())),
             KeyringResult::NotFound => Ok(None),
-            KeyringResult::Denied => Err("the keychain refused access".to_string()),
+            KeyringResult::Denied | KeyringResult::WouldPrompt => {
+                Err("the keychain refused access".to_string())
+            }
             KeyringResult::Unavailable => Err("there is no keychain here".to_string()),
             other => Err(format!("the keychain answered {other:?}")),
         }

@@ -74,6 +74,33 @@ fn probe() -> Option<BiometricKind> {
     })
 }
 
+/// The fingers enrolled on the default reader, asked quietly (no sheet, no claim of the reader):
+/// `Some(names)` when there is a reader (an empty list: no finger enrolled), `None` when there
+/// is no fprintd, no system bus or no reader. What the keyring's library gate keeps a digest of,
+/// so a finger added or removed after an item was stored shows (`Invalidated`).
+pub(crate) fn enrolled_fingers() -> Option<Vec<String>> {
+    use zbus::blocking::{Connection, Proxy};
+    let conn = Connection::system().ok()?;
+    let mgr = Proxy::new(&conn, SVC, MGR_PATH, MGR_IFACE).ok()?;
+    let dev_path: zbus::zvariant::OwnedObjectPath = mgr.call("GetDefaultDevice", &()).ok()?;
+    let dev = Proxy::new(&conn, SVC, dev_path.as_str(), DEV_IFACE).ok()?;
+    let listed: Result<Vec<String>, _> = dev.call("ListEnrolledFingers", &"");
+    match listed {
+        Ok(names) => Some(names),
+        // fprintd answers a user with no fingerprint with this error, not with an empty list.
+        Err(e) if e.to_string().contains("NoEnrolledPrints") => Some(Vec::new()),
+        // Any other polkit / D-Bus error is "no word from the reader", not "no finger enrolled".
+        Err(_) => None,
+    }
+}
+
+/// One fingerprint verification now, blocking until the user touches the reader (or it fails):
+/// the answer of [`request`] on the calling thread, `Unavailable` when there is no reader. The
+/// keyring's library gate runs it before it reads a `Biometric` item.
+pub(crate) fn verify_once() -> BiometricResult {
+    run_verify().unwrap_or(BiometricResult::Unavailable)
+}
+
 /// Start a one-shot verify; deliver the outcome async via the result channel.
 /// fprintd shows no modal — the app renders `prompt.reason` itself.
 pub fn request(_prompt: &BiometricPrompt, results: &SharedQueue<BiometricResult>) {
@@ -93,7 +120,8 @@ fn run_verify() -> Option<BiometricResult> {
 
     let enrolled: Vec<String> = dev.call("ListEnrolledFingers", &"").unwrap_or_default();
     if enrolled.is_empty() {
-        return Some(BiometricResult::Unavailable);
+        // A reader with no finger enrolled: there is something to set up, not nothing there.
+        return Some(BiometricResult::NotEnrolled);
     }
 
     // Claim ("" = current user). Subscribe to VerifyStatus BEFORE VerifyStart
