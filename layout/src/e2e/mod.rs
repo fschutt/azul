@@ -84,6 +84,11 @@ mod export_tests;
 #[cfg(test)]
 mod mode_ops_tests;
 
+// The system's accessibility settings (`get_system_accessibility` / `set_system_accessibility`):
+// the text size and the other options as steps of a scenario, through the real dispatcher.
+#[cfg(test)]
+mod accessibility_ops_tests;
+
 // The display preset a window simulates (`set_display_preset`) and what the window has of
 // cutouts, bars and insets (`get_display_features`), through the real dispatcher.
 #[cfg(test)]

@@ -8499,6 +8499,10 @@ fn sort_row_keeping_the_last(row: &mut Vec<StatefulCssProperty>) {
 #[path = "prop_cache_test.rs"]
 mod prop_cache_test;
 
+#[cfg(test)]
+#[path = "prop_cache_motion_test.rs"]
+mod prop_cache_motion_test;
+
 /// The cascade rank of a declaration or rule with `conditions` for a
 /// `StyledDom`: under the window's theme chain, or - without a context - under
 /// the one-entry chain of the app theme the DOM is built for, the same rule
