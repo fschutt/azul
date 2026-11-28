@@ -25,7 +25,7 @@ use rust_fontconfig::FcFontCache;
 fn control(id: &str, left: f32, top: f32) -> Dom {
     Dom::create_div()
         .with_id(id.into())
-        .with_css(format!(
+        .with_css(&format!(
             "position: absolute; left: {left}px; top: {top}px; width: 20px; height: 20px; background: #3366cc;"
         ))
         .with_callbacks(
@@ -40,7 +40,7 @@ fn control(id: &str, left: f32, top: f32) -> Dom {
 
 /// A box with no callback at all.
 fn plain(id: &str, left: f32, top: f32, w: f32, h: f32, paint: &str) -> Dom {
-    Dom::create_div().with_id(id.into()).with_css(format!(
+    Dom::create_div().with_id(id.into()).with_css(&format!(
         "position: absolute; left: {left}px; top: {top}px; width: {w}px; height: {h}px; {paint}"
     ))
 }

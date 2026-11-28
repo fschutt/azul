@@ -810,11 +810,11 @@ impl DeclaredStrings {
 
 /// The bounds a node is published with on a phone: an interactive node smaller than the platform's
 /// touch target (48 dp on Android, 44 pt on iOS) is published at the target's size round its own
-/// centre, so a screen reader's focus rectangle (TalkBack, VoiceOver) is the box a finger can press
+/// centre, so a screen reader's focus rectangle (`TalkBack`, `VoiceOver`) is the box a finger can press
 /// (the touch hit-slop of `crate::hit_slop` presses it from that far). Anything else, and any
 /// platform without a floor (a desktop), keeps its own bounds.
 #[cfg(feature = "a11y")]
-fn touch_target_bounds(rect: Rect, node: &azul_core::dom::NodeData, hidpi_factor: f32) -> Rect {
+fn touch_target_bounds(rect: Rect, node: &NodeData, hidpi_factor: f32) -> Rect {
     let Some(floor) = crate::hit_slop::touch_floor(&azul_css::system::Platform::current()) else {
         return rect;
     };
