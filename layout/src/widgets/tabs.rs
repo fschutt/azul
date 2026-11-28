@@ -1536,7 +1536,10 @@ pub enum TabStyle {
     /// The theme's buttons ("Buttons" in a settings UI) floating on the leather strip: the
     /// selected tab is the submit button, the others the plain button, 22px tall at the house
     /// radius (slightly rounded corners, no capsule ends) in a 28px row (a title bar's) on a
-    /// leather strip that closes on a 2px golden line.
+    /// leather strip that closes on a 2px golden line. A row longer than its box scrolls inside
+    /// it (the wheel, the arrow keys, a drag; no scrollbar), the selected button comes into view
+    /// by itself, and a fade in the leather's colour lies over each end of the row (a bar with a
+    /// reveal keeps a row that does not scroll).
     Pills,
     /// The same buttons for a finger, the look `Auto` takes on a phone: the selected tab is the
     /// submit button, the others the plain button, 32 px tall at the house radius in a 48 px
@@ -1832,6 +1835,12 @@ impl TabHeader {
                 return self.dom_touch(live);
             }
             if resolved == TabStyle::Pills {
+                // The row of desktop pills scrolls when it is longer than the window; a bar with a
+                // reveal keeps the row it had (the reveal's hover areas hang on its nodes).
+                if self.reveal.is_none() {
+                    let look = TabHeaderLook::of(self.theme, self.style);
+                    return self.dom_row(live, &look);
+                }
                 #[allow(clippy::cast_precision_loss)] // a few px
                 {
                     chevron_row = PILL_ROW as f32;
@@ -2318,7 +2327,9 @@ fn leather_lane(look: &TabHeaderLook, span: Option<(f32, f32)>) -> Dom {
     lane.root
         .set_css(&format!("position: absolute; top: 0px; bottom: 0px; {place} {}", look.header_css));
     if let Some(rule) = look.rule.as_ref() {
-        let mut line = Dom::create_div().with_css_props(rule.clone());
+        let mut line = Dom::create_div()
+            .with_css_props(rule.clone())
+            .with_ids_and_classes(IdOrClassVec::from_vec(vec![Class(AzString::from_const_str(RULE_CLASS))]));
         if !look.rule_css.is_empty() {
             line.root.set_css(look.rule_css);
         }
@@ -2367,6 +2378,16 @@ pub(crate) fn lane_fades(
     row: f32,
     first_left_room: f32,
 ) -> Vec<Dom> {
+    lane_fades_sized(LANE_FADE_PX, band, row, first_left_room)
+}
+
+/// [`lane_fades`] with fades `fade_px` wide: the room the first pill keeps from the end of the row.
+pub(crate) fn lane_fades_sized(
+    fade_px: f32,
+    band: Option<&crate::widgets::tab_strip::StatusBarBand>,
+    row: f32,
+    first_left_room: f32,
+) -> Vec<Dom> {
     use crate::widgets::themes::decl;
 
     #[allow(clippy::cast_precision_loss)] // 2px
@@ -2389,7 +2410,7 @@ pub(crate) fn lane_fades(
         };
         let mut node = Dom::create_div().with_css_props(CssPropertyWithConditionsVec::from_vec(layers.to_vec()));
         node.root.set_css(&format!(
-            "position: absolute; top: 0px; width: {LANE_FADE_PX}px; height: {height}px; {place}"
+            "position: absolute; top: 0px; width: {fade_px}px; height: {height}px; {place}"
         ));
         node
     };
@@ -2400,7 +2421,7 @@ pub(crate) fn lane_fades(
             .flat_map(|(i, (left, right))| {
                 // The first lane's left end is the chevron's: its fade starts after it.
                 let left = if i == 0 { left + first_left_room } else { left };
-                [fade(true, Some(left)), fade(false, Some((right - LANE_FADE_PX).max(left)))]
+                [fade(true, Some(left)), fade(false, Some((right - fade_px).max(left)))]
             })
             .collect(),
         _ => vec![fade(true, Some(first_left_room)), fade(false, None)],
@@ -6443,6 +6464,9 @@ mod structure_tests {
         }
     }
 }
+
+#[path = "tab_row.rs"]
+mod tab_row;
 
 #[cfg(test)]
 #[path = "tab_pills_test.rs"]

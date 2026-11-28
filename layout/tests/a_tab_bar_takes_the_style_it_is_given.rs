@@ -70,12 +70,21 @@ fn has_class(dom: &Dom, class: &str) -> bool {
         .any(|c| c.as_class() == Some(class))
 }
 
+/// Every node under `dom`, in document order (a bar of pills holds its tabs in a row that scrolls, inside
+/// the box that holds the leather).
+fn descendants(dom: &Dom) -> Vec<&Dom> {
+    let mut all = Vec::new();
+    for child in dom.children.as_ref() {
+        all.push(child);
+        all.extend(descendants(child));
+    }
+    all
+}
+
 /// The header's tabs, in order.
 fn tabs(header: &Dom) -> Vec<&Dom> {
-    header
-        .children
-        .as_ref()
-        .iter()
+    descendants(header)
+        .into_iter()
         .filter(|c| has_class(c, ACTIVE) || has_class(c, NOT_ACTIVE))
         .collect()
 }
@@ -177,11 +186,12 @@ fn pills_sit_on_leather_and_the_selected_pill_wears_the_submit_button_s_face() {
             .with_theme(theme)
             .with_style(TabStyle::Pills)
             .dom();
-        assert!(
-            resting_layers(&header).contains(&builtin("leather")),
-            "{theme:?}: the strip is leather: {:?}",
-            resting_layers(&header)
-        );
+        // the leather is the stretch under the row: the header itself or the node laid under its pills
+        let leather: Vec<StyleBackgroundContent> = std::iter::once(&header)
+            .chain(descendants(&header))
+            .flat_map(resting_layers)
+            .collect();
+        assert!(leather.contains(&builtin("leather")), "{theme:?}: the strip is leather: {leather:?}");
         let tabs = tabs(&header);
         for tab in &tabs {
             for part in CURVES.iter().chain(RUNOUTS.iter()) {
@@ -200,10 +210,8 @@ fn pills_sit_on_leather_and_the_selected_pill_wears_the_submit_button_s_face() {
             "{theme:?}: an unselected pill is not"
         );
 
-        let rule: Vec<&Dom> = header
-            .children
-            .as_ref()
-            .iter()
+        let rule: Vec<&Dom> = descendants(&header)
+            .into_iter()
             .filter(|c| has_class(c, RULE))
             .collect();
         assert_eq!(rule.len(), 1, "{theme:?}: one rule closes the strip");

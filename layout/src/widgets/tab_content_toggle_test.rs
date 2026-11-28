@@ -39,6 +39,14 @@ fn chevrons_in(dom: &Dom) -> usize {
     usize::from(has_class(dom, CONTENT_TOGGLE_CLASS)) + dom.children.as_ref().iter().map(chevrons_in).sum::<usize>()
 }
 
+/// The chevron under `dom`, wherever the bar hangs it (a row of buttons holds it over the leather).
+fn find_chevron(dom: &Dom) -> Option<&Dom> {
+    if has_class(dom, CONTENT_TOGGLE_CLASS) {
+        return Some(dom);
+    }
+    dom.children.as_ref().iter().find_map(find_chevron)
+}
+
 fn window() -> LogicalSize {
     LogicalSize { width: 411.0, height: 914.0 }
 }
@@ -99,13 +107,9 @@ fn the_chevron_of_the_build_is_drawn_as_the_windows_flag_says() {
     let hidden_icon = |hidden: bool| {
         let _scope = WindowSizeScope::enter_with(window(), hidden);
         let dom = bar(TabStyle::Pills).dom();
-        let found = dom
-            .children
-            .as_ref()
-            .iter()
-            .find(|c| has_class(c, CONTENT_TOGGLE_CLASS))
+        let found = find_chevron(&dom)
             .map(|c| matches!(c.children.as_ref()[0].root.get_node_type(), NodeType::Icon(n) if n.as_str() == "expand_more"))
-            .expect("the chevron is a child of the row");
+            .expect("the chevron is in the bar");
         found
     };
     assert!(!hidden_icon(false), "shown: up");
@@ -113,9 +117,18 @@ fn the_chevron_of_the_build_is_drawn_as_the_windows_flag_says() {
 }
 
 #[test]
-fn in_a_row_the_chevron_is_the_first_node_and_on_a_phone_it_makes_room_for_itself() {
-    let dom = bar(TabStyle::Pills).dom();
-    assert!(has_class(&dom.children.as_ref()[0], CONTENT_TOGGLE_CLASS), "first in the row");
+fn in_a_row_the_chevron_stands_over_the_leather_and_on_a_phone_it_makes_room_for_itself() {
+    // A row of buttons: a stretch of the leather's own under the chevron and the chevron, laid over the
+    // pills at the row's left end; the row's pills start after it.
+    let with = bar(TabStyle::Pills).dom();
+    let without = TabHeader::create(labels(4)).with_style(TabStyle::Pills).with_theme(UiTheme::Flora).dom();
+    assert_eq!(chevrons_in(&with), 1);
+    assert_eq!(chevrons_in(&without), 0);
+    assert_eq!(
+        with.children.as_ref().len(),
+        without.children.as_ref().len() + 2,
+        "two nodes more in the header: a stretch of leather under the chevron, and the chevron"
+    );
     // The strip in the band: the first lane begins at the window's edge, the chevron stands there, and
     // the pills start after it.
     let band = StatusBarBand::from_display(
