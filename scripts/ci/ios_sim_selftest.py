@@ -167,8 +167,13 @@ def new_awaits(text, seen):
     return fresh
 
 
-def feed_for(key, udid, touch=False):
+def feed_for(key, udid, touch=False, bundle=None):
     """The commands that answer an await key; None for a key this script does not know (the row then times out)."""
+    if key == "lifecycle.background":
+        # the app goes to the background (another app comes to the front) and comes back (the same process): Paused, then Resumed
+        if not bundle:
+            return None
+        return [["xcrun", "simctl", "launch", udid, "com.apple.Preferences"], ["sleep", "3"], ["xcrun", "simctl", "launch", udid, bundle]]
     if key == "biometric.match":
         return feed.match_commands(udid, True, touch=touch)
     if key == "biometric.nomatch":
@@ -330,7 +335,7 @@ def run_once(udid, bundle, name, out, seconds, touch):
             shot = True
         for key in new_awaits(text, seen):
             time.sleep(2.0)  # the sheet must be up before the face is shown to it
-            commands = feed_for(key, udid, touch)
+            commands = feed_for(key, udid, touch, bundle)
             if commands is None:
                 fed_keys.append(f"{key}: no feed for this key")
                 continue
