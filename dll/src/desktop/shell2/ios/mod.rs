@@ -64,6 +64,8 @@ pub mod clipboard;
 mod gl;
 /// The GPU path of a window: the lifecycle machine's executor and the frame.
 mod gpu;
+/// `Url::open`: the iOS hook of the core crate's opener (`UIApplication openURL:options:completionHandler:`).
+mod open_url;
 /// The system UI font (San Francisco): CoreText's AvailableFonts, which the font scan reads, does not hold it.
 mod system_font;
 mod text_input;

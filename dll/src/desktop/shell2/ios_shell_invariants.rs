@@ -10,6 +10,8 @@ const IOS_TEXT_INPUT_RS: &str = include_str!("ios/text_input.rs");
 const IOS_CLIPBOARD_RS: &str = include_str!("ios/clipboard.rs");
 const IOS_WEBVIEW_RS: &str = include_str!("ios/webview.rs");
 const IOS_SYSTEM_FONT_RS: &str = include_str!("ios/system_font.rs");
+const IOS_OPEN_URL_RS: &str = include_str!("ios/open_url.rs");
+const AUTH_APPLE_RS: &str = include_str!("../extra/auth_session/apple.rs");
 const GAMEPAD_APPLE_RS: &str = include_str!("../extra/gamepad/apple.rs");
 const GEOLOCATION_IOS_RS: &str = include_str!("../extra/geolocation/ios.rs");
 const MIC_APPLE_RS: &str = include_str!("../extra/audio/avfoundation_mic.rs");
@@ -77,6 +79,7 @@ fn the_ios_shell_does_not_unwrap_what_the_objective_c_runtime_hands_it() {
         ("ios/clipboard.rs", IOS_CLIPBOARD_RS),
         ("ios/webview.rs", IOS_WEBVIEW_RS),
         ("ios/system_font.rs", IOS_SYSTEM_FONT_RS),
+        ("ios/open_url.rs", IOS_OPEN_URL_RS),
         ("extra/file_picker/ios.rs", FILE_PICKER_RS),
     ] {
         for (n, line) in code_of(source).lines().enumerate() {
@@ -781,4 +784,45 @@ fn the_ios_sensors_start_on_demand_and_stop_when_nobody_reads_them() {
     assert!(sync.contains("wanted_any(&[SensorKind::Barometer])"), "the barometer is wanted by a read of the barometer only");
     let background = body(IOS_MOD_RS, "extern \"C\" fn app_did_enter_background(");
     at(background, "sensors::pause(", "app_did_enter_background");
+}
+
+/// `Url::open` on iOS: the core crate's opener starts a process and iOS starts none, so it answered `false` and an app
+/// could not open a page or its own settings (`app-settings:`). The core crate calls the shell's hook
+/// (`azul_ios_open_url`), which asks `UIApplication` on the MAIN thread: a call from a worker is handed to the main queue
+/// (UIKit is main-thread only), the string is made with a factory that cannot raise on bad bytes, and no object is used
+/// before it is checked for nil.
+#[test]
+fn url_open_on_ios_asks_uikit_on_the_main_thread() {
+    let code = code_of(IOS_OPEN_URL_RS);
+    for needed in [
+        "pub fn azul_ios_open_url(",
+        "#[no_mangle]",
+        "isMainThread",
+        "dispatch_async_f(",
+        "openURL: nsurl options: options completionHandler:",
+        "URLWithString:",
+        "if nsurl.is_null()",
+        "CString::new(",
+    ] {
+        assert!(code.contains(needed), "ios/open_url.rs: `{needed}` is missing");
+    }
+    at(IOS_MOD_RS, "mod open_url;", "the iOS shell declares the opener");
+}
+
+/// `ASWebAuthenticationPresentationContextProviding` is a protocol apps adopt and Apple's own classes do not, so the runtime
+/// may have no object for it (the same lookup of `UIApplicationDelegate` came back nil on the iOS 26.2 Simulator and
+/// aborted every launch): the attach registers a protocol of the NAME when the lookup is empty (conformance is compared by
+/// name), and a start that could not attach answers "not available" instead of presenting a sheet that cannot be shown.
+#[test]
+fn the_web_sign_in_makes_its_protocol_when_the_runtime_has_none() {
+    let code = code_of(AUTH_APPLE_RS);
+    for needed in [
+        "AnyProtocol::get(name).or_else(",
+        "ProtocolBuilder::new(name)",
+        "builder.register()",
+        "if !AnchorProvider::attach_protocol()",
+        "class_addProtocol(",
+    ] {
+        assert!(code.contains(needed), "extra/auth_session/apple.rs: `{needed}` is missing");
+    }
 }

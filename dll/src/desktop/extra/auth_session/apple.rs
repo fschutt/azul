@@ -129,17 +129,34 @@ impl AnchorProvider {
     }
 
     /// Attach the (runtime-only) presentation-context protocol to the class, for the
-    /// session's `conformsToProtocol:` check. Once, after the framework is loaded.
-    fn attach_protocol() {
-        static ONCE: std::sync::Once = std::sync::Once::new();
-        ONCE.call_once(|| unsafe {
-            if let Some(protocol) =
-                AnyProtocol::get(c"ASWebAuthenticationPresentationContextProviding")
-            {
-                let cls = Self::class();
-                objc2::ffi::class_addProtocol(cls as *const AnyClass as *mut AnyClass, protocol);
+    /// session's `conformsToProtocol:` check. Once, after the framework is loaded. `false` when the runtime has
+    /// no such protocol and none could be made: the caller answers "unavailable" instead of starting a sheet that
+    /// cannot be presented.
+    ///
+    /// The runtime finds a protocol only when some loaded image emits its metadata, and a protocol that apps adopt
+    /// and Apple's own classes do not has none: `UIApplicationDelegate` was nil on the iOS 26.2 Simulator and
+    /// aborted the launch of every app. Conformance is compared by NAME, so when the lookup comes back empty an empty
+    /// protocol of the right name is registered.
+    fn attach_protocol() -> bool {
+        static ATTACHED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+        *ATTACHED.get_or_init(|| unsafe {
+            let name = c"ASWebAuthenticationPresentationContextProviding";
+            let protocol = AnyProtocol::get(name).or_else(|| {
+                let mut builder = objc2::runtime::ProtocolBuilder::new(name)?;
+                if let Some(root) = AnyProtocol::get(c"NSObject") {
+                    builder.add_protocol(root);
+                }
+                Some(builder.register())
+            });
+            match protocol {
+                Some(protocol) => {
+                    let cls = Self::class();
+                    objc2::ffi::class_addProtocol(cls as *const AnyClass as *mut AnyClass, protocol);
+                    true
+                }
+                None => false,
             }
-        });
+        })
     }
 }
 
@@ -211,7 +228,12 @@ pub(super) fn start(
             "this system has no ASWebAuthenticationSession (it needs macOS 10.15 or iOS 12)",
         ));
     };
-    AnchorProvider::attach_protocol();
+    if !AnchorProvider::attach_protocol() {
+        return Err(String::from(
+            "web sign-in is not available here: the runtime has no presentation-context protocol for \
+             ASWebAuthenticationSession and none could be made",
+        ));
+    }
     let id = NEXT_ID.fetch_add(1, Ordering::Relaxed);
     let slot: Arc<Mutex<Option<AuthSessionResult>>> = Arc::default();
     let handler: RcBlock<dyn Fn(*mut AnyObject, *mut AnyObject)> = {
