@@ -117,6 +117,13 @@ fn pictures_requested() -> bool {
         .is_some_and(|value| !value.is_empty() && value != "0")
 }
 
+/// EXPERIMENT: `AZ_GPU_COMPOSITE=1` runs WebRender's own composite program on a synthetic tile after the first frame
+/// (`Renderer::debug_composite_probe`).
+fn composite_probe_requested() -> bool {
+    azul_css::env::EnvSource::var(&crate::env::ProcessEnv::new(), "AZ_GPU_COMPOSITE")
+        .is_some_and(|value| !value.is_empty() && value != "0")
+}
+
 /// How long the control ladder holds each picture on the window after a swap.
 const CONTROL_HOLD: std::time::Duration = std::time::Duration::from_millis(700);
 
@@ -984,6 +991,11 @@ impl GlesGpu {
                         log_info!(LogCategory::Rendering, "[render] {}", line);
                     }
                 }
+            }
+        }
+        if self.presents == 0 && composite_probe_requested() {
+            if let Some(renderer) = ctx.common.renderer.as_mut() {
+                log_info!(LogCategory::Rendering, "[render] {}", renderer.debug_composite_probe());
             }
         }
         if self.presents < DESCRIBED_PRESENTS {

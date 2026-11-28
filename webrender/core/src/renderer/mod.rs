@@ -1008,6 +1008,96 @@ impl Renderer {
         pictures
     }
 
+    /// EXPERIMENT (the Android GPU root-cause hunt, never for master): WebRender's own `composite` program, vertex array and draw call on a
+    /// synthetic tile: a 64 x 64 RGBA8 texture of opaque red is composited into the middle of a 128 x 128 RGBA8 target, the way a picture
+    /// cache tile is composited into the window. Says what the target holds inside the quad and outside it.
+    pub fn debug_composite_probe(&mut self) -> String {
+        let _ = self.device.begin_frame();
+        let tile_id = CacheTextureId(u32::MAX - 1);
+        let tile = self.device.create_texture(
+            ImageBufferKind::Texture2D,
+            ImageFormat::RGBA8,
+            64,
+            64,
+            TextureFilter::Linear,
+            Some(RenderTargetInfo { has_depth: false }),
+        );
+        let red: Vec<u8> = (0..64 * 64).flat_map(|_| [255_u8, 0, 0, 255]).collect();
+        self.device.upload_texture_immediate(&tile, &red);
+        let target = self.device.create_texture(
+            ImageBufferKind::Texture2D,
+            ImageFormat::RGBA8,
+            128,
+            128,
+            TextureFilter::Linear,
+            Some(RenderTargetInfo { has_depth: false }),
+        );
+        self.device
+            .bind_draw_target(DrawTarget::from_texture(&target, false));
+        self.device.clear_target(Some([0.0, 0.0, 0.0, 0.0]), None, None);
+        self.device.disable_depth();
+        self.device.disable_depth_write();
+        self.set_blend(false, FramebufferKind::Other);
+        let projection = Transform3D::ortho(
+            0.0,
+            128.0,
+            0.0,
+            128.0,
+            self.device.ortho_near_plane(),
+            self.device.ortho_far_plane(),
+        );
+        let instance = CompositeInstance::new(
+            DeviceRect::from_origin_and_size(DevicePoint::new(32.0, 32.0), DeviceSize::new(64.0, 64.0)),
+            DeviceRect::from_origin_and_size(DevicePoint::new(0.0, 0.0), DeviceSize::new(128.0, 128.0)),
+            PremultipliedColorF::WHITE,
+            (false, false),
+        );
+        let features = instance.get_rgb_features();
+        self.shaders
+            .borrow_mut()
+            .get_composite_shader(CompositeSurfaceFormat::Rgba, ImageBufferKind::Texture2D, features)
+            .bind(
+                &mut self.device,
+                &projection,
+                None,
+                &mut self.renderer_errors,
+                &mut self.profile,
+            );
+        self.texture_resolver.texture_cache_map.insert(
+            tile_id,
+            CacheTexture {
+                texture: tile,
+                category: TextureCacheCategory::PictureTile,
+            },
+        );
+        let textures = BatchTextures::composite_rgb(TextureSource::TextureCache(tile_id, Swizzle::default()));
+        let mut stats = RendererStats::default();
+        self.draw_instanced_batch(&[instance], VertexArrayKind::Composite, &textures, &mut stats);
+        self.device
+            .bind_read_target(crate::device::ReadTarget::from_texture(&target));
+        let mut read = |x: i32, y: i32| {
+            let mut pixel = [0_u8; 4];
+            let rect = FramebufferIntRect::from_origin_and_size(
+                FramebufferIntPoint::new(x, y),
+                FramebufferIntSize::new(1, 1),
+            );
+            self.device.read_pixels_into(rect, ImageFormat::RGBA8, &mut pixel);
+            format!("#{:02x}{:02x}{:02x}{:02x}", pixel[0], pixel[1], pixel[2], pixel[3])
+        };
+        let inside = read(64, 64);
+        let corner = read(40, 40);
+        let outside = read(8, 8);
+        if let Some(entry) = self.texture_resolver.texture_cache_map.remove(&tile_id) {
+            self.device.delete_texture(entry.texture);
+        }
+        self.device.delete_texture(target);
+        self.device.end_frame();
+        format!(
+            "composite of a synthetic red tile into the middle of a 128 x 128 target: draw calls {}, inside the quad {} and {} (expect #ff0000ff), outside {} (expect #00000000)",
+            stats.total_draw_calls, inside, corner, outside
+        )
+    }
+
     /// EXPERIMENT: switches the device's per-draw read-back on or off.
     pub fn debug_set_draw_probe(&mut self, on: bool) {
         self.device.set_draw_probe(on);

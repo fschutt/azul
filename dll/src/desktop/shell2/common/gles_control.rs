@@ -985,6 +985,87 @@ fn phase_depth(gl: &GenericGlContext, target: Target, programs: &Programs) -> Ro
     result
 }
 
+/// 6b. WebRender's depth ids: it spends one depth-buffer step on a depth id (`1 << (24 - 2)` ids in a 24-bit buffer, the orthographic
+/// projection with `near = -(1 << 22)` and `far = (1 << 22) - 1`), so a depth buffer that cannot tell two neighbouring ids apart draws the
+/// wrong item. Two triangles at the depth ids 5 (green) and 6 (red, nearer: the projection gives a larger id a smaller depth) are drawn
+/// farther first, nearer second, and the other way round, with `LEQUAL`: the nearer id must win in both orders.
+fn phase_depth_fine(gl: &GenericGlContext, target: Target, programs: &Programs) -> Row {
+    let flat = match &programs.flat {
+        Ok(program) => *program,
+        Err(why) => return failed("depth_fine", format!("the program did not build: {why}")),
+    };
+    if gl.glClearBufferfv.is_null() {
+        return failed("depth_fine", "glClearBufferfv is not loaded".to_owned());
+    }
+    // The clip space z of a depth id under WebRender's projection.
+    let ndc = |id: f32| (1.0 - 2.0 * id) / 8_388_607.0;
+    let depth = gl.gen_renderbuffers(1).first().copied().unwrap_or(0);
+    gl.bind_renderbuffer(glconst::RENDERBUFFER, depth);
+    gl.renderbuffer_storage(glconst::RENDERBUFFER, glconst::DEPTH_COMPONENT24, 128, 128);
+    let texture = gl.gen_textures(1).first().copied().unwrap_or(0);
+    gl.active_texture(glconst::TEXTURE0);
+    gl.bind_texture(glconst::TEXTURE_2D, texture);
+    gl.tex_parameter_i(glconst::TEXTURE_2D, glconst::TEXTURE_MIN_FILTER, glconst::NEAREST as i32);
+    gl.tex_parameter_i(glconst::TEXTURE_2D, glconst::TEXTURE_MAG_FILTER, glconst::NEAREST as i32);
+    gl.tex_storage_2d(glconst::TEXTURE_2D, 1, glconst::RGBA8, 128, 128);
+    let framebuffer = gl.gen_framebuffers(1).first().copied().unwrap_or(0);
+    gl.bind_framebuffer(draw_target(target), framebuffer);
+    gl.framebuffer_texture_2d(
+        draw_target(target),
+        glconst::COLOR_ATTACHMENT0,
+        glconst::TEXTURE_2D,
+        texture,
+        0,
+    );
+    gl.framebuffer_renderbuffer(
+        draw_target(target),
+        glconst::DEPTH_ATTACHMENT,
+        glconst::RENDERBUFFER,
+        depth,
+    );
+    let status = gl.check_frame_buffer_status(draw_target(target));
+    gl.viewport(0, 0, 128, 128);
+    gl.disable(glconst::SCISSOR_TEST);
+    gl.disable(glconst::BLEND);
+    gl.color_mask(true, true, true, true);
+    gl.depth_mask(true);
+    let one = 1.0_f32;
+    // SAFETY: a non-null `glClearBufferfv` of the table is the function of that name: `void (GLenum buffer, GLint drawbuffer, const GLfloat *value)`.
+    let clear_buffer: extern "system" fn(u32, i32, *const f32) = unsafe { std::mem::transmute(gl.glClearBufferfv) };
+    let mut checks: Vec<(&str, [u8; 4], [u8; 4])> = Vec::new();
+    for (name, order) in [
+        ("farther id first, nearer second", [(5.0_f32, [0.0_f32, 1.0, 0.0, 1.0]), (6.0, [1.0, 0.0, 0.0, 1.0])]),
+        ("nearer id first, farther second", [(6.0, [1.0, 0.0, 0.0, 1.0]), (5.0, [0.0, 1.0, 0.0, 1.0])]),
+    ] {
+        gl.clear_color(0.0, 0.0, 0.0, 0.0);
+        gl.clear(glconst::COLOR_BUFFER_BIT);
+        clear_buffer(glconst::DEPTH, 0, &one);
+        gl.enable(glconst::DEPTH_TEST);
+        gl.depth_func(glconst::LEQUAL);
+        for (id, colour) in order {
+            gl.use_program(flat);
+            set_colour(gl, flat, colour);
+            full_screen(gl, flat, ndc(id));
+        }
+        gl.finish();
+        read_from(gl, target, framebuffer);
+        checks.push((name, RED, px(gl, 64, 64)));
+        gl.disable(glconst::DEPTH_TEST);
+    }
+    let error = gl.get_error();
+    let note = format!("framebuffer status 0x{status:x}");
+    let mut result = row("depth_fine", &checks, error, &note);
+    result.ok &= status == glconst::FRAMEBUFFER_COMPLETE;
+    gl.bind_framebuffer(draw_target(target), target.window);
+    read_from(gl, target, target.window);
+    window_target(gl, target);
+    gl.bind_texture(glconst::TEXTURE_2D, 0);
+    gl.delete_framebuffers(&[framebuffer]);
+    gl.delete_renderbuffers(&[depth]);
+    gl.delete_textures(&[texture]);
+    result
+}
+
 /// 7. WebRender's depth buffer the way a frame uses it: two tile textures with their own framebuffers share ONE 24-bit depth renderbuffer.
 /// The first pass clears the depth with `glClearBufferfv`, the second with a quad (`DepthFunction::Always`, depth write on, colour write off,
 /// depth 1.0: `ps_clear`); each draws a near and a far triangle with `LEQUAL` (the far one must lose) and then invalidates the depth
@@ -1078,7 +1159,7 @@ fn phase_shared_depth(gl: &GenericGlContext, target: Target, programs: &Programs
 }
 
 /// The phases, by name, in the order the ladder runs them.
-pub const PHASES: [&str; 10] = [
+pub const PHASES: [&str; 11] = [
     "clear",
     "shader",
     "dummy_texture",
@@ -1088,6 +1169,7 @@ pub const PHASES: [&str; 10] = [
     "vertex_fetch",
     "scatter",
     "depth",
+    "depth_fine",
     "shared_depth",
 ];
 
@@ -1117,6 +1199,7 @@ pub fn run_ladder(gl: &GenericGlContext, target: Target, show: &mut dyn FnMut(&'
             "vertex_fetch" => phase_vertex_fetch(gl, target, &programs),
             "scatter" => phase_scatter(gl, target, &programs),
             "depth" => phase_depth(gl, target, &programs),
+            "depth_fine" => phase_depth_fine(gl, target, &programs),
             _ => phase_shared_depth(gl, target, &programs),
         }
     };

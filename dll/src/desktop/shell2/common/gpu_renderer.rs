@@ -295,6 +295,14 @@ fn apply_experiment(options: &mut webrender::WebRenderOptions) {
             "storage_off" => options.allow_texture_storage_support = false,
             "scatter_off" => options.gpu_cache_scatter = Some(false),
             "markers_off" => options.enable_gpu_markers = false,
+            "disable_opaque" => options.debug_flags |= webrender::DebugFlags::DISABLE_OPAQUE_PASS,
+            "disable_alpha" => options.debug_flags |= webrender::DebugFlags::DISABLE_ALPHA_PASS,
+            "disable_batching" => options.debug_flags |= webrender::DebugFlags::DISABLE_BATCHING,
+            "disable_clip" => options.debug_flags |= webrender::DebugFlags::DISABLE_CLIP_MASKS,
+            "disable_text" => options.debug_flags |= webrender::DebugFlags::DISABLE_TEXT_PRIMS,
+            "disable_gradient" => options.debug_flags |= webrender::DebugFlags::DISABLE_GRADIENT_PRIMS,
+            "tile256" => options.picture_tile_size = Some(webrender::api::units::DeviceIntSize::new(256, 256)),
+            "tile512" => options.picture_tile_size = Some(webrender::api::units::DeviceIntSize::new(512, 512)),
             "none" => {}
             other => {
                 crate::log_warn!(super::debug_server::LogCategory::Rendering, "[render] experiment: {} is unknown", other);
