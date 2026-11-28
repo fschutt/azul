@@ -1953,7 +1953,14 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
             // For root nodes, the position should be at (margin.left, margin.top) relative
             // to the viewport origin, because the margin creates space between the viewport
             // edge and the element's border-box.
-            if !pos_contains(&calculated_positions, root_idx) {
+            //
+            // The TREE root is put there in every pass that lays it out, not only in the first:
+            // this vector began as the last pass's, whose root stood under the viewport origin
+            // and the margin of THAT pass. The origin moves when the window's safe area does
+            // (the bars of a phone arrive after its first frame, a rotation moves them), the
+            // margin when a style changes it; a root that kept its old position stood at the
+            // old place while its children were placed from the new one.
+            if is_tree_root || !pos_contains(&calculated_positions, root_idx) {
                 let root_node = &new_tree.nodes[root_idx];
                 let root_bp2 = root_node.box_props.unpack();
 
