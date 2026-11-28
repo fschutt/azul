@@ -156,7 +156,7 @@ fn open_file(
     filter_list: OptionFileTypeList,
     data: RefAny,
     on_result: ResumeCallbackType,
-) -> RequestId;                         // FileOpenResult { path: OptionFilePath }
+) -> RequestId;                         // FileOpenResult { path: OptionFilePath, error: OptionString }
 
 fn open_directory(
     title: AzString,
@@ -171,14 +171,14 @@ fn open_multiple_files(
     filter_list: OptionFileTypeList,
     data: RefAny,
     on_result: ResumeCallbackType,
-) -> RequestId;                         // FileOpenMultiResult { paths: FilePathVec }
+) -> RequestId;                         // FileOpenMultiResult { paths: FilePathVec, error: OptionString }
 
 fn save_file(
     title: AzString,
     suggested_name: AzString,
     data: RefAny,
     on_result: ResumeCallbackType,
-) -> RequestId;                         // SaveTargetResult { target: OptionSaveTarget }
+) -> RequestId;                         // SaveTargetResult { target: OptionSaveTarget, error: OptionString }
 
 fn save_bytes(
     suggested_name: AzString,
@@ -187,7 +187,15 @@ fn save_bytes(
 ) -> bool;                              // fire-and-forget export
 ```
 
-Cancelling resolves with `path: None` / an empty `paths` / `target: None`.
+Cancelling resolves with `path: None` / an empty `paths` / `target: None` and
+`error: None`. A dialog that FAILED resolves the same way but with `error:
+Some(reason)`: an app that wants to tell the user why nothing happened reads
+`error`; a cancel is never reported as one. On a phone, a request the platform
+cannot serve yet (a save dialog, a folder on Android) fails with its reason
+instead of showing a dialog whose answer would be thrown away, and
+`save_bytes` answers `false` (and logs why) instead of writing a folder the
+user did not choose and saying `true`.
+
 Filters are extension-only: pass bare extensions like `"png"`, `"jpg"` (no
 leading dot, no glob), plus a human-readable label. `open_directory` and
 `save_file` ignore filters.

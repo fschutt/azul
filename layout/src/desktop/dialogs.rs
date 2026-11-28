@@ -311,11 +311,15 @@ impl ColorPickerDialog {
 // to the typed value.
 
 /// Result of [`FileDialog::open_file`] / [`FileDialog::open_directory`].
-/// `path` is `None` if the user cancelled.
+/// `path` is `None` if the user cancelled OR the dialog failed: `error` says which (it is `None` after a
+/// pick and after a cancel, and names the reason after a failure: no dialog on this platform, the
+/// provider could not be read, no window to show it on).
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(C)]
 pub struct FileOpenResult {
     pub path: OptionFilePath,
+    /// Why there is no `path` although the user did not cancel; `None` after a pick and after a cancel.
+    pub error: OptionString,
 }
 
 impl_option!(
@@ -331,14 +335,32 @@ impl FileOpenResult {
     pub fn downcast(mut result: RefAny) -> OptionFileOpenResult {
         result.downcast_ref::<Self>().map(|r| r.clone()).into()
     }
+
+    /// A pick (`Some`) or a cancel (`None`): no error.
+    pub(crate) const fn new(path: OptionFilePath) -> Self {
+        Self {
+            path,
+            error: OptionString::None,
+        }
+    }
+
+    /// The dialog failed: no path and the reason, which is NOT a cancel.
+    pub(crate) const fn failed(reason: AzString) -> Self {
+        Self {
+            path: OptionFilePath::None,
+            error: OptionString::Some(reason),
+        }
+    }
 }
 
 /// Result of [`FileDialog::open_multiple_files`]. `paths` is empty if the
-/// user cancelled.
+/// user cancelled or the dialog failed; `error` says which.
 #[derive(Debug, Clone, PartialEq)]
 #[repr(C)]
 pub struct FileOpenMultiResult {
     pub paths: FilePathVec,
+    /// Why there are no `paths` although the user did not cancel; `None` after a pick and after a cancel.
+    pub error: OptionString,
 }
 
 impl_option!(
@@ -353,6 +375,22 @@ impl FileOpenMultiResult {
     #[must_use]
     pub fn downcast(mut result: RefAny) -> OptionFileOpenMultiResult {
         result.downcast_ref::<Self>().map(|r| r.clone()).into()
+    }
+
+    /// A pick (some paths) or a cancel (none): no error.
+    pub(crate) const fn new(paths: FilePathVec) -> Self {
+        Self {
+            paths,
+            error: OptionString::None,
+        }
+    }
+
+    /// The dialog failed: no paths and the reason, which is NOT a cancel.
+    pub(crate) const fn failed(reason: AzString) -> Self {
+        Self {
+            paths: FilePathVec::from_vec(Vec::new()),
+            error: OptionString::Some(reason),
+        }
     }
 }
 
@@ -440,11 +478,13 @@ impl SaveTarget {
 }
 
 /// Result of [`FileDialog::save_file`]. `target` is `None` if the user
-/// cancelled.
+/// cancelled or the dialog failed; `error` says which.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(C)]
 pub struct SaveTargetResult {
     pub target: OptionSaveTarget,
+    /// Why there is no `target` although the user did not cancel; `None` after a pick and after a cancel.
+    pub error: OptionString,
 }
 
 impl_option!(
@@ -460,22 +500,73 @@ impl SaveTargetResult {
     pub fn downcast(mut result: RefAny) -> OptionSaveTargetResult {
         result.downcast_ref::<Self>().map(|r| r.clone()).into()
     }
+
+    /// A target (`Some`) or a cancel (`None`): no error.
+    pub(crate) const fn new(target: OptionSaveTarget) -> Self {
+        Self {
+            target,
+            error: OptionString::None,
+        }
+    }
+
+    /// The dialog failed: no target and the reason, which is NOT a cancel.
+    pub(crate) const fn failed(reason: AzString) -> Self {
+        Self {
+            target: OptionSaveTarget::None,
+            error: OptionString::Some(reason),
+        }
+    }
 }
 
 /// Turns a picker status into the [`FileOpenResult`] the resumable API
 /// delivers; `None` while the picker is still open. Multiple selections
-/// collapse to the first path here (single-file request).
-#[cfg(any(target_os = "android", target_os = "ios"))]
-fn open_result_from_status(status: FilePickerStatus) -> Option<RefAny> {
-    let path = match status {
+/// collapse to the first path here (single-file request). An `Error` is a
+/// FAILURE with its reason, never a cancel.
+#[cfg(any(target_os = "android", target_os = "ios", test))]
+pub(crate) fn open_result_from_status(status: FilePickerStatus) -> Option<FileOpenResult> {
+    Some(match status {
         FilePickerStatus::Pending => return None,
-        FilePickerStatus::Selected(p) => OptionFilePath::Some(FilePath::new(p)),
+        FilePickerStatus::Selected(p) => FileOpenResult::new(OptionFilePath::Some(FilePath::new(p))),
         FilePickerStatus::SelectedMultiple(v) => {
-            v.as_ref().first().cloned().map(FilePath::new).into()
+            FileOpenResult::new(v.as_ref().first().cloned().map(FilePath::new).into())
         }
-        FilePickerStatus::Cancelled | FilePickerStatus::Error(_) => OptionFilePath::None,
+        FilePickerStatus::Cancelled => FileOpenResult::new(OptionFilePath::None),
+        FilePickerStatus::Error(reason) => FileOpenResult::failed(reason),
+    })
+}
+
+/// [`open_result_from_status`] for a request for several files.
+#[cfg(any(target_os = "android", target_os = "ios", test))]
+pub(crate) fn multi_result_from_status(status: FilePickerStatus) -> Option<FileOpenMultiResult> {
+    let paths = match status {
+        FilePickerStatus::Pending => return None,
+        FilePickerStatus::Selected(p) => vec![FilePath::new(p)],
+        FilePickerStatus::SelectedMultiple(v) => {
+            v.as_ref().iter().cloned().map(FilePath::new).collect()
+        }
+        FilePickerStatus::Cancelled => Vec::new(),
+        FilePickerStatus::Error(reason) => return Some(FileOpenMultiResult::failed(reason)),
     };
-    Some(RefAny::new(FileOpenResult { path }))
+    Some(FileOpenMultiResult::new(FilePathVec::from_vec(paths)))
+}
+
+/// [`open_result_from_status`] for where to save: the target is the path the picker answered.
+#[cfg(any(target_os = "android", target_os = "ios", test))]
+pub(crate) fn save_result_from_status(status: FilePickerStatus) -> Option<SaveTargetResult> {
+    let to_target = |p: AzString| SaveTarget {
+        kind: SaveTargetKind::Path,
+        path: OptionFilePath::Some(FilePath::new(p)),
+        handle_id: 0,
+    };
+    Some(match status {
+        FilePickerStatus::Pending => return None,
+        FilePickerStatus::Selected(p) => SaveTargetResult::new(OptionSaveTarget::Some(to_target(p))),
+        FilePickerStatus::SelectedMultiple(v) => {
+            SaveTargetResult::new(v.as_ref().first().cloned().map(to_target).into())
+        }
+        FilePickerStatus::Cancelled => SaveTargetResult::new(OptionSaveTarget::None),
+        FilePickerStatus::Error(reason) => SaveTargetResult::failed(reason),
+    })
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd)]
@@ -592,15 +683,11 @@ fn tfd_dialog(pick: &PickRequest) -> tfd::FileDialog {
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 fn desktop_open_file(pick: &PickRequest) -> FileOpenResult {
     match request::mock::take_file_open("FileDialog::open_file") {
-        request::mock::Answer::Mocked(path) => FileOpenResult {
-            path: path.map(FilePath::new).into(),
-        },
-        request::mock::Answer::Unmocked => FileOpenResult {
-            path: OptionFilePath::None,
-        },
-        request::mock::Answer::NotArmed => FileOpenResult {
-            path: tfd_dialog(pick).open_file().map(file_path).into(),
-        },
+        request::mock::Answer::Mocked(path) => FileOpenResult::new(path.map(FilePath::new).into()),
+        request::mock::Answer::Unmocked => FileOpenResult::new(OptionFilePath::None),
+        request::mock::Answer::NotArmed => {
+            FileOpenResult::new(tfd_dialog(pick).open_file().map(file_path).into())
+        }
     }
 }
 
@@ -609,20 +696,14 @@ fn desktop_open_file(pick: &PickRequest) -> FileOpenResult {
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 fn desktop_open_directory(pick: &PickRequest) -> FileOpenResult {
     match request::mock::take_file_open("FileDialog::open_directory") {
-        request::mock::Answer::Mocked(path) => FileOpenResult {
-            path: path.map(FilePath::new).into(),
-        },
-        request::mock::Answer::Unmocked => FileOpenResult {
-            path: OptionFilePath::None,
-        },
+        request::mock::Answer::Mocked(path) => FileOpenResult::new(path.map(FilePath::new).into()),
+        request::mock::Answer::Unmocked => FileOpenResult::new(OptionFilePath::None),
         request::mock::Answer::NotArmed => {
             #[cfg(target_os = "macos")]
             let picked = macos_choose_folder(&pick.title, pick.default_location.as_deref());
             #[cfg(not(target_os = "macos"))]
             let picked = tfd_dialog(pick).select_folder();
-            FileOpenResult {
-                path: picked.map(file_path).into(),
-            }
+            FileOpenResult::new(picked.map(file_path).into())
         }
     }
 }
@@ -641,9 +722,7 @@ fn desktop_open_multiple_files(pick: &PickRequest) -> FileOpenMultiResult {
             .map(file_path)
             .collect(),
     };
-    FileOpenMultiResult {
-        paths: FilePathVec::from_vec(paths),
-    }
+    FileOpenMultiResult::new(FilePathVec::from_vec(paths))
 }
 
 /// [`desktop_open_file`] for where to save: `pick.default_location` is the
@@ -655,9 +734,7 @@ fn desktop_save_file(pick: &PickRequest) -> SaveTargetResult {
         request::mock::Answer::Unmocked => None,
         request::mock::Answer::NotArmed => tfd_dialog(pick).save_file().map(path_target),
     };
-    SaveTargetResult {
-        target: target.into(),
-    }
+    SaveTargetResult::new(target.into())
 }
 
 /// The `AppleScript` of the macOS folder picker: `choose folder`, its answer
@@ -759,12 +836,10 @@ impl FileDialog {
                         let answer = pending.poll()?;
                         Some(RefAny::new(provider_answer(
                             answer,
-                            |paths| FileOpenResult {
-                                path: paths.into_iter().next().map(file_path).into(),
+                            |paths| {
+                                FileOpenResult::new(paths.into_iter().next().map(file_path).into())
                             },
-                            FileOpenResult {
-                                path: OptionFilePath::None,
-                            },
+                            FileOpenResult::new(OptionFilePath::None),
                             || desktop_open_file(&pick),
                         )))
                     }),
@@ -782,18 +857,14 @@ impl FileDialog {
                     return request::complete(
                         data,
                         on_result,
-                        FileOpenResult {
-                            path: path.map(FilePath::new).into(),
-                        },
+                        FileOpenResult::new(path.map(FilePath::new).into()),
                     );
                 }
                 request::mock::Answer::Unmocked => {
                     return request::complete(
                         data,
                         on_result,
-                        FileOpenResult {
-                            path: OptionFilePath::None,
-                        },
+                        FileOpenResult::new(OptionFilePath::None),
                     );
                 }
             }
@@ -808,7 +879,7 @@ impl FileDialog {
                     request::defer(
                         data,
                         on_result,
-                        Box::new(move || open_result_from_status(handle.poll())),
+                        Box::new(move || open_result_from_status(handle.poll()).map(RefAny::new)),
                     )
                 }
                 // A shell that registered no picker: resolve as cancelled
@@ -816,9 +887,7 @@ impl FileDialog {
                 None => request::complete(
                     data,
                     on_result,
-                    FileOpenResult {
-                        path: OptionFilePath::None,
-                    },
+                    FileOpenResult::new(OptionFilePath::None),
                 ),
             }
         }
@@ -851,12 +920,10 @@ impl FileDialog {
                         let answer = pending.poll()?;
                         Some(RefAny::new(provider_answer(
                             answer,
-                            |paths| FileOpenResult {
-                                path: paths.into_iter().next().map(file_path).into(),
+                            |paths| {
+                                FileOpenResult::new(paths.into_iter().next().map(file_path).into())
                             },
-                            FileOpenResult {
-                                path: OptionFilePath::None,
-                            },
+                            FileOpenResult::new(OptionFilePath::None),
                             || desktop_open_directory(&pick),
                         )))
                     }),
@@ -872,18 +939,14 @@ impl FileDialog {
                     return request::complete(
                         data,
                         on_result,
-                        FileOpenResult {
-                            path: path.map(FilePath::new).into(),
-                        },
+                        FileOpenResult::new(path.map(FilePath::new).into()),
                     );
                 }
                 request::mock::Answer::Unmocked => {
                     return request::complete(
                         data,
                         on_result,
-                        FileOpenResult {
-                            path: OptionFilePath::None,
-                        },
+                        FileOpenResult::new(OptionFilePath::None),
                     );
                 }
             }
@@ -893,15 +956,13 @@ impl FileDialog {
                     request::defer(
                         data,
                         on_result,
-                        Box::new(move || open_result_from_status(handle.poll())),
+                        Box::new(move || open_result_from_status(handle.poll()).map(RefAny::new)),
                     )
                 }
                 None => request::complete(
                     data,
                     on_result,
-                    FileOpenResult {
-                        path: OptionFilePath::None,
-                    },
+                    FileOpenResult::new(OptionFilePath::None),
                 ),
             }
         }
@@ -931,14 +992,12 @@ impl FileDialog {
                         let answer = pending.poll()?;
                         Some(RefAny::new(provider_answer(
                             answer,
-                            |paths| FileOpenMultiResult {
-                                paths: FilePathVec::from_vec(
+                            |paths| {
+                                FileOpenMultiResult::new(FilePathVec::from_vec(
                                     paths.into_iter().map(file_path).collect(),
-                                ),
+                                ))
                             },
-                            FileOpenMultiResult {
-                                paths: FilePathVec::from_vec(Vec::new()),
-                            },
+                            FileOpenMultiResult::new(FilePathVec::from_vec(Vec::new())),
                             || desktop_open_multiple_files(&pick),
                         )))
                     }),
@@ -955,18 +1014,14 @@ impl FileDialog {
                     return request::complete(
                         data,
                         on_result,
-                        FileOpenMultiResult {
-                            paths: FilePathVec::from_vec(paths),
-                        },
+                        FileOpenMultiResult::new(FilePathVec::from_vec(paths)),
                     );
                 }
                 request::mock::Answer::Unmocked => {
                     return request::complete(
                         data,
                         on_result,
-                        FileOpenMultiResult {
-                            paths: FilePathVec::from_vec(Vec::new()),
-                        },
+                        FileOpenMultiResult::new(FilePathVec::from_vec(Vec::new())),
                     );
                 }
             }
@@ -981,29 +1036,13 @@ impl FileDialog {
                     request::defer(
                         data,
                         on_result,
-                        Box::new(move || {
-                            let paths = match handle.poll() {
-                                FilePickerStatus::Pending => return None,
-                                FilePickerStatus::Selected(p) => vec![FilePath::new(p)],
-                                FilePickerStatus::SelectedMultiple(v) => {
-                                    v.as_ref().iter().cloned().map(FilePath::new).collect()
-                                }
-                                FilePickerStatus::Cancelled | FilePickerStatus::Error(_) => {
-                                    Vec::new()
-                                }
-                            };
-                            Some(RefAny::new(FileOpenMultiResult {
-                                paths: FilePathVec::from_vec(paths),
-                            }))
-                        }),
+                        Box::new(move || multi_result_from_status(handle.poll()).map(RefAny::new)),
                     )
                 }
                 None => request::complete(
                     data,
                     on_result,
-                    FileOpenMultiResult {
-                        paths: FilePathVec::from_vec(Vec::new()),
-                    },
+                    FileOpenMultiResult::new(FilePathVec::from_vec(Vec::new())),
                 ),
             }
         }
@@ -1045,12 +1084,10 @@ impl FileDialog {
                         let answer = pending.poll()?;
                         Some(RefAny::new(provider_answer(
                             answer,
-                            |paths| SaveTargetResult {
-                                target: paths.into_iter().next().map(path_target).into(),
+                            |paths| {
+                                SaveTargetResult::new(paths.into_iter().next().map(path_target).into())
                             },
-                            SaveTargetResult {
-                                target: OptionSaveTarget::None,
-                            },
+                            SaveTargetResult::new(OptionSaveTarget::None),
                             || desktop_save_file(&pick),
                         )))
                     }),
@@ -1071,18 +1108,14 @@ impl FileDialog {
                     return request::complete(
                         data,
                         on_result,
-                        SaveTargetResult {
-                            target: target.into(),
-                        },
+                        SaveTargetResult::new(target.into()),
                     );
                 }
                 request::mock::Answer::Unmocked => {
                     return request::complete(
                         data,
                         on_result,
-                        SaveTargetResult {
-                            target: OptionSaveTarget::None,
-                        },
+                        SaveTargetResult::new(OptionSaveTarget::None),
                     );
                 }
             }
@@ -1097,35 +1130,13 @@ impl FileDialog {
                     request::defer(
                         data,
                         on_result,
-                        Box::new(move || {
-                            let target = match handle.poll() {
-                                FilePickerStatus::Pending => return None,
-                                FilePickerStatus::Selected(p) => Some(SaveTarget {
-                                    kind: SaveTargetKind::Path,
-                                    path: OptionFilePath::Some(FilePath::new(p)),
-                                    handle_id: 0,
-                                }),
-                                FilePickerStatus::SelectedMultiple(v) => {
-                                    v.as_ref().first().cloned().map(|p| SaveTarget {
-                                        kind: SaveTargetKind::Path,
-                                        path: OptionFilePath::Some(FilePath::new(p)),
-                                        handle_id: 0,
-                                    })
-                                }
-                                FilePickerStatus::Cancelled | FilePickerStatus::Error(_) => None,
-                            };
-                            Some(RefAny::new(SaveTargetResult {
-                                target: target.into(),
-                            }))
-                        }),
+                        Box::new(move || save_result_from_status(handle.poll()).map(RefAny::new)),
                     )
                 }
                 None => request::complete(
                     data,
                     on_result,
-                    SaveTargetResult {
-                        target: OptionSaveTarget::None,
-                    },
+                    SaveTargetResult::new(OptionSaveTarget::None),
                 ),
             }
         }
@@ -1135,7 +1146,10 @@ impl FileDialog {
     /// not a path) with the given MIME type. Fire-and-forget; `true` means
     /// the export was performed (desktop: the user picked a location in the
     /// native save dialog and the file was written) or scheduled (web: a
-    /// download was triggered). `false` means cancelled or failed.
+    /// download was triggered). `false` means cancelled or failed. On a
+    /// phone it answers `false` (and logs why) until the system's export
+    /// dialog is behind it: it never writes a folder the user did not
+    /// choose and says `true`.
     ///
     /// This is the portable "export a document" primitive: it works from
     /// any event-driven callback chain on every target, needs no write
@@ -1168,20 +1182,25 @@ impl FileDialog {
         }
         #[cfg(any(target_os = "android", target_os = "ios"))]
         {
-            // No save dialog on mobile: the file lands in the app's
-            // documents directory under the suggested name.
-            let Some(dir) = FilePath::get_document_dir().or_else(FilePath::get_data_dir) else {
-                return false;
-            };
-            let name = if suggested_name.as_str().is_empty() {
-                "download"
-            } else {
-                suggested_name.as_str()
-            };
-            let target = dir.join_str(&AzString::from(name.to_string()));
-            crate::file::file_write(target.as_str(), bytes.as_ref()).is_ok()
+            // The system's export dialog is not behind this call on a phone yet. The one thing it must NEVER do
+            // is what it did: write the app's own (private) folder and answer `true` - the user chose no place
+            // and cannot find that file. The truth is `false`, and the reason goes to the log.
+            drop(bytes);
+            eprintln!("[azul][file-dialog] {}", export_unavailable(suggested_name.as_str()));
+            false
         }
     }
+}
+
+/// Why [`FileDialog::save_bytes`] answers `false` on a phone: nothing was written, because there is no dialog yet that
+/// lets the user choose where.
+#[cfg(any(target_os = "android", target_os = "ios", test))]
+pub(crate) fn export_unavailable(suggested_name: &str) -> String {
+    let name = if suggested_name.is_empty() { "the file" } else { suggested_name };
+    format!(
+        "save_bytes: {name} was NOT saved: this phone build has no dialog yet that lets the user choose where to \
+         save, and the app's private folder is not a place the user can reach"
+    )
 }
 
 // ============================================================================
@@ -1408,6 +1427,10 @@ fn filter_patterns(filter_list: OptionFileTypeList) -> OptionStringVec {
 pub fn msg_box(content: &str) {
     MsgBox::info(AzString::from(content));
 }
+
+#[cfg(test)]
+#[path = "dialogs_mobile_test.rs"]
+mod dialogs_mobile_test;
 
 #[cfg(test)]
 mod macos_folder_picker_tests {

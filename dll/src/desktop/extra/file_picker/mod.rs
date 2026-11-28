@@ -96,15 +96,18 @@ pub fn apply_open_file(
     handle
 }
 
-/// Save-file request. iOS: `UIDocumentPickerViewController.initForExportingURLs`.
-/// Android: `Intent.ACTION_CREATE_DOCUMENT`. Desktop keeps using `tfd`.
+/// Save-file request. A phone has no save dialog behind it YET (iOS: `UIDocumentPickerViewController`
+/// exporting, Android: `ACTION_CREATE_DOCUMENT` with a write-through target: ledger WP-F step 3a), and
+/// until it has, the request FAILS with the reason: it must not show a dialog whose result cannot be
+/// written (Android's used to create an empty document and hand the app a cache copy of it, iOS's
+/// answered "cancelled" to every request). Desktop keeps using `tfd`.
 #[allow(unused_variables)]
 pub fn apply_save_file(title: AzString, default_path: OptionString) -> FilePickerHandle {
     let handle = FilePickerHandle::new_pending();
     #[cfg(target_os = "ios")]
-    ios::dispatch_save_file(handle.clone(), title, default_path);
+    fail(&handle, IOS_SAVE_UNAVAILABLE);
     #[cfg(target_os = "android")]
-    android::dispatch_save_file(handle.clone(), title, default_path);
+    fail(&handle, ANDROID_SAVE_UNAVAILABLE);
     #[cfg(not(any(target_os = "ios", target_os = "android")))]
     {
         handle.set_status(FilePickerStatus::Cancelled);
@@ -112,18 +115,38 @@ pub fn apply_save_file(title: AzString, default_path: OptionString) -> FilePicke
     handle
 }
 
-/// Directory-picker. iOS: `UIDocumentPickerViewController` with
-/// `UTType.folder`. Android: `Intent.ACTION_OPEN_DOCUMENT_TREE` (API 21+).
+/// Directory-picker. iOS: `UIDocumentPickerViewController` with `UTType.folder`. Android: a SAF tree
+/// (`ACTION_OPEN_DOCUMENT_TREE`) is not a folder a path can name, so until the document layer is behind
+/// it (ledger WP-F step 3b) the request FAILS with the reason instead of showing a dialog whose answer
+/// was thrown away (the tree URI was opened as a file and every pick came back "cancelled").
 #[allow(unused_variables)]
 pub fn apply_open_directory(title: AzString, default_path: OptionString) -> FilePickerHandle {
     let handle = FilePickerHandle::new_pending();
     #[cfg(target_os = "ios")]
     ios::dispatch_open_directory(handle.clone(), title, default_path);
     #[cfg(target_os = "android")]
-    android::dispatch_open_directory(handle.clone(), title, default_path);
+    fail(&handle, ANDROID_FOLDER_UNAVAILABLE);
     #[cfg(not(any(target_os = "ios", target_os = "android")))]
     {
         handle.set_status(FilePickerStatus::Cancelled);
     }
     handle
 }
+
+/// Answer a request with its failure: the reason reaches the app (`error` of its result) and the log, so the
+/// failure is never a silent "nothing happened".
+#[cfg(any(target_os = "ios", target_os = "android"))]
+fn fail(handle: &FilePickerHandle, reason: &str) {
+    crate::plog_warn!("[file_picker] {reason}");
+    handle.set_status(FilePickerStatus::Error(AzString::from(reason)));
+}
+
+/// Why a phone answers a save request with an error: said once, here, so the apps and the tests read the same words.
+pub const IOS_SAVE_UNAVAILABLE: &str =
+    "saving to a place the user chooses is not available on iOS yet (the request was not shown and nothing was written)";
+/// See [`IOS_SAVE_UNAVAILABLE`].
+pub const ANDROID_SAVE_UNAVAILABLE: &str =
+    "saving to a place the user chooses is not available on Android yet (the request was not shown and nothing was written)";
+/// Why Android answers a folder request with an error.
+pub const ANDROID_FOLDER_UNAVAILABLE: &str =
+    "choosing a folder is not available on Android yet (a folder there is a permission grant, not a path; the request was not shown)";
