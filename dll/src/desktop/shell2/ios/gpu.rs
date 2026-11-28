@@ -590,6 +590,27 @@ impl IOSWindow {
         }
     }
 
+    /// A second window of the app is shown over this one (`views.rs`): the renderer is made for the window it draws (its resource
+    /// keys, its document), so this window ends the GPU path - the surface, the renderer and the context in the order the lifecycle
+    /// says - and takes the CPU path for good, with one diagnostic line.
+    pub(super) fn gpu_end_for_views(&mut self) {
+        if self.backend != RenderBackend::Gpu {
+            return;
+        }
+        log_info!(
+            LogCategory::Rendering,
+            "[render] a second window of the app is shown over this one: the window draws on the CPU from here on"
+        );
+        self.gpu_event(Event::Shutdown);
+        self.common.deinit_renderer();
+        self.backend = RenderBackend::Cpu;
+        self.gpu = None;
+        self.common.gl_context_ptr = OptionGlContextPtr::None;
+        if let Some(layout_window) = self.common.layout_window.as_mut() {
+            layout_window.renderer_type = Some(RendererType::Software);
+        }
+    }
+
     // ----- the frame ---------------------------------------------------------------------------
 
     /// The display tick's GPU work: do what is owed (a layout, a repaint, a frame WebRender finished) and, if

@@ -107,6 +107,7 @@ impl IOSWindow {
             self.common.app.clone(),
             layout_window,
         );
+        self.gpu_end_for_views();
         let below = core::mem::replace(&mut self.common, view);
         self.views_below.push(below);
         // What the system told the window it is on - the bars, the cutout, the keyboard - is the

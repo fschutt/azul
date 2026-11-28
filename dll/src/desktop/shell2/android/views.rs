@@ -14,13 +14,13 @@
 use azul_core::callbacks::RelayoutReason;
 use azul_layout::window_state::WindowCreateOptions;
 
-use super::{make_common, AndroidWindow};
+use super::{make_common, AndroidWindow, RenderBackend};
 use crate::{
     desktop::shell2::{
         android_core::{a11y_refresh::ScrollRefresh, slop::TapSlop},
         common::{debug_server, event::PlatformWindow},
     },
-    log_debug, log_error,
+    log_debug, log_error, log_info,
 };
 
 impl AndroidWindow {
@@ -48,6 +48,24 @@ impl AndroidWindow {
                 self.pop_view_now();
             }
         }
+    }
+
+    /// The renderer of the GPU path is made for the window it draws (its resource keys, its document): a window
+    /// pushed over it draws on the CPU, and a surface has one producer. So the window leaves the GPU path when its
+    /// first view comes - the surface, the renderer and the context in the order the lifecycle says - and takes the
+    /// CPU path for good, as a window whose GPU path ended does, with one diagnostic line.
+    fn leave_the_gpu_path(&mut self) {
+        if self.backend != RenderBackend::Gpu {
+            return;
+        }
+        log_info!(
+            super::LogCategory::Rendering,
+            "[render] a second window of the app is shown over this one: the window draws on the CPU from here on"
+        );
+        self.gpu_shutdown();
+        self.common.deinit_renderer();
+        self.backend = RenderBackend::Cpu;
+        self.gpu_present_owed = false;
     }
 
     /// Makes the window `options` describe and puts it on top of the one the user sees.
@@ -86,6 +104,7 @@ impl AndroidWindow {
                 return;
             }
         };
+        self.leave_the_gpu_path();
         let below = core::mem::replace(&mut self.common, view);
         self.views_below.push(below);
         // What the system told the window it is on - the bars, the cutout, the keyboard - is the
