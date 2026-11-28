@@ -22351,6 +22351,29 @@ impl LayoutWindow {
         }
     }
 
+    /// [`Self::take_animation_frame_work`] with the display list it owes BUILT: what a shell's frame driver
+    /// does with the decision, for every shell at once.
+    ///
+    /// A shell answers `ShouldUpdateDisplayListCurrentWindow` by presenting the list it already has (macOS
+    /// and the headless window rebuild a list marked dirty, the others do not): whoever produces a new list
+    /// builds it - the rule `repaint_restyled_dom` follows for a restyle. A tick whose values the list cannot
+    /// be patched with in place (a fade between two backgrounds of different shapes - a paper that becomes a
+    /// stone -, a shadow, a border colour) owes that rebuild, and a driver that handed the bare decision to
+    /// a shell left the face it had on the screen for as long as nothing else rebuilt the list, while the
+    /// text colours, which are patched in place, moved (QA, the Android phone, 2026-11-28: the faces of rebuilt
+    /// buttons never repainted, settled included). A rebuilt list is a repaint: a GPU frame sends it in its
+    /// lightweight pass (the list's generation moved), a CPU frame renders it.
+    pub fn serve_animation_frame_work(&mut self) -> azul_core::events::ProcessEventResult {
+        use azul_core::events::ProcessEventResult;
+        match self.take_animation_frame_work() {
+            ProcessEventResult::ShouldUpdateDisplayListCurrentWindow => {
+                self.regenerate_display_list_for_dom(DomId::ROOT_ID);
+                ProcessEventResult::ShouldReRenderCurrentWindow
+            }
+            other => other,
+        }
+    }
+
     /// [`Self::tick_animations`] with `dt` taken from the wall clock.
     ///
     /// The clock is read ONLY when something is actually animating.

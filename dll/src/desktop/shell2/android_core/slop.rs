@@ -57,6 +57,16 @@ pub enum Lift {
     Pan,
 }
 
+impl Lift {
+    /// Whether this is a FINGER's tap: a contact the slop applies to, lifted inside it. A finger leaves nothing under
+    /// it once it is gone (touch has no hover), so the control it tapped is not hovered any more; a mouse or a
+    /// stylus still points where it is.
+    #[must_use]
+    pub const fn is_a_finger_tap(self) -> bool {
+        matches!(self, Self::Click { at: Some(_) })
+    }
+}
+
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
 enum Contact {
     /// No contact, or one the slop does not apply to.

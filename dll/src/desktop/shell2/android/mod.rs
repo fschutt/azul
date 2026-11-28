@@ -2583,6 +2583,8 @@ fn drain_input(app: &AndroidApp, window: &mut AndroidWindow) {
         let slop_at = |p: LogicalPosition| (p.x, p.y);
         let mut slop_move: Option<SlopMove> = None;
         let mut mouse_action = update.action;
+        // A finger that tapped is gone and leaves nothing under it: touch has no hover (see the pass after the click).
+        let mut finger_tapped = false;
         match update.action {
             MotionAction::Down => {
                 let tool = update
@@ -2605,14 +2607,18 @@ fn drain_input(app: &AndroidApp, window: &mut AndroidWindow) {
                 slop_move = primary_pos.map(|p| window.tap.moved(slop_at(p)));
             }
             MotionAction::Up => {
-                if matches!(window.tap.up(), SlopLift::Pan) {
+                let lift = window.tap.up();
+                if matches!(lift, SlopLift::Pan) {
                     mouse_action = MotionAction::Cancel;
                 }
+                finger_tapped = lift.is_a_finger_tap();
             }
             MotionAction::PointerUp if primary_lifting => {
-                if matches!(window.tap.up(), SlopLift::Pan) {
+                let lift = window.tap.up();
+                if matches!(lift, SlopLift::Pan) {
                     mouse_action = MotionAction::Cancel;
                 }
+                finger_tapped = lift.is_a_finger_tap();
             }
             MotionAction::Cancel => window.tap.cancel(),
             _ => {}
@@ -2838,7 +2844,26 @@ fn drain_input(app: &AndroidApp, window: &mut AndroidWindow) {
             }
         }
 
-        let r = window.process_window_events(0);
+        let mut r = window.process_window_events(0);
+        // TOUCH HAS NO HOVER. The finger that tapped is gone and leaves nothing under it, so the control it tapped must
+        // not keep its hover face: the click has been delivered, the pointer leaves now (out of the window at its last
+        // position, the hover chain cleared as for a cancelled gesture) and a pass of its own delivers the leave and its
+        // restyle. A mouse or a stylus (a contact the slop does not apply to) still points where it is.
+        if finger_tapped {
+            {
+                let ms = window.common.mouse_state_mut();
+                if let CursorPosition::InWindow(p) = ms.cursor_position {
+                    ms.cursor_position = CursorPosition::OutOfWindow(p);
+                }
+            }
+            if let Some(lw) = window.common.layout_window.as_mut() {
+                lw.hover_manager.push_hit_test(
+                    azul_layout::managers::hover::InputPointId::Mouse,
+                    azul_core::hit_test::FullHitTest::empty(None),
+                );
+            }
+            r = r.max(window.process_window_events(0));
+        }
         log_debug!(
             LogCategory::Input,
             "[Android] motion {:?} at {:?} -> {:?}",
