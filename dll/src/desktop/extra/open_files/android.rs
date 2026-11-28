@@ -76,7 +76,7 @@ fn tame<T>(env: &mut JNIEnv<'_>, result: Result<T, jni::errors::Error>) -> Optio
 
 /// The fields of `intent` the classifier reads; a field that cannot be read is empty (and the exception that came with it is
 /// cleared, so it cannot poison the next call).
-fn read_intent(env: &mut JNIEnv<'_>, intent: &JObject<'_>) -> IntentInfo {
+pub(crate) fn read_intent(env: &mut JNIEnv<'_>, intent: &JObject<'_>) -> IntentInfo {
     let mut info = IntentInfo {
         action: string_of(env, intent, "getAction").unwrap_or_default(),
         mime: string_of(env, intent, "getType").unwrap_or_default(),
@@ -274,6 +274,32 @@ fn prepare(env: &mut JNIEnv<'_>, activity: &JObject<'_>, plan: OpenPlan, flags: 
         launched_app,
         inbox: PathBuf::from(files_dir).join(INBOX_FOLDER),
     })
+}
+
+/// A PICKER's answer (`ACTION_OPEN_DOCUMENT`) imported the way a file the system opens the app with is: the persistable grants asked
+/// where the picker offered them, the files copied into the inbox (`<files>/azul-inbox/<token>/<name>`, with the same limits and the
+/// same reasons for an item that could not be copied) on a WORKER thread, and `done` called there with the request that holds one
+/// item per file. The one thing `done` must not do is wait for the UI thread. `Err` when the worker could not be started or the
+/// content resolver could not be reached (nothing was started; `done` is not called).
+///
+/// # Errors
+///
+/// Why nothing was started.
+pub(crate) fn import_picked(
+    env: &mut JNIEnv<'_>,
+    activity: &JObject<'_>,
+    plan: OpenPlan,
+    flags: i32,
+    done: impl FnOnce(Result<OpenRequest, String>) + Send + 'static,
+) -> Result<(), String> {
+    let Some(job) = prepare(env, activity, plan, flags, false) else {
+        return Err("the system's content resolver could not be reached".to_string());
+    };
+    std::thread::Builder::new()
+        .name("azul-pick".to_string())
+        .spawn(move || done(build_request(&job)))
+        .map(|_| ())
+        .map_err(|e| format!("the worker that copies the picked files could not be started: {e}"))
 }
 
 /// The worker: copy, build the request, wait for the App, queue it, wake the loop.

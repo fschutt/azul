@@ -147,6 +147,35 @@ pub fn classify(info: &IntentInfo) -> Option<OpenPlan> {
     })
 }
 
+/// What a PICKER answered (the result intent of `ACTION_OPEN_DOCUMENT`: one URI in the data, several in the clip data): the files to
+/// take, in order, without repeats, at most [`MAX_ITEMS_PER_REQUEST`] (`truncated` counts the rest). `None` when the intent holds
+/// no file (a result the picker cancelled). A URI of another scheme is not a file the person picked and is left out.
+#[must_use]
+pub fn classify_pick(info: &IntentInfo) -> Option<OpenPlan> {
+    let mut files: Vec<String> = Vec::new();
+    for uri in info.data.iter().chain(&info.clip_uris) {
+        let uri = uri.trim();
+        let is_file = scheme_of(uri).is_some_and(|scheme| is_file_scheme(&scheme));
+        if is_file && !files.iter().any(|known| known == uri) {
+            files.push(uri.to_string());
+        }
+    }
+    if files.is_empty() {
+        return None;
+    }
+    let truncated = files.len().saturating_sub(MAX_ITEMS_PER_REQUEST);
+    files.truncate(MAX_ITEMS_PER_REQUEST);
+    Some(OpenPlan {
+        action: OpenAction::View,
+        files,
+        links: Vec::new(),
+        texts: Vec::new(),
+        write: info.flags & FLAG_GRANT_WRITE_URI_PERMISSION != 0,
+        persistable: info.flags & FLAG_GRANT_PERSISTABLE_URI_PERMISSION != 0,
+        truncated,
+    })
+}
+
 #[cfg(test)]
 #[path = "open_intent_test.rs"]
 mod open_intent_test;

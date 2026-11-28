@@ -1,64 +1,52 @@
-//! Android file picker via Storage Access Framework.
+//! Android file picker via the Storage Access Framework.
 //!
-//! Flow:
+//! The intents are built and started FROM RUST through JNI; the only Java left is the activity-result proxy the activity forces
+//! (`scripts/android/AzulFilePicker.java`: `onActivityResult` of `AzulActivity` calls it, it calls the one native below with the
+//! result `Intent`), and it keeps no state. The state of a request on the screen is a [`PendingPick`] parked in the App's own
+//! registry (`AppServices::pickers`) under an id that rides in the low bits of the request code: no process-wide map, no counter.
 //!
-//! 1. `dispatch_open_file` registers the caller's `FilePickerHandle` in `PENDING_PICKERS` keyed by
-//!    a fresh request ID.
-//! 2. We use the `jni` crate to attach the current thread to the JavaVM* published by
-//!    `shell2::android::publish_jni_context`, find the `com.azul.picker.AzulFilePicker` class, and
-//!    invoke `pickDocument(activity, requestId, mimeTypes, allowMultiple)`. The Java side fires
-//!    `Intent.ACTION_OPEN_DOCUMENT`.
-//! 3. `AzulActivity.onActivityResult` routes the result back to
-//!    `AzulFilePicker.onActivityResultProxy`, which reads each
-//!    `content://` URI, copies it into the app's cache dir (so the
-//!    caller gets a regular `file://`-style path), and calls
-//!    `nativeOnResult(requestId, paths, errorOrNull)`.
-//! 4. The `nativeOnResult` JNI symbol below pops the handle out of `PENDING_PICKERS` and writes the
-//!    resulting status.
+//! What happens, on the thread the callback runs on and then on the UI thread:
 //!
-//! Permissions: SAF intents grant per-URI read permission via the
-//! intent flags — no `READ_EXTERNAL_STORAGE` / `READ_MEDIA_*` is
-//! required for the picker itself.
+//! 1. [`dispatch_open_file`] parks the request's [`FilePickerHandle`] in the registry, builds an `ACTION_OPEN_DOCUMENT` intent
+//!    (`CATEGORY_OPENABLE`, the types of the filter, `EXTRA_ALLOW_MULTIPLE`) and starts it with
+//!    `Activity.startActivityForResult(intent, REQUEST_CODE_BASE + id)`. A failure takes the request back out and answers it
+//!    with the reason;
+//! 2. the result comes to `AzulActivity.onActivityResult`, which asks `AzulFilePicker.onActivityResultProxy`; a request code
+//!    that is ours reaches [`Java_com_azul_picker_AzulFilePicker_nativeOnActivityResult`];
+//! 3. there the request is taken back out of the registry (an answer that comes twice finds nothing), a cancel is answered at
+//!    once, and the picked URIs are IMPORTED the way a file the system opens the app with is
+//!    (`open_files::android::import_picked`): copied on a worker thread into the app's inbox
+//!    (`<files>/azul-inbox/<token>/<name>`, the same limits, a reason for every file that could not be copied) and answered
+//!    as paths of those working copies. The UI thread copies nothing (five seconds of it is an ANR).
+//!
+//! Permissions: SAF intents grant per-URI read permission through the intent's flags; no storage permission is asked for.
 
 #![allow(non_snake_case)]
-
-#[cfg(target_os = "android")]
-use std::collections::BTreeMap;
-#[cfg(target_os = "android")]
-use std::sync::atomic::{AtomicU64, Ordering};
-#[cfg(target_os = "android")]
-use std::sync::Mutex;
 
 use azul_css::{corety::OptionString, AzString, OptionStringVec, StringVec};
 
 use super::{FilePickerHandle, FilePickerStatus};
 
+/// The base of the request codes the picker uses: the id of the request rides in the low 16 bits (`AzulFilePicker.java` keeps the
+/// same base and routes only the codes of this window to the native below).
 #[cfg(target_os = "android")]
-static REQUEST_ID_COUNTER: AtomicU64 = AtomicU64::new(1);
+const REQUEST_CODE_BASE: i32 = 0x004A_5400;
+/// `Activity.RESULT_OK`.
+#[cfg(target_os = "android")]
+const RESULT_OK: i32 = -1;
+#[cfg(target_os = "android")]
+const ACTION_OPEN_DOCUMENT: &str = "android.intent.action.OPEN_DOCUMENT";
+#[cfg(target_os = "android")]
+const CATEGORY_OPENABLE: &str = "android.intent.category.OPENABLE";
+#[cfg(target_os = "android")]
+const EXTRA_MIME_TYPES: &str = "android.intent.extra.MIME_TYPES";
+#[cfg(target_os = "android")]
+const EXTRA_ALLOW_MULTIPLE: &str = "android.intent.extra.ALLOW_MULTIPLE";
 
+/// What a picker on the screen waits for: the handle the app polls.
 #[cfg(target_os = "android")]
-static PENDING_PICKERS: Mutex<BTreeMap<u64, FilePickerHandle>> = Mutex::new(BTreeMap::new());
-
-#[cfg(target_os = "android")]
-fn allocate_request_id() -> u64 {
-    REQUEST_ID_COUNTER.fetch_add(1, Ordering::Relaxed)
-}
-
-#[cfg(target_os = "android")]
-fn register_handle(handle: FilePickerHandle) -> u64 {
-    let id = allocate_request_id();
-    if let Ok(mut g) = PENDING_PICKERS.lock() {
-        g.insert(id, handle);
-    }
-    id
-}
-
-#[cfg(target_os = "android")]
-fn pop_handle(request_id: u64) -> Option<FilePickerHandle> {
-    PENDING_PICKERS
-        .lock()
-        .ok()
-        .and_then(|mut g| g.remove(&request_id))
+struct PendingPick {
+    handle: FilePickerHandle,
 }
 
 /// Map a `*.png` / `image/png` / `pdf` descriptor onto its MIME type.
@@ -74,50 +62,44 @@ fn descriptor_to_mime(descriptor: &str) -> String {
         .trim_start_matches('*')
         .trim_start_matches('.')
         .to_ascii_lowercase();
-    match trimmed.as_str() {
-        "png" => "image/png",
-        "jpg" | "jpeg" => "image/jpeg",
-        "gif" => "image/gif",
-        "webp" => "image/webp",
-        "heic" | "heif" => "image/heic",
-        "pdf" => "application/pdf",
-        "txt" | "text" => "text/plain",
-        "json" => "application/json",
-        "html" | "htm" => "text/html",
-        "xml" => "text/xml",
-        "zip" => "application/zip",
-        "mp3" => "audio/mpeg",
-        "wav" => "audio/wav",
-        "mp4" => "video/mp4",
-        "mov" => "video/quicktime",
-        "svg" => "image/svg+xml",
-        _ => "application/octet-stream",
-    }
-    .to_owned()
+    azul_layout::mime::for_extension(&trimmed)
+        .unwrap_or(azul_layout::mime::OCTET_STREAM)
+        .to_owned()
 }
 
+/// The distinct MIME types of the filter, in order.
 #[cfg(target_os = "android")]
-fn build_mime_array<'a>(
-    env: &mut jni::JNIEnv<'a>,
-    filter_descriptors: &OptionStringVec,
-) -> Result<jni::objects::JObjectArray<'a>, jni::errors::Error> {
+fn filter_mimes(filter_descriptors: &OptionStringVec) -> Vec<String> {
     let mut mimes: Vec<String> = Vec::new();
     if let Some(list) = filter_descriptors.as_option() {
-        for s in list.as_ref().iter() {
-            let m = descriptor_to_mime(s.as_str());
-            if !mimes.contains(&m) {
-                mimes.push(m);
+        for descriptor in list.as_ref() {
+            let mime = descriptor_to_mime(descriptor.as_str());
+            if !mimes.contains(&mime) {
+                mimes.push(mime);
             }
         }
     }
-    let str_class = env.find_class("java/lang/String")?;
-    let null_string = jni::objects::JObject::null();
-    let arr = env.new_object_array(mimes.len() as i32, &str_class, &null_string)?;
-    for (i, m) in mimes.iter().enumerate() {
-        let jstr = env.new_string(m)?;
-        env.set_object_array_element(&arr, i as i32, &jstr)?;
+    mimes
+}
+
+/// The text of the exception a failed call left pending (cleared), or what JNI itself said.
+#[cfg(target_os = "android")]
+fn reason(env: &mut jni::JNIEnv<'_>, error: &jni::errors::Error) -> String {
+    if env.exception_check().unwrap_or(false) {
+        if let Ok(throwable) = env.exception_occurred() {
+            let _ = env.exception_clear();
+            if let Ok(text) = env
+                .call_method(&throwable, "toString", "()Ljava/lang/String;", &[])
+                .and_then(|v| v.l())
+            {
+                if let Ok(text) = env.get_string(&jni::objects::JString::from(text)) {
+                    return text.into();
+                }
+            }
+        }
+        let _ = env.exception_clear();
     }
-    Ok(arr)
+    format!("{error}")
 }
 
 /// Attach the current thread to the published JavaVM and call a closure
@@ -148,6 +130,61 @@ pub(crate) fn with_env<R>(
     f(&mut env, activity).map_err(|e| format!("jni call: {e:?}"))
 }
 
+/// The intent of an open request: `ACTION_OPEN_DOCUMENT` for the types of the filter.
+#[cfg(target_os = "android")]
+fn open_intent<'a>(
+    env: &mut jni::JNIEnv<'a>,
+    mimes: &[String],
+    allow_multiple: bool,
+) -> Result<jni::objects::JObject<'a>, jni::errors::Error> {
+    use jni::objects::{JObject, JValue};
+
+    let action = env.new_string(ACTION_OPEN_DOCUMENT)?;
+    let intent = env.new_object("android/content/Intent", "(Ljava/lang/String;)V", &[JValue::Object(&action)])?;
+    let category = env.new_string(CATEGORY_OPENABLE)?;
+    env.call_method(&intent, "addCategory", "(Ljava/lang/String;)Landroid/content/Intent;", &[JValue::Object(&category)])?;
+    // read access to what is picked; the grants are not kept (the file is COPIED: a folder is what a persisted grant is for)
+    env.call_method(
+        &intent,
+        "addFlags",
+        "(I)Landroid/content/Intent;",
+        &[JValue::Int(azul_layout::open_intent::FLAG_GRANT_READ_URI_PERMISSION)],
+    )?;
+    let single = if let [only] = mimes {
+        only.as_str()
+    } else {
+        "*/*"
+    };
+    let kind = env.new_string(single)?;
+    env.call_method(&intent, "setType", "(Ljava/lang/String;)Landroid/content/Intent;", &[JValue::Object(&kind)])?;
+    if mimes.len() > 1 {
+        let class = env.find_class("java/lang/String")?;
+        let null = JObject::null();
+        let array = env.new_object_array(i32::try_from(mimes.len()).unwrap_or(i32::MAX), &class, &null)?;
+        for (index, mime) in (0_i32..).zip(mimes) {
+            let text = env.new_string(mime)?;
+            env.set_object_array_element(&array, index, &text)?;
+        }
+        let key = env.new_string(EXTRA_MIME_TYPES)?;
+        env.call_method(
+            &intent,
+            "putExtra",
+            "(Ljava/lang/String;[Ljava/lang/String;)Landroid/content/Intent;",
+            &[JValue::Object(&key), JValue::Object(&array)],
+        )?;
+    }
+    if allow_multiple {
+        let key = env.new_string(EXTRA_ALLOW_MULTIPLE)?;
+        env.call_method(
+            &intent,
+            "putExtra",
+            "(Ljava/lang/String;Z)Landroid/content/Intent;",
+            &[JValue::Object(&key), JValue::Bool(1)],
+        )?;
+    }
+    Ok(intent)
+}
+
 #[cfg(target_os = "android")]
 pub fn dispatch_open_file(
     handle: FilePickerHandle,
@@ -156,34 +193,40 @@ pub fn dispatch_open_file(
     filter_descriptors: OptionStringVec,
     allow_multiple: bool,
 ) {
-    let request_id = register_handle(handle.clone());
-
-    let result = with_env(|env, activity| {
-        let mimes = build_mime_array(env, &filter_descriptors)?;
-        // Via the Activity's class loader: this thread has no Java frame, so a
-        // bare find_class resolves against the system loader, which knows no
-        // APK class. See `extra::find_app_class`.
-        let class =
-            crate::desktop::extra::find_app_class(env, &activity, "com/azul/picker/AzulFilePicker")
-                .ok_or(jni::errors::Error::JavaException)?;
-        env.call_static_method(
-            class,
-            "pickDocument",
-            "(Landroid/app/Activity;J[Ljava/lang/String;Z)V",
-            &[
-                jni::objects::JValue::Object(&activity),
-                jni::objects::JValue::Long(request_id as i64),
-                jni::objects::JValue::Object(&mimes),
-                jni::objects::JValue::Bool(allow_multiple as u8),
-            ],
-        )?;
-        Ok(())
+    let Some(services) = crate::desktop::process_app::services() else {
+        super::fail(&handle, "the app has not started its services yet, so the picker cannot be tracked");
+        return;
+    };
+    let id = match services.pickers.register(PendingPick { handle: handle.clone() }) {
+        Ok(id) => id,
+        Err(_) => {
+            super::fail(&handle, "too many pickers are waiting for an answer: finish or cancel one first");
+            return;
+        }
+    };
+    let mimes = filter_mimes(&filter_descriptors);
+    let started = with_env(|env, activity| {
+        let intent = match open_intent(env, &mimes, allow_multiple) {
+            Ok(intent) => intent,
+            Err(e) => return Ok(Err(reason(env, &e))),
+        };
+        let code = REQUEST_CODE_BASE + i32::try_from(id).unwrap_or(0);
+        let sent = env.call_method(
+            &activity,
+            "startActivityForResult",
+            "(Landroid/content/Intent;I)V",
+            &[jni::objects::JValue::Object(&intent), jni::objects::JValue::Int(code)],
+        );
+        Ok(sent.map(|_| ()).map_err(|e| reason(env, &e)))
     });
-
-    if let Err(msg) = result {
-        let _ = pop_handle(request_id);
-        handle.set_status(FilePickerStatus::Error(AzString::from(msg)));
-    }
+    let failed = match started {
+        Ok(Ok(())) => return,
+        Ok(Err(why)) => format!("the picker could not be shown: {why}"),
+        Err(why) => why,
+    };
+    // never started: the request does not wait for an answer that cannot come
+    drop(services.pickers.take::<PendingPick>(id));
+    super::fail(&handle, &failed);
 }
 
 #[cfg(not(target_os = "android"))]
@@ -199,86 +242,91 @@ pub fn dispatch_open_file(
 
 // ───────── JNI inbound: Java → Rust ─────────────────────────────────
 
-/// Receives the activity-result paths from `AzulFilePicker.nativeOnResult`.
-/// Argument JNI signature: `(JLjava/lang/String;Ljava/lang/String;)V`
-/// but `paths` is actually a `[Ljava/lang/String;` (the descriptor isn't
-/// used by the JVM, just the method name needs to match).
+/// The status of a finished import: the paths of the working copies, or the reason none could be made.
+#[cfg(target_os = "android")]
+fn status_of_import(request: Result<azul_core::open_files::OpenRequest, String>) -> FilePickerStatus {
+    let request = match request {
+        Ok(request) => request,
+        Err(why) => return FilePickerStatus::Error(AzString::from(why)),
+    };
+    let mut paths: Vec<AzString> = Vec::new();
+    let mut first_reason: Option<String> = None;
+    for item in request.items.as_ref() {
+        match item.path.as_ref() {
+            Some(path) => paths.push(path.clone()),
+            None => {
+                let why = item
+                    .error
+                    .as_ref()
+                    .map_or_else(|| "the file could not be read".to_string(), |e| format!("{}: {}", item.name.as_str(), e.as_str()));
+                crate::plog_warn!("[file_picker] a picked file was not imported: {why}");
+                first_reason.get_or_insert(why);
+            }
+        }
+    }
+    match paths.len() {
+        0 => FilePickerStatus::Error(AzString::from(
+            first_reason.unwrap_or_else(|| "nothing was picked".to_string()),
+        )),
+        1 => FilePickerStatus::Selected(paths.remove(0)),
+        _ => FilePickerStatus::SelectedMultiple(StringVec::from(paths)),
+    }
+}
+
+/// `AzulFilePicker.nativeOnActivityResult(activity, ticket, resultCode, data)`: an activity result of the window of request codes
+/// the picker owns (UI thread). A cancel is answered here; the picked files are imported by a worker. Never throws into Java.
+///
+/// # Safety
+///
+/// Called by the JVM with a valid environment and live local references.
 #[cfg(target_os = "android")]
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_azul_picker_AzulFilePicker_nativeOnResult(
+pub unsafe extern "system" fn Java_com_azul_picker_AzulFilePicker_nativeOnActivityResult(
     raw_env: *mut jni::sys::JNIEnv,
     _class: jni::sys::jclass,
-    request_id: i64,
-    paths: jni::sys::jobjectArray,
-    error_or_null: jni::sys::jstring,
+    activity: jni::sys::jobject,
+    ticket: jni::sys::jint,
+    result_code: jni::sys::jint,
+    data: jni::sys::jobject,
 ) {
+    use jni::objects::JObject;
+
     if raw_env.is_null() {
         return;
     }
-    let mut env = match jni::JNIEnv::from_raw(raw_env) {
-        Ok(e) => e,
-        Err(_) => return,
-    };
-
-    let handle = match pop_handle(request_id as u64) {
-        Some(h) => h,
-        None => return,
-    };
-
-    // Error string takes precedence — surface to the caller. We
-    // materialize the `String` inside a small block so the `JavaStr`
-    // (which borrows the local `JString`) drops before the `JString`
-    // itself — appeases the borrow checker on jni 0.21.
-    if !error_or_null.is_null() {
-        let jstr = jni::objects::JString::from_raw(error_or_null);
-        let owned: Option<String> = env.get_string(&jstr).ok().map(|s| s.into());
-        let msg = owned.unwrap_or_else(|| "AzulFilePicker error (unreadable message)".to_owned());
-        handle.set_status(FilePickerStatus::Error(AzString::from(msg)));
+    let Ok(mut env) = (unsafe { jni::JNIEnv::from_raw(raw_env) }) else {
         return;
-    }
-
-    if paths.is_null() {
+    };
+    let Some(services) = crate::desktop::process_app::services() else {
+        return;
+    };
+    let Some(pending) = services.pickers.take::<PendingPick>(u64::try_from(ticket).unwrap_or(0)) else {
+        // an answer that comes twice, or for a request that was taken for lost
+        crate::plog_warn!("[file_picker] an activity result for request {ticket}, which nobody waits for");
+        return;
+    };
+    let handle = pending.handle;
+    if result_code != RESULT_OK || data.is_null() {
         handle.set_status(FilePickerStatus::Cancelled);
         return;
     }
-    let arr = jni::objects::JObjectArray::from_raw(paths);
-    let len = match env.get_array_length(&arr) {
-        Ok(n) => n,
-        Err(_) => {
-            handle.set_status(FilePickerStatus::Cancelled);
-            return;
-        }
-    };
-    if len == 0 {
+    let activity = unsafe { JObject::from_raw(activity) };
+    let data = unsafe { JObject::from_raw(data) };
+    let info = crate::desktop::extra::open_files::android::read_intent(&mut env, &data);
+    let Some(plan) = azul_layout::open_intent::classify_pick(&info) else {
+        // a result that holds no file: nothing was picked
         handle.set_status(FilePickerStatus::Cancelled);
         return;
-    }
-
-    let mut out: Vec<AzString> = Vec::with_capacity(len as usize);
-    for i in 0..len {
-        let elem = match env.get_object_array_element(&arr, i) {
-            Ok(o) => o,
-            Err(_) => continue,
-        };
-        if elem.is_null() {
-            continue;
-        }
-        let jstr = jni::objects::JString::from(elem);
-        // Materialize into an owned String inside the .map closure so
-        // the JavaStr drops before jstr — works around the borrow-order
-        // diagnostic on jni 0.21's if-let pattern.
-        let owned: Option<String> = env.get_string(&jstr).ok().map(|s| s.into());
-        if let Some(s) = owned {
-            out.push(AzString::from(s));
-        }
-    }
-
-    let status = if out.is_empty() {
-        FilePickerStatus::Cancelled
-    } else if out.len() == 1 {
-        FilePickerStatus::Selected(out.remove(0))
-    } else {
-        FilePickerStatus::SelectedMultiple(StringVec::from(out))
     };
-    handle.set_status(status);
+    let answer = handle.clone();
+    let started = crate::desktop::extra::open_files::android::import_picked(&mut env, &activity, plan, info.flags, move |request| {
+        answer.set_status(status_of_import(request));
+    });
+    if let Err(why) = started {
+        super::fail(&handle, &why);
+    }
+    // an exception left pending would be thrown at the caller in Java when this returns
+    if env.exception_check().unwrap_or(false) {
+        let _ = env.exception_clear();
+    }
 }

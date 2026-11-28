@@ -229,24 +229,34 @@ fn a_protected_item_whose_key_is_gone_is_invalidated_not_missing() {
     assert!(src.contains("public static int support(Activity activity, int level)"));
 }
 
-/// The copy of a picked document into the app's cache (`uriToCachedFile`: `ContentResolver.openInputStream`
-/// and a loop of reads) must not run on the thread `onActivityResult` is delivered on, the UI thread.
+/// The copy of a picked document (`ContentResolver.openInputStream` and a loop of reads: as slow as its provider, minutes for a video
+/// on a cloud drive) must not run on the thread `onActivityResult` is delivered on, the UI thread. Since ledger WP-F the Java class is
+/// ONLY the hand-over of the result to a native; the import is Rust's, on a worker thread, into the app's inbox.
 ///
-/// Mutation: `uriToCachedFile` called straight from `onActivityResultProxy` (the state of 0f3e1eb093).
+/// Mutation: a copy (`openInputStream`, `FileOutputStream`, the cache folder) back in `AzulFilePicker.java`, or `import_picked`
+/// called without its worker.
 #[test]
 fn a_picked_document_is_copied_off_the_ui_thread() {
-    let src = java_code("scripts/android/AzulFilePicker.java");
-    let proxy = method_body(&src, "public static boolean onActivityResultProxy(");
+    let java = java_code("scripts/android/AzulFilePicker.java");
+    let proxy = method_body(&java, "public static boolean onActivityResultProxy(");
+    for copy in ["openInputStream", "FileOutputStream", "getCacheDir", "uriToCachedFile", "new Thread(", "static final ConcurrentHashMap", "AtomicInteger"] {
+        assert!(!java.contains(copy), "the Java proxy copies nothing, starts nothing and keeps no state: `{copy}`");
+    }
+    assert!(proxy.contains("nativeOnActivityResult("), "the result goes to the engine");
+    assert!(proxy.contains("catch (Throwable"), "a result the engine cannot take must not kill the app");
+
+    // the import: a worker thread, started before the UI thread returns
+    let opened = rust_code("dll/src/desktop/extra/open_files/android.rs");
+    let at = opened.find("fnimport_picked(").expect("import_picked");
+    // the text has no line breaks: the next function after it is `run`
+    let import = &opened[at..opened[at..].find("fnrun(").map_or(opened.len(), |e| at + e)];
+    assert!(import.contains("std::thread::Builder::new()") && import.contains(".spawn("), "the files are copied on a worker thread");
+    let native = rust_code("dll/src/desktop/extra/file_picker/android.rs");
+    assert!(native.contains("import_picked("), "the picker's result is imported by the shared worker");
     assert!(
-        !proxy.contains("uriToCachedFile("),
-        "onActivityResultProxy runs on the UI thread: the copy belongs on a worker thread"
+        !native.contains("copy_in(") && !native.contains("openFileDescriptor") && !native.contains("fs::copy"),
+        "the native itself copies nothing: it runs on the UI thread"
     );
-    assert!(proxy.contains("new Thread("), "the result is delivered from a worker thread");
-    // whatever the worker does, it answers the request even when the copy throws
-    let worker = method_body(&src, "private static void deliver(");
-    assert!(worker.contains("uriToCachedFile("));
-    assert!(worker.contains("catch (Throwable"), "an error on the worker must still answer the request");
-    assert!(worker.contains("nativeOnResult("));
 }
 
 /// `LocationManager.requestLocationUpdates` on a provider the user switched off delivers nothing. The fallback when

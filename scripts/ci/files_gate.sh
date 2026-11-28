@@ -158,6 +158,8 @@ contracts() {
     --test file_picker_tells_the_truth_contract \
     --test android_share_open_contract \
     --test android_documents_contract \
+    --test android_picker_contract \
+    --test android_extras_java_glue_contract \
     --test ios_share_open_contract \
     --test android_jni_symbols_match_the_java_glue \
     --test android_manifest_contract \

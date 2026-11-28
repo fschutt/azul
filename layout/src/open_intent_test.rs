@@ -153,3 +153,59 @@ fn the_scheme_of_a_string() {
         assert_eq!(scheme_of(bad), None, "{bad:?}");
     }
 }
+
+// ---- the result of a picker ----
+
+fn picked(data: Option<&str>, clip: &[&str], flags: i32) -> IntentInfo {
+    IntentInfo {
+        data: data.map(str::to_string),
+        clip_uris: clip.iter().map(|u| (*u).to_string()).collect(),
+        flags,
+        ..IntentInfo::default()
+    }
+}
+
+#[test]
+fn one_picked_file_is_the_data_of_the_result_and_its_grant_persists_when_the_picker_offers_it() {
+    let plan = classify_pick(&picked(
+        Some("content://com.android.providers.downloads.documents/document/msf%3A12"),
+        &[],
+        FLAG_GRANT_READ_URI_PERMISSION | FLAG_GRANT_PERSISTABLE_URI_PERMISSION,
+    ))
+    .unwrap();
+    assert_eq!(plan.files, ["content://com.android.providers.downloads.documents/document/msf%3A12"]);
+    assert!(plan.persistable && !plan.write && plan.links.is_empty() && plan.texts.is_empty());
+    assert_eq!(plan.truncated, 0);
+    let plain = classify_pick(&picked(Some("content://x/document/1"), &[], FLAG_GRANT_READ_URI_PERMISSION)).unwrap();
+    assert!(!plain.persistable, "a grant the picker did not offer to persist is not asked for");
+}
+
+#[test]
+fn several_picked_files_are_the_clip_in_order_without_the_one_the_data_repeats() {
+    let plan = classify_pick(&picked(
+        Some("content://x/document/1"),
+        &["content://x/document/1", "content://x/document/2", " content://x/document/3 ", "content://x/document/2"],
+        0,
+    ))
+    .unwrap();
+    assert_eq!(plan.files, ["content://x/document/1", "content://x/document/2", "content://x/document/3"]);
+}
+
+#[test]
+fn a_result_without_a_file_is_a_cancel_and_a_link_is_not_a_file() {
+    assert_eq!(classify_pick(&picked(None, &[], 0)), None);
+    assert_eq!(classify_pick(&picked(Some(""), &["  "], 0)), None);
+    assert_eq!(classify_pick(&picked(Some("https://example.org/x"), &["mailto:a@b.c"], 0)), None);
+    let plan = classify_pick(&picked(Some("https://example.org/x"), &["content://x/document/9"], 0)).unwrap();
+    assert_eq!(plan.files, ["content://x/document/9"]);
+}
+
+#[test]
+fn a_flood_of_picked_files_is_cut_at_the_limit_and_says_how_many() {
+    let clip: Vec<String> = (0..MAX_ITEMS_PER_REQUEST + 5).map(|n| format!("content://x/document/{n}")).collect();
+    let refs: Vec<&str> = clip.iter().map(String::as_str).collect();
+    let plan = classify_pick(&picked(None, &refs, 0)).unwrap();
+    assert_eq!(plan.files.len(), MAX_ITEMS_PER_REQUEST);
+    assert_eq!(plan.truncated, 5);
+    assert_eq!(plan.files[0], "content://x/document/0");
+}
