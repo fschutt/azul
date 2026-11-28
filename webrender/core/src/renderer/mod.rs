@@ -1138,6 +1138,11 @@ impl Renderer {
         result
     }
 
+    /// EXPERIMENT: switches single device behaviours off (the depth test; the framebuffer invalidation).
+    pub fn debug_set_experiments(&mut self, depth_off: bool, no_invalidate: bool) {
+        self.device.set_experiments(depth_off, no_invalidate);
+    }
+
     /// EXPERIMENT: switches the device's per-draw read-back on or off.
     pub fn debug_set_draw_probe(&mut self, on: bool) {
         self.device.set_draw_probe(on);

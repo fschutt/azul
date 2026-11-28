@@ -231,6 +231,7 @@ pub fn init_webrender(
             ))
         }
     };
+    apply_device_experiment(&mut renderer);
     // External images (the app's GL textures, the paint canvas) need a handler or WebRender panics on the first one.
     renderer.set_external_image_handler(Box::new(wr_translate2::Compositor::default()));
 
@@ -304,12 +305,31 @@ fn apply_experiment(options: &mut webrender::WebRenderOptions) {
             "tile256" => options.picture_tile_size = Some(webrender::api::units::DeviceIntSize::new(256, 256)),
             "tile512" => options.picture_tile_size = Some(webrender::api::units::DeviceIntSize::new(512, 512)),
             "none" => {}
+            // the device's own switches: `apply_device_experiment`
+            "depth_off" | "no_invalidate" => {}
             other => {
                 crate::log_warn!(super::debug_server::LogCategory::Rendering, "[render] experiment: {} is unknown", other);
                 continue;
             }
         }
         crate::log_info!(super::debug_server::LogCategory::Rendering, "[render] experiment: {}", word);
+    }
+}
+
+/// EXPERIMENT (the Android GPU root-cause hunt, never for master): the words of `AZ_GPU_EXPERIMENT` that switch a behaviour of the device layer
+/// (`depth_off`: no depth test at all; `no_invalidate`: no `glInvalidateFramebuffer`).
+fn apply_device_experiment(renderer: &mut webrender::Renderer) {
+    let words = azul_css::env::EnvSource::var(&crate::env::ProcessEnv::new(), "AZ_GPU_EXPERIMENT").unwrap_or_default();
+    let has = |name: &str| words.split(',').map(str::trim).any(|w| w == name);
+    let (depth_off, no_invalidate) = (has("depth_off"), has("no_invalidate"));
+    if depth_off || no_invalidate {
+        crate::log_info!(
+            super::debug_server::LogCategory::Rendering,
+            "[render] experiment: device depth_off {} no_invalidate {}",
+            depth_off,
+            no_invalidate
+        );
+        renderer.debug_set_experiments(depth_off, no_invalidate);
     }
 }
 

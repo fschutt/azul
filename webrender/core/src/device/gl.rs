@@ -1114,6 +1114,11 @@ pub struct Device {
     /// EXPERIMENT: the per-draw read-back, off unless the engine switched it on (`set_draw_probe`).
     draw_probe: RefCell<Option<DrawProbe>>,
 
+    /// EXPERIMENT (`set_experiments`): the depth test is never switched on, whatever the renderer asks.
+    experiment_depth_off: bool,
+    /// EXPERIMENT (`set_experiments`): `glInvalidateFramebuffer` is never called.
+    experiment_no_invalidate: bool,
+
     /// The context is OpenGL ES. Read once: `GenericGlContext::get_type` asks the driver for `GL_VERSION` and builds a
     /// string on every call. The GLES-only branches (see `clear_target`) test this, so the desktop GL code is
     /// the code it was.
@@ -2044,6 +2049,8 @@ impl Device {
             requires_null_terminated_shader_source,
             requires_texture_external_unbind,
             draw_probe: RefCell::new(None),
+            experiment_depth_off: false,
+            experiment_no_invalidate: false,
             is_software_webrender,
             required_pbo_stride,
             dump_shader_source,
@@ -2870,7 +2877,7 @@ impl Device {
     /// Notifies the device that the contents of a render target are no longer
     /// needed.
     pub fn invalidate_render_target(&mut self, texture: &Texture) {
-        if self.capabilities.supports_render_target_invalidate {
+        if self.capabilities.supports_render_target_invalidate && !self.experiment_no_invalidate {
             let (fbo, attachments) = if texture.supports_depth() {
                 (
                     &texture.fbo_with_depth,
@@ -2899,6 +2906,9 @@ impl Device {
     /// to allow tiled GPUs to avoid writing the contents back to memory.
     pub fn invalidate_depth_target(&mut self) {
         assert!(self.depth_available);
+        if self.experiment_no_invalidate {
+            return;
+        }
         let attachments = if self.bound_draw_fbo == self.default_draw_fbo {
             &[gl::DEPTH] as &[gl::GLenum]
         } else {
@@ -3759,6 +3769,12 @@ impl Device {
         )
     }
 
+    /// EXPERIMENT: switches single device behaviours off (the depth test; the framebuffer invalidation).
+    pub fn set_experiments(&mut self, depth_off: bool, no_invalidate: bool) {
+        self.experiment_depth_off = depth_off;
+        self.experiment_no_invalidate = no_invalidate;
+    }
+
     /// EXPERIMENT: switches the per-draw read-back on or off.
     pub fn set_draw_probe(&self, on: bool) {
         *self.draw_probe.borrow_mut() = on.then(|| DrawProbe {
@@ -4064,6 +4080,10 @@ impl Device {
             self.depth_available,
             "Enabling depth test without depth target"
         );
+        if self.experiment_depth_off {
+            self.gl.disable(gl::DEPTH_TEST);
+            return;
+        }
         self.gl.enable(gl::DEPTH_TEST);
         self.gl.depth_func(depth_func as gl::GLuint);
     }
