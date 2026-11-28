@@ -816,7 +816,8 @@ fn url_open_on_ios_asks_uikit_on_the_main_thread() {
         assert!(code.contains(needed), "ios/open_url.rs: `{needed}` is missing");
     }
     // the alias is resolved before anything reads the URL (the main thread asks, or the queue is handed it)
-    in_order(&code, "resolve_open_alias(url)", "isMainThread", "azul_ios_open_url");
+    let hook = body(&code, "pub fn azul_ios_open_url(");
+    in_order(hook, "resolve_open_alias(url)", "on_main_thread()", "azul_ios_open_url");
     at(IOS_MOD_RS, "mod open_url;", "the iOS shell declares the opener");
 }
 
