@@ -9,6 +9,7 @@
 //! that does not parse is skipped (and the rest is kept), never a reason to lose the others; the list is capped ([`MAX_PLACES`]).
 
 use alloc::{string::String, vec::Vec};
+use core::fmt::Write as _;
 use std::{
     fs,
     io::Write,
@@ -38,13 +39,13 @@ pub struct PlacesStore {
 fn hex(bytes: &[u8]) -> String {
     let mut out = String::with_capacity(bytes.len() * 2);
     for byte in bytes {
-        out.push_str(&alloc::format!("{byte:02x}"));
+        let _ = write!(out, "{byte:02x}");
     }
     out
 }
 
 fn unhex(text: &str) -> Option<Vec<u8>> {
-    if text.len() % 2 != 0 || !text.is_ascii() {
+    if !text.len().is_multiple_of(2) || !text.is_ascii() {
         return None;
     }
     (0..text.len() / 2)
@@ -80,12 +81,13 @@ impl PlacesStore {
         }
         let mut text = String::new();
         for place in places {
-            text.push_str(&alloc::format!(
-                "v1\t{}\t{}\t{}\n",
+            let _ = writeln!(
+                text,
+                "v1\t{}\t{}\t{}",
                 hex(place.name.as_bytes()),
                 place.granted_ms,
                 hex(&place.bookmark)
-            ));
+            );
         }
         let temp = self.path.with_extension("tmp");
         let mut file = fs::File::create(&temp)?;

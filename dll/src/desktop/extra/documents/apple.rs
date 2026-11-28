@@ -218,7 +218,7 @@ impl IosDocuments {
 }
 
 impl DocumentBackend for IosDocuments {
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "ios-bookmarks"
     }
 

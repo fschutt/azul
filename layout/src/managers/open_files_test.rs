@@ -83,12 +83,12 @@ fn an_app_that_never_listens_keeps_the_newest_requests_and_counts_the_rest() {
 fn deliveries_without_a_window_go_back_to_the_front_in_their_order() {
     let queue = OpenQueue::new();
     queue.set_handler(handler());
-    queue.push(request(&["a.md"], true));
-    queue.push(request(&["b.md"], false));
+    assert!(queue.push(request(&["a.md"], true)));
+    assert!(queue.push(request(&["b.md"], false)));
     let taken = queue.take_deliveries();
     assert_eq!(taken.len(), 2);
     // a newer request came in while those had no window to run against
-    queue.push(request(&["c.md"], false));
+    assert!(queue.push(request(&["c.md"], false)));
     queue.defer(taken);
     let again: Vec<Vec<String>> = queue.take_deliveries().iter().map(names_of).collect();
     assert_eq!(again, [vec!["a.md"], vec!["b.md"], vec!["c.md"]]);
@@ -98,10 +98,10 @@ fn deliveries_without_a_window_go_back_to_the_front_in_their_order() {
 fn a_full_queue_that_gets_deliveries_back_drops_the_newest_to_keep_the_order_of_what_was_sent() {
     let queue = OpenQueue::new();
     queue.set_handler(handler());
-    queue.push(request(&["old.md"], false));
+    assert!(queue.push(request(&["old.md"], false)));
     let taken = queue.take_deliveries();
     for i in 0..MAX_HELD_REQUESTS {
-        queue.push(request(&[&format!("n{i}.md")], false));
+        assert!(queue.push(request(&[&format!("n{i}.md")], false)));
     }
     queue.defer(taken);
     assert_eq!(queue.held(), MAX_HELD_REQUESTS);
@@ -141,7 +141,7 @@ fn clones_are_one_queue() {
     let queue = OpenQueue::new();
     let other = queue.clone();
     other.set_handler(handler());
-    queue.push(request(&["x.md"], false));
+    assert!(queue.push(request(&["x.md"], false)));
     assert_eq!(other.take_deliveries().len(), 1);
     assert!(queue.handler().as_ref().is_some());
 }

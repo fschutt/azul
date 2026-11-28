@@ -395,7 +395,7 @@ impl ShareChannel {
         Self::recording_in(&self.lock())
     }
 
-    fn recording_in(inner: &Inner) -> bool {
+    const fn recording_in(inner: &Inner) -> bool {
         // a run that opens nothing (`Url::open` answers "opened" and starts no browser) shows no system sheet either
         inner.recording || azul_core::run_mode::test_hooks().open_nothing
     }

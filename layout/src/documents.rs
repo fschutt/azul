@@ -43,7 +43,7 @@ impl<T: Read + Seek + Send> ReadSeek for T {}
 /// What a platform does for [`Documents`].
 pub trait DocumentBackend: Send + Sync + fmt::Debug {
     /// The name of the backend ("local", "android-saf"), for logs and `PlatformCapability`.
-    fn name(&self) -> &str;
+    fn name(&self) -> &'static str;
     /// The places the app may list without asking: its own storage, the folders the person granted, shared storage.
     fn places(&self) -> Vec<Place>;
     /// Forget a granted place (release the permission): the folder itself is untouched.
@@ -102,7 +102,7 @@ impl Drop for Documents {
 
 impl fmt::Debug for Documents {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("Documents").field("backend", &self.ptr.name()).finish()
+        f.debug_struct("Documents").field("backend", &self.ptr.name()).finish_non_exhaustive()
     }
 }
 
@@ -611,7 +611,7 @@ fn entry_of(path: &Path, meta: &fs::Metadata) -> DocumentEntry {
 }
 
 impl DocumentBackend for LocalDocuments {
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "local"
     }
 

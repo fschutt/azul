@@ -70,6 +70,8 @@ class ReadingTheCalls(unittest.TestCase):
         self.assertIn("android/content/Intent", classes)
         self.assertIn("android/net/Uri", classes)
         self.assertIn("android/content/Context", classes)
+        # the elements of `getPersistedUriPermissions()` come out of `List.get` as Objects: nothing names their class
+        self.assertIn("android/content/UriPermission", classes)
 
 
 class Constants(unittest.TestCase):

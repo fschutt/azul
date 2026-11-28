@@ -817,7 +817,7 @@ impl AndroidDocuments {
 }
 
 impl DocumentBackend for AndroidDocuments {
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "android-saf"
     }
 

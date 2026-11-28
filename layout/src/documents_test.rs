@@ -175,9 +175,9 @@ fn a_rename_never_lands_on_something_that_is_there() {
     let moved = docs.rename(az(&a), az("c.txt")).unwrap();
     assert_eq!(moved.name.as_str(), "c.txt");
     assert!(!dir.0.join("a.txt").exists() && dir.0.join("c.txt").exists());
-    assert_eq!(fs::read(&dir.0.join("b.txt")).unwrap(), b"b");
+    assert_eq!(fs::read(dir.0.join("b.txt")).unwrap(), b"b");
     assert!(matches!(docs.rename(az(&dir.path("zzz")), az("y")), Err(DocumentError::NotFound(_))));
-    assert!(matches!(docs.rename(az(&moved.uri.as_str()), az("../escape")), Err(DocumentError::Failed(_))));
+    assert!(matches!(docs.rename(az(moved.uri.as_str()), az("../escape")), Err(DocumentError::Failed(_))));
 }
 
 #[test]
@@ -205,9 +205,10 @@ fn deleting_a_link_deletes_the_link_and_not_what_it_points_to() {
 }
 
 #[test]
-fn a_huge_folder_is_cut_at_the_limit() {
-    // a folder of more than MAX_ENTRIES entries would be slow to make: the cut is the same code, shown with the constant
-    assert!(MAX_ENTRIES >= 1000 && MAX_ENTRIES <= 100_000);
+fn the_limit_of_a_listing_is_a_number_a_phone_can_show() {
+    // the cut itself is tested with real entries in the sorting test below; these are the bounds the constant must stay within
+    const { assert!(MAX_ENTRIES >= 1000, "a folder of a thousand files is listed whole") };
+    const { assert!(MAX_ENTRIES <= 100_000, "a listing is a list a screen and a worker can hold") };
 }
 
 #[test]
@@ -254,7 +255,7 @@ fn the_handle_moves_to_a_worker_thread_and_the_slot_hands_out_the_installed_back
     #[derive(Debug)]
     struct Other;
     impl DocumentBackend for Other {
-        fn name(&self) -> &str { "other" }
+        fn name(&self) -> &'static str { "other" }
         fn places(&self) -> Vec<Place> { Vec::new() }
         fn forget(&self, _: &str) -> Result<(), DocumentError> { Ok(()) }
         fn stat(&self, l: &str) -> Result<DocumentEntry, DocumentError> { Err(DocumentError::Denied(az(l))) }
@@ -333,7 +334,7 @@ fn a_provider_holding_too_many_calls_is_refused_at_once_and_answers_again_when_t
     for _ in 0..2 {
         let blocked = std::sync::Arc::clone(&blocked);
         let answer = guard.run("stuck", move || {
-            drop(blocked.lock().unwrap().recv());
+            let _ = blocked.lock().unwrap().recv();
             Ok(())
         });
         assert!(matches!(answer, Err(DocumentError::TimedOut(_))));
@@ -352,8 +353,8 @@ fn a_provider_holding_too_many_calls_is_refused_at_once_and_answers_again_when_t
     assert!(started.elapsed() < Duration::from_millis(100), "refused without waiting for the deadline (150 ms)");
     assert!(!ran.load(Ordering::SeqCst), "a refused call is not started");
     // the provider comes back: both late calls end, the count drops, the next call is served
-    drop(release.send(()));
-    drop(release.send(()));
+    let _ = release.send(());
+    let _ = release.send(());
     wait_until("the stuck calls never came back", || guard.stuck() == 0);
     assert_eq!(guard.run("after", || Ok(7)).unwrap(), 7);
 }

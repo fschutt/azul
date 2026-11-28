@@ -12,6 +12,7 @@
 //! same token length, the same sidecar and the same checks.
 
 use alloc::{string::String, vec::Vec};
+use core::fmt::Write as _;
 use std::{
     fs,
     path::{Path, PathBuf},
@@ -94,7 +95,7 @@ pub fn new_token() -> String {
         hasher.write_u128(now);
         hasher.write_u32(std::process::id());
         hasher.write_u8(round);
-        token.push_str(&format!("{:016x}", hasher.finish()));
+        let _ = write!(token, "{:016x}", hasher.finish());
     }
     token
 }
@@ -180,6 +181,7 @@ impl ShareArea {
     }
 
     /// Remove the shares older than `max_age` at `now`; how many went.
+    #[must_use]
     pub fn cleanup(&self, now: SystemTime, max_age: Duration) -> usize {
         let mut removed = 0;
         for (path, modified) in self.shares() {
@@ -267,7 +269,7 @@ pub fn percent_encode(text: &str) -> String {
         if byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'.' | b'_' | b'~') {
             out.push(char::from(byte));
         } else {
-            out.push_str(&format!("%{byte:02X}"));
+            let _ = write!(out, "%{byte:02X}");
         }
     }
     out

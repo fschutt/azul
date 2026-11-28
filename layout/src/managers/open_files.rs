@@ -80,6 +80,7 @@ impl OpenQueue {
     /// Queue a request from a platform thread. Never blocks for long and never panics (it runs inside a JNI call or an Objective-C
     /// delegate method, where unwinding would abort the process). A request with no item is not a request: `false`. Beyond
     /// [`MAX_HELD_REQUESTS`] the oldest is dropped (counted in [`OpenQueue::dropped`]).
+    #[must_use]
     pub fn push(&self, request: OpenRequest) -> bool {
         if request.items.as_ref().is_empty() {
             return false;

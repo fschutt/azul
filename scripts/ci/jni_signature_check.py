@@ -18,11 +18,12 @@ import re
 import subprocess
 import sys
 
-# classes a call may be made on without the file naming them (the activity and its supertypes, the system's collections)
+# classes a call may be made on without the file naming them: the activity and its supertypes, the system's collections, and the
+# class of the ELEMENTS of a list the file reads (`List.get` answers an Object, so no descriptor names `UriPermission`)
 SUPERTYPES = [
     "android/app/Activity", "android/content/ContextWrapper", "android/content/Context", "android/view/ContextThemeWrapper",
     "java/lang/Object", "java/lang/Throwable", "java/lang/String", "java/lang/CharSequence", "java/util/List", "java/util/ArrayList",
-    "java/util/Collection", "java/io/File",
+    "java/util/Collection", "java/io/File", "android/content/UriPermission",
 ]
 
 CONST = re.compile(r'const\s+([A-Z][A-Z0-9_]*)\s*:\s*&str\s*=\s*\n?\s*"((?:[^"\\]|\\.)*)"\s*;')

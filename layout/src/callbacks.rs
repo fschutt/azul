@@ -6381,13 +6381,13 @@ impl CallbackInfo {
     }
 
     /// Install the app's open handler, replacing any earlier one: `callback` runs with `data` whenever the system asks the app to
-    /// open something - a file another app shared to it ("Share to AzWriter"), a file opened with it from a file manager or a
+    /// open something - a file another app shared to it ("Share to `AzWriter`"), a file opened with it from a file manager or a
     /// mail ("Open with"), a link of a scheme the app declared (`mailto:`, `geo:`), a text shared to it - and reads what with
     /// [`Self::get_open_request`]. One handler for the app, not one per window: the usual place is the window's create callback.
     ///
     /// A request that arrives before the handler is installed (the intent that STARTED the app) is kept - at most 16 - and
     /// delivered when the handler is set, so the file the person tapped is not lost. An app that sets no handler never hears of
-    /// the requests: the types it opens are declared in the app's manifest (`[[app.documents]]` of scripts/demo_apps.toml).
+    /// the requests: the types it opens are declared in the app's manifest (`[[app.documents]]` of `scripts/demo_apps.toml`).
     pub fn set_open_handler<I: Into<CoreCallback>>(&self, data: RefAny, callback: I) {
         self.get_layout_window()
             .app_services

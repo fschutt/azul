@@ -98,6 +98,7 @@ impl RequestRegistry {
                 parked: Instant::now(),
             },
         );
+        drop(inner);
         Ok(id)
     }
 
@@ -148,7 +149,10 @@ impl RequestRegistry {
             .filter(|(_, entry)| entry.parked.elapsed() > older_than)
             .map(|(id, _)| *id)
             .collect();
-        lost.into_iter().filter_map(|id| inner.entries.remove(&id)).map(|entry| entry.value).collect()
+        let taken: Vec<Box<dyn Any + Send>> =
+            lost.into_iter().filter_map(|id| inner.entries.remove(&id)).map(|entry| entry.value).collect();
+        drop(inner);
+        taken
     }
 }
 

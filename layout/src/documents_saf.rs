@@ -18,6 +18,7 @@
 //! bug that only a phone finds.
 
 use alloc::{string::String, vec::Vec};
+use core::fmt::Write as _;
 
 use azul_core::documents::{DocumentEntry, DocumentError};
 use azul_css::{AzString, OptionU64};
@@ -69,7 +70,7 @@ pub fn android_encode(text: &str) -> String {
         if byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-' | b'!' | b'.' | b'~' | b'\'' | b'(' | b')' | b'*') {
             out.push(char::from(byte));
         } else {
-            out.push_str(&alloc::format!("%{byte:02X}"));
+            let _ = write!(out, "%{byte:02X}");
         }
     }
     out
