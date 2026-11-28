@@ -27,7 +27,7 @@ pub mod system;
 /// row waits. They run in an unattended run only when the harness says so with `AZ_SELFTEST_FED=1` (it promises to
 /// answer every `AZ_SELFTEST_AWAIT` line); without it they are listed with their instruction like every other row that
 /// needs a person.
-pub const FEEDABLE: &[&str] = &["security.biometric_prompt"];
+pub const FEEDABLE: &[&str] = &["security.biometric_prompt", "security.keyring_protected"];
 
 /// The harness's turn: prints the ONE line `AZ_SELFTEST_AWAIT <key>` the harness waits for before it feeds the
 /// platform (key `biometric.match`: Android `adb emu finger touch 1`, iOS Simulator

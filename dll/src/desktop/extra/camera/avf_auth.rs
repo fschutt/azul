@@ -25,6 +25,23 @@ const STATUS_RESTRICTED: isize = 1;
 const STATUS_DENIED: isize = 2;
 const STATUS_AUTHORIZED: isize = 3;
 
+/// Whether the machine has any hardware that captures video (`video`) or audio at all: nothing is asked and nothing is
+/// started. A Simulator has no camera, and the capability probe said "available" for it.
+pub fn has_capture_device(video: bool) -> bool {
+    // SAFETY: the media-type constants are process-lifetime NSStrings; the lookup starts nothing and asks nothing.
+    let media = unsafe {
+        if video {
+            AVMediaTypeVideo
+        } else {
+            AVMediaTypeAudio
+        }
+    };
+    let Some(media) = media else {
+        return false;
+    };
+    unsafe { AVCaptureDevice::defaultDeviceWithMediaType(media) }.is_some()
+}
+
 /// Human label for a media type ("camera" / "microphone") for log lines.
 fn media_label(media: &AVMediaType) -> &'static str {
     // AVMediaType is an NSString four-cc: "vide" / "soun".

@@ -4898,10 +4898,13 @@ fn is_inline_level(styled_dom: &StyledDom, node_id: NodeId) -> bool {
         return true;
     }
 
-    // Check the display property
+    // Check the display property. `inline list-item` is an inline box that is a list item: the
+    // items of a list that are all of it are inline content of the list's one line, where they
+    // were missing here and made the list a container of blocks (each item a line of its own).
     matches!(
         get_display_type(styled_dom, node_id),
         LayoutDisplay::Inline
+            | LayoutDisplay::InlineListItem
             | LayoutDisplay::InlineBlock
             | LayoutDisplay::InlineBlockListItem
             | LayoutDisplay::InlineTable
@@ -8429,6 +8432,7 @@ mod autotest_generated {
     fn is_inline_level_matches_the_inline_display_family() {
         for (css_display, want) in [
             ("inline", true),
+            ("inline list-item", true),
             ("inline-block", true),
             ("inline-table", true),
             ("inline-flex", true),

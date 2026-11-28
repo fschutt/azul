@@ -10,8 +10,11 @@ use n0_future::StreamExt;
 use super::*;
 use crate::desktop::extra::iroh::types::IrohRelayMode;
 
+/// A config that asks for discovery: it is OFF by default (the first announcement makes iOS and
+/// macOS ask the user for the Local Network permission), so the tests of what a config wants turn
+/// it on.
 fn config() -> IrohConfig {
-    IrohConfig::create(AzString::from_const_str("azul/iroh-test/1"))
+    IrohConfig::create(AzString::from_const_str("azul/iroh-test/1")).with_local_discovery(true)
 }
 
 fn id(seed: u8) -> EndpointId {
@@ -46,6 +49,18 @@ impl AddressLookup for Fixed {
     fn resolve(&self, _endpoint_id: EndpointId) -> Option<BoxStream<Result<Item, LookupError>>> {
         Some(Box::pin(n0_future::stream::iter([Ok(self.item.clone())])))
     }
+}
+
+#[test]
+fn a_config_that_did_not_ask_for_discovery_touches_the_local_network_not_at_all() {
+    let untouched = IrohConfig::create(AzString::from_const_str("azul/iroh-test/1"));
+    assert!(!untouched.local_discovery, "off by default");
+    assert_eq!(wanted(&untouched), Wanted::Off);
+    assert_eq!(
+        wanted(&untouched.with_local_discovery(true)),
+        Wanted::LookAndAnnounce,
+        "a feature that works on the local network turns it on"
+    );
 }
 
 #[test]

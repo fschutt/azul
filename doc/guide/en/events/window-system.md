@@ -152,16 +152,20 @@ The keyring stores a secret in the platform's own credential store -
 Keychain, Credential Manager, Secret Service - never in your files:
 
 ```rust,ignore
-info.keyring_store("api-token".into(), secret, /* require_biometry */ true);
+info.keyring_store("api-token".into(), secret);
 info.keyring_get("api-token".into());
 ```
 
 Both are asynchronous. `keyring_get()` starts a retrieval; the value
-arrives at a later callback, where `get_keyring_result()` reads it. The
-same shape applies to biometrics: `request_biometric_auth()` starts the
-prompt and `get_biometric_result()` reads the outcome later, with
-`get_biometric_kind()` reporting whether this machine does fingerprint,
-face, or nothing at all.
+arrives at a later callback, where `get_keyring_result()` reads it. A secret
+that only the user's fingerprint, face or passcode may open is stored with
+`keyring_store_protected()` and read with `keyring_unlock()`, the one call
+that shows the system's sheet; [Secrets and Biometrics](../system/secrets.md)
+has the model, the results and what guards the secret on each platform.
+`request_biometric_auth()` is the separate yes/no prompt for confirming that
+the user is there: `get_biometric_result()` reads the outcome later, with
+`get_biometric_kind()` reporting whether this machine does fingerprint, face,
+or nothing at all.
 
 ## More methods
 
@@ -200,9 +204,10 @@ the platform reported a preference at all before
 `get_sensor_reading(kind)` covers accelerometer, gyroscope and the rest
 behind one call.
 
-**Secrets** - `keyring_store`, `keyring_get`, `keyring_delete`,
-`get_keyring_result`, `request_biometric_auth`, `get_biometric_result`,
-`get_biometric_kind`.
+**Secrets** - `keyring_store`, `keyring_store_protected`, `keyring_get`,
+`keyring_unlock`, `keyring_delete`, `get_keyring_result`,
+`request_biometric_auth`, `get_biometric_result`, `get_biometric_kind`,
+`open_app_settings`.
 
 **Remote selections** - `set_remote_selections`,
 `clear_remote_selections`. These render other users' cursors and

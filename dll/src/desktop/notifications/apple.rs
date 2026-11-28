@@ -435,6 +435,7 @@ pub(super) fn request_permission() {
     let handler = RcBlock::new(|granted: Bool, _error: *mut AnyObject| {
         report_permission(granted.as_bool());
     });
+    crate::plog_info!("[notifications] asking the system for the notification grant (requestAuthorization, OS prompt)");
     unsafe {
         let _: () = msg_send![
             center,
@@ -975,6 +976,7 @@ impl PlatformNotifier {
                 post.fail(why);
             }
         });
+        crate::plog_info!("[notifications] the first post asks the system for the notification grant (requestAuthorization, OS prompt)");
         unsafe {
             let _: () = msg_send![
                 self.center,

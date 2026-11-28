@@ -6,6 +6,11 @@
 //! when the user triggers the prompt). Mirrors apple.rs (spawn thread ->
 //! the result queue). Availability is opaque about modality, so
 //! `Available` reports a generic `Fingerprint`.
+//!
+//! `UserConsentVerifier` is a LIBRARY BOOLEAN GATE: a yes that carries no key (Windows Hello takes a
+//! PIN as readily as a finger, and cannot be told to take only a biometric). A secret behind
+//! the user's check is a protected keyring item (`keyring/windows.rs`: a Hello key
+//! whose signature is the entropy the secret is sealed with), never this yes.
 
 // windows 0.62's async lives in `windows-future`; its blocking `Async` trait is
 // private, so block on the public `IntoFuture` via pollster (a tiny executor —
@@ -72,7 +77,9 @@ fn run(message: HSTRING) -> windows::core::Result<BiometricResult> {
         UserConsentVerificationResult::Canceled => BiometricResult::Cancelled,
         UserConsentVerificationResult::RetriesExhausted => BiometricResult::Failed,
         UserConsentVerificationResult::DeviceBusy => BiometricResult::Error,
-        // DeviceNotPresent / NotConfiguredForUser / DisabledByPolicy
+        // Windows Hello is there but the user has not set it up (no PIN, no face / finger).
+        UserConsentVerificationResult::NotConfiguredForUser => BiometricResult::NotEnrolled,
+        // DeviceNotPresent / DisabledByPolicy
         _ => BiometricResult::Unavailable,
     })
 }

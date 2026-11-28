@@ -10034,6 +10034,74 @@ impl LayoutWindow {
         )
     }
 
+    /// Stage the css diff of a restyle (`:hover`, `:focus`, `:focus-within`, `:active`) for the
+    /// next layout pass of `dom_id`: every node the restyle changed, with how far it has to be
+    /// re-solved (the widest [`RelayoutScope`](azul_css::props::property::RelayoutScope) of its
+    /// changed properties).
+    ///
+    /// A host that restyles and then lays the same styled DOM out again MUST stage the diff
+    /// first: the solver reuses the boxes of the nodes the diff does not name, and the state a
+    /// node is in (hovered, focused, within a focus) is no part of what it compares, so a
+    /// restyle that changes a padding or a size under such a state was laid out as it was. The
+    /// shell has always staged it (`apply_focus_restyle`, `apply_hover_restyle`); the headless
+    /// runner's ports did not, and the padding `.frame:focus-within { padding: 8px }` gives a
+    /// frame never reached the layout (`tests/e2e/css23_proof.json`).
+    ///
+    /// Merged per node, never appended: a node that changes twice is one entry with the wider
+    /// scope, so the list cannot outgrow the DOM however long a pointer keeps moving.
+    pub fn stage_css_dirty(
+        &mut self,
+        dom_id: DomId,
+        restyle_result: &azul_core::styled_dom::RestyleResult,
+    ) {
+        use azul_css::props::property::RelayoutScope;
+
+        let dirty: Vec<(NodeId, RelayoutScope)> = restyle_result
+            .changed_nodes
+            .iter()
+            .map(|(node_id, changes)| {
+                let widest = changes
+                    .iter()
+                    .map(|change| change.current_prop.get_type().relayout_scope(true))
+                    .fold(RelayoutScope::None, RelayoutScope::max);
+                (*node_id, widest)
+            })
+            .collect();
+        if dirty.is_empty() {
+            return;
+        }
+        let current = self
+            .pending_css_dirty
+            .take()
+            .unwrap_or((dom_id, Vec::new()));
+        if current.0 == dom_id {
+            let mut merged: BTreeMap<NodeId, RelayoutScope> = current.1.into_iter().collect();
+            for (node_id, scope) in dirty {
+                merged
+                    .entry(node_id)
+                    .and_modify(|existing| {
+                        if scope > *existing {
+                            *existing = scope;
+                        }
+                    })
+                    .or_insert(scope);
+            }
+            self.pending_css_dirty = Some((dom_id, merged.into_iter().collect()));
+        } else {
+            // The slot holds ONE DOM's dirt, and it is another DOM's: dirt that asks for layout
+            // waits beside the slot for its DOM's pass ([`Self::hold_css_dirt`]); paint-only
+            // dirt was served by the restyle that staged it and goes.
+            let (other_dom, other_dirt) = current;
+            if other_dirt
+                .iter()
+                .any(|(_, scope)| *scope > RelayoutScope::None)
+            {
+                self.hold_css_dirt(other_dom, other_dirt);
+            }
+            self.pending_css_dirty = Some((dom_id, dirty));
+        }
+    }
+
     /// Stage `dirt` as the css diff the next pass of `dom_id` takes ([`Self::pending_css_dirty`]
     /// holds one DOM's diff), returning whatever OTHER dom's diff was staged so the caller can
     /// put it back after the pass: it is not this pass's to take.
