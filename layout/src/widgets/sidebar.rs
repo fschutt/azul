@@ -2178,14 +2178,20 @@ fn status_dom(ctx: &Ctx, status: &SidebarStatus, expanded: bool, theme: OptionUi
     );
     let mut children: Vec<Dom> = alloc::vec![if expanded { styled(mark, "margin: 0px 2px;") } else { mark }];
     if expanded {
+        // the label has its natural width first; the text takes what is left and gives way with an ellipsis
         children.push(styled(
             widget_p_with_text(status.label.clone()),
-            "flex-grow: 1; min-width: 0px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; margin: 0px;",
+            "flex-grow: 1; flex-shrink: 0; min-width: 0px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; \
+             margin: 0px;",
         ));
         if !badge && !status.text.as_str().is_empty() {
             children.push(styled(
                 widget_p_with_text(status.text.clone()),
-                &format!("flex-shrink: 0; margin: 0px; font-size: 12px; color: {};", ctx.look.quiet),
+                &format!(
+                    "flex-shrink: 1; min-width: 0px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; \
+                     margin: 0px; font-size: 12px; color: {};",
+                    ctx.look.quiet
+                ),
             ));
         }
     } else {
@@ -2210,11 +2216,25 @@ fn status_dom(ctx: &Ctx, status: &SidebarStatus, expanded: bool, theme: OptionUi
         dialog = dialog.with_theme(t);
     }
     // the dialog's wrapper stands in the column like its invoker would
+    let mut popover = dialog.dom();
+    if expanded {
+        // The dialog's wrapper and its invoker are INLINE blocks (they shrink to fit); the row asks for the column's
+        // width in percent, which a shrink-to-fit parent cannot give, so the row took its content's width: its label
+        // (clipped, so no content width of its own) collapsed to a dot and a long text ran out of the column. As
+        // blocks they are as wide as the column.
+        popover.root.set_css(STATUS_BLOCK_CSS);
+        if let Some(invoker) = popover.children.as_mut().first_mut() {
+            invoker.root.set_css(STATUS_BLOCK_CSS);
+        }
+    }
     styled(
-        Dom::create_div().with_child(dialog.dom()),
+        Dom::create_div().with_child(popover),
         "display: flex; justify-content: flex-start; width: 100%; flex-shrink: 0;",
     )
 }
+
+/// What turns the dialog's inline-block wrapper and invoker into blocks as wide as the column.
+const STATUS_BLOCK_CSS: &str = "display: block; width: 100%;";
 
 /// A button of the rail's foot (help, the toggle): an icon in a face with its slop, its label a
 /// tooltip.
