@@ -70,20 +70,51 @@ def real_rows(apps):
 
 # ---- pure analysis ---------------------------------------------------------------------------------------------------------------------
 
-def label_frames(sigs):
-    """One letter per frame of a recording (see the module's doc): L before the first flat frame, then S / B for the flat ones (light / dark),
-    and for the others 2 when the frame is the recording's last picture and 1 when it is not."""
+DARK_MEAN = 30           # a frame of a night-mode recording whose mean luma (of 255) between the system bars is under this is a dark frame ...
+DARK_BRIGHT_SHARE = 0.06  # ... when no more than this share of its samples is brighter than DARK_MEAN: the dark window, with at most an icon on it
+ICON_PEAK = 60            # the icon of the starting window has samples brighter than this; a window with nothing in it has none
+LIGHT_PICTURE = 140       # a picture of the night mode whose mean luma is over this is the WRONG colour (a light first picture on a dark phone)
+
+
+def bar_free_luma(sig):
+    """The luma (0..255) of every sample of a signature between the system bars."""
+    inner = sig[q.SYSTEM_BAR_ROWS[0] * q.COLS * 3:(q.ROWS - q.SYSTEM_BAR_ROWS[1]) * q.COLS * 3] if len(sig) == q.COLS * q.ROWS * 3 else sig
+    return [0.299 * inner[i] + 0.587 * inner[i + 1] + 0.114 * inner[i + 2] for i in range(0, len(inner) - 2, 3)]
+
+
+def dark_kind(sig):
+    """S, B or None for a frame of a night-mode recording: a dark window with an icon on it (the starting window), a dark window with nothing on it (black),
+    or neither (a picture, or the launcher). A dark starting window is no more one flat colour than a light one is: the icon is a few percent of it."""
+    luma = bar_free_luma(sig)
+    if not luma:
+        return None
+    mean = sum(luma) / len(luma)
+    bright = sum(1 for v in luma if v > DARK_MEAN) / len(luma)
+    if mean < DARK_MEAN and bright <= DARK_BRIGHT_SHARE:
+        return "S" if max(luma) > ICON_PEAK else "B"
+    return None
+
+
+def label_frames(sigs, night=False):
+    """One letter per frame of a recording (see the module's doc): L before the first flat frame, then S / B for the flat ones (light / dark; in the night
+    mode `dark_kind` tells the dark starting window from the dark gap), and for the others 2 when the frame is the recording's last picture, 1 when it
+    is not, and in the night mode W when it is a LIGHT picture (the wrong colour)."""
     if not sigs:
         return []
-    flat = [fa.flat_frame(s) for s in sigs]
-    first_flat = next((i for i, f in enumerate(flat) if f), None)
+    if night:
+        kinds = [dark_kind(s) for s in sigs]
+    else:
+        kinds = [(("B" if fa.mean_luma(s) < fa.BLACK_LUMA else "S") if fa.flat_frame(s) else None) for s in sigs]
+    first_flat = next((i for i, k in enumerate(kinds) if k), None)
     final = sigs[-1]
     out = []
     for i, s in enumerate(sigs):
         if first_flat is None or i < first_flat:
             out.append("L")
-        elif flat[i]:
-            out.append("B" if fa.mean_luma(s) < fa.BLACK_LUMA else "S")
+        elif kinds[i]:
+            out.append(kinds[i])
+        elif night and fa.mean_luma(s) > LIGHT_PICTURE:
+            out.append("W")
         else:
             out.append("2" if q.sig_diff(s, final) < SETTLED_DIFF else "1")
     return out
@@ -115,14 +146,17 @@ def count_after_first(labels, letter, start="S"):
 
 
 def summarize_start(labels):
-    """{splash, black, first, settled, jump}: the frames of the starting window (S before any picture), of black after it, of a first picture shown
-    before the settled one, of the settled one, and whether a first picture was shown at all (a page that moved)."""
+    """{splash, black, first, settled, jump, wrong}: the frames of the starting window (S), of black (B) from the first frame of the app phase on, of a first
+    picture shown before the settled one, of the settled one, whether a first picture was shown at all (a page that moved), and the light pictures of a
+    night-mode start (W: the wrong colour)."""
+    app = next((i for i, c in enumerate(labels) if c != "L"), len(labels))
     return {
-        "splash": count_after_first(labels, "S"),
-        "black": count_after_first(labels, "B"),
+        "splash": labels[app:].count("S"),
+        "black": labels[app:].count("B"),
         "first": labels.count("1"),
         "settled": labels.count("2"),
         "jump": "1" in labels and "2" in labels,
+        "wrong": labels.count("W"),
     }
 
 
@@ -198,6 +232,7 @@ def row_verdict(starts):
         "black_median": median(blacks),
         "black_max": max(blacks) if blacks else None,
         "first_median": median([s["first"] for s in sums]),
+        "wrong_max": max((s.get("wrong", 0) for s in sums), default=None),
         "jump": any(s["jump"] for s in sums),
     }
 
@@ -205,12 +240,12 @@ def row_verdict(starts):
 def report_text(results):
     """lab.md: one table, one row per lab row, then the first start's run lengths and events of every row."""
     lines = ["# Cold-start lab", "",
-             "frames at 30 fps; S = the starting window (or a flat first frame), B = black after it, 1 = a first picture that moved afterwards, 2 = the settled picture",
-             "", "| row | apk | knobs | starts | starting window (frames) | black (median / worst) | first picture (frames) | page moved |", "|---|---|---|---|---|---|---|---|"]
+             "frames at 30 fps; S = the starting window (or a flat first frame), B = black after it, 1 = a first picture that moved afterwards, 2 = the settled picture, W = a light picture in the night mode",
+             "", "| row | apk | knobs | starts | starting window (frames) | black (median / worst) | first picture (frames) | page moved | wrong colour (worst) |", "|---|---|---|---|---|---|---|---|---|"]
     for r in results:
         v = r["verdict"]
         knobs = ", ".join(f"{k}={val}" for k, val in r["props"].items()) + (", night" if r.get("night") else "")
-        lines.append(f"| {r['name']} | {r['apk']} | {knobs} | {v['starts']} | {v['splash_median']} | {v['black_median']} / {v['black_max']} | {v['first_median']} | {'yes' if v['jump'] else 'no'} |")
+        lines.append(f"| {r['name']} | {r['apk']} | {knobs} | {v['starts']} | {v['splash_median']} | {v['black_median']} / {v['black_max']} | {v['first_median']} | {'yes' if v['jump'] else 'no'} | {v.get('wrong_max')} |")
     lines.append("")
     for r in results:
         lines.append(f"## {r['name']}")
@@ -297,7 +332,7 @@ def one_start(dev, package, activity, row, out_dir, keep_video):
     record = {"displayed": displayed_ms(log), "events": log_events(log)}
     frames = fa.cut_frames(video)
     if frames:
-        labels = label_frames([fa.signature_of(f) for f in frames])
+        labels = label_frames([fa.signature_of(f) for f in frames], night=bool(row.get("night")))
         record.update({"runs": runs_text(labels), "summary": summarize_start(labels), "frames": len(frames)})
         record["_frames"] = frames
         record["_labels"] = labels

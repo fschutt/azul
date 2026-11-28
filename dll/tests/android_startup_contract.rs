@@ -202,3 +202,24 @@ fn a_surface_with_no_frame_of_ours_gets_the_canvas_colour_before_the_layout() {
     assert!(flat_fn.contains("android_core::present::fill_flat(bytes,pixel);"), "every byte of the buffer is written");
     assert!(flat_fn.contains("window.present.flat_posted((width,height));"), "the state knows the surface has no frame of ours");
 }
+
+/// The accessibility tree of the first layout is 30-45 ms of the time to the first picture (E33: the startup timeline's `a11y_tree_first_built`,
+/// built inside the layout pass) and a screen reader reads a window that is on the screen: the first tree is built after the first picture is
+/// posted. Every later layout builds its own, as before.
+///
+/// Mutation: the tree built inside the first layout again (the state of 98d415cb4e).
+#[test]
+fn the_first_accessibility_tree_is_built_after_the_first_picture() {
+    let shell = rust_code("dll/src/desktop/shell2/android/mod.rs");
+    let layout = body(&shell, "pubfnregenerate_layout_inner(");
+    let gate = layout
+        .find("ifself.first_frame_signalled{self.refresh_accessibility_tree();}else{self.a11y_first_owed=true;}")
+        .expect("the layout builds the tree only once the first picture is out, else it owes it");
+    assert!(gate < layout.find("self.common.clear_regeneration_unless_reraised").expect("the pass retires its request"));
+    let main = body(&shell, "pubfnandroid_main(app:AndroidApp){");
+    let present = main.find("window.gpu_present();").expect("the loop presents");
+    let owed = main
+        .find("ifwindow.a11y_first_owed&&window.first_frame_signalled{window.a11y_first_owed=false;window.refresh_accessibility_tree();}")
+        .expect("the loop builds the owed tree once the first picture is out");
+    assert!(present < owed, "after the frame of this iteration is posted");
+}

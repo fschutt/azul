@@ -157,6 +157,11 @@ pub struct AndroidWindow {
     /// processed, a frame laid out): the loop publishes a new mirror at the end of the iteration.
     ime_dirty: bool,
 
+    /// The accessibility tree of the first layout is built AFTER the first picture is posted: it is 30-45 ms of the time to that picture (E33,
+    /// the startup timeline's `a11y_tree_first_built`) and a screen reader reads a window that is on the screen. Owed from the first layout
+    /// until the loop has posted a picture.
+    #[cfg(feature = "a11y")]
+    a11y_first_owed: bool,
     /// What the published accessibility snapshot has not seen: the frames repainted from the existing layout (a scroll
     /// moves every node without a layout, and the snapshot carries the bounds). Rebuilt once the repaints settle
     /// (`android_core::a11y_refresh`).
@@ -307,6 +312,8 @@ impl AndroidWindow {
             selection_toolbar_shown: false,
             ime_dirty: false,
             needs_rerender: false,
+            #[cfg(feature = "a11y")]
+            a11y_first_owed: false,
             a11y_scroll: ScrollRefresh::new(),
             clock_start: std::time::Instant::now(),
             tap: TapSlop::default(),
@@ -563,7 +570,14 @@ impl AndroidWindow {
         // all just changed and TalkBack reads a cached tree, so without this it
         // keeps announcing (and highlighting) the previous layout.
         #[cfg(feature = "a11y")]
-        self.refresh_accessibility_tree();
+        {
+            if self.first_frame_signalled {
+                self.refresh_accessibility_tree();
+            } else {
+                // Before the first picture the layout's pass is the only thing worth the time: the tree follows it (the loop).
+                self.a11y_first_owed = true;
+            }
+        }
 
         self.common
             .clear_regeneration_unless_reraised(regen_epoch_seen);
@@ -1065,6 +1079,15 @@ pub fn android_main(app: AndroidApp) {
         }
         // The GPU path presents when WebRender has built a frame (it wakes this loop) or the system asked for the content again.
         window.gpu_present();
+
+        // THE ACCESSIBILITY TREE of the first layout, now that its picture is out (`a11y_first_owed`).
+        #[cfg(feature = "a11y")]
+        {
+            if window.a11y_first_owed && window.first_frame_signalled {
+                window.a11y_first_owed = false;
+                window.refresh_accessibility_tree();
+            }
+        }
 
         // THE ACCESSIBILITY SNAPSHOT after a scroll: TalkBack and uiautomator read the bounds of every node from the snapshot
         // the last layout published, and a scroll moves the nodes without one (a dump after a scroll listed a key where it
@@ -2169,6 +2192,13 @@ fn handle_poll_event(app: &AndroidApp, window: &mut AndroidWindow, event: PollEv
                 #[cfg(feature = "ndk")]
                 {
                     if let Some(nw) = window.native_window.as_ref() {
+                        // A resize is a layout (the startup timeline's `reason=Resize`): the size it came with is on the record.
+                        log_info!(
+                            LogCategory::Window,
+                            "[Android] WindowResized: the surface is {}x{} px",
+                            nw.width(),
+                            nw.height()
+                        );
                         let logical = logical_size(
                             nw.width(),
                             nw.height(),

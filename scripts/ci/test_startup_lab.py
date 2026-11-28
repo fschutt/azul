@@ -54,6 +54,37 @@ class LabelTests(unittest.TestCase):
         self.assertEqual(lab.runs_text(labels), "L1 S6 2x3")
 
 
+DARK_SPLASH = sig((0, 0, 0))
+# a black window with a small icon on it: the dark starting window (a few percent of the samples, not one colour)
+ICON = bytearray(sig((0, 0, 0)))
+for row in range(36, 42):
+    for col in range(18, 22):
+        at = (row * q.COLS + col) * 3
+        ICON[at:at + 3] = bytes((31, 90, 107))
+DARK_SPLASH_WITH_ICON = bytes(ICON)
+DARK_PAGE = sig((18, 20, 22), (36, 40, 44))
+LIGHT_PAGE = sig((238, 233, 220), (255, 255, 255))
+
+
+class NightTests(unittest.TestCase):
+    def test_a_dark_window_with_an_icon_is_the_starting_window_and_one_without_is_the_gap(self):
+        self.assertEqual(lab.dark_kind(DARK_SPLASH_WITH_ICON), "S")
+        self.assertEqual(lab.dark_kind(DARK_SPLASH), "B")
+        self.assertIsNone(lab.dark_kind(DARK_PAGE), "a page of cards is a picture")
+        self.assertIsNone(lab.dark_kind(LIGHT_PAGE))
+
+    def test_a_night_start_with_the_window_held_has_no_black(self):
+        labels = lab.label_frames([LAUNCHER] * 2 + [DARK_SPLASH_WITH_ICON] * 8 + [DARK_PAGE] * 4, night=True)
+        s = lab.summarize_start(labels)
+        self.assertEqual((s["splash"], s["black"], s["wrong"]), (8, 0, 0))
+
+    def test_a_night_start_that_shows_black_after_the_icon_and_then_a_light_picture_is_flagged_twice(self):
+        labels = lab.label_frames([LAUNCHER] * 2 + [DARK_SPLASH_WITH_ICON] * 4 + [DARK_SPLASH] * 9 + [LIGHT_PAGE] * 3 + [DARK_PAGE] * 6, night=True)
+        s = lab.summarize_start(labels)
+        self.assertEqual((s["splash"], s["black"], s["wrong"]), (4, 9, 3))
+        self.assertIn("W3", lab.runs_text(labels))
+
+
 class LogTests(unittest.TestCase):
     LOG = "\n".join([
         "11-28 03:12:26.410   525  2222 I ActivityTaskManager: START u0 {flg=0x10000000 cmp=com.azul.startctl.before/com.azul.app.AzulActivity} with LAUNCH_SINGLE_TOP",
