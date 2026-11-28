@@ -111,6 +111,11 @@ pub struct Measured {
     pub psnr_y_min: f64,
     pub psnr_rgb_mean: f64,
     pub psnr_rgb_min: f64,
+    /// The luma PSNR of each decoded frame and the size of each packet: what a failure shows.
+    pub psnr_y_each: Vec<f64>,
+    pub packet_sizes: Vec<usize>,
+    /// The colour of the box's middle in frame 0: decoded and encoded (a swapped chroma plane shows here).
+    pub centre_rgb: Option<([u8; 3], [u8; 3])>,
     pub encode_first_ms: f64,
     pub encode_ms_per_frame: f64,
     pub decode_first_ms: f64,
@@ -205,6 +210,8 @@ fn round_trip(backend: &str, engine: &str) -> Result<Measured, String> {
     // The picture.
     let mut wrong_size = 0u32;
     let (mut y_sum, mut y_min, mut rgb_sum, mut rgb_min, mut compared) = (0.0f64, f64::MAX, 0.0f64, f64::MAX, 0u32);
+    let mut psnr_y_each = Vec::new();
+    let mut centre_rgb = None;
     for (frame, original) in frames.iter().zip(&originals) {
         let rgba = frame.bytes.as_slice();
         if frame.width != WIDTH || frame.height != HEIGHT || rgba.len() != original.len() {
@@ -213,6 +220,11 @@ fn round_trip(backend: &str, engine: &str) -> Result<Measured, String> {
         }
         let y = psnr(&luma(original), &luma(rgba));
         let rgb = psnr_rgb(original, rgba);
+        psnr_y_each.push(y);
+        if centre_rgb.is_none() {
+            let at = ((120 * WIDTH + 24) * 4) as usize;
+            centre_rgb = Some(([rgba[at], rgba[at + 1], rgba[at + 2]], [original[at], original[at + 1], original[at + 2]]));
+        }
         y_sum += y;
         y_min = y_min.min(y);
         rgb_sum += rgb;
@@ -251,6 +263,9 @@ fn round_trip(backend: &str, engine: &str) -> Result<Measured, String> {
         psnr_y_min: min(y_min),
         psnr_rgb_mean: mean(rgb_sum),
         psnr_rgb_min: min(rgb_min),
+        psnr_y_each,
+        packet_sizes: packets.iter().map(Vec::len).collect(),
+        centre_rgb,
         encode_first_ms: first_packet_ms.unwrap_or(encode_total_ms),
         encode_ms_per_frame: encode_total_ms / counted,
         decode_first_ms: first_frame_ms.unwrap_or(decode_total_ms),
@@ -297,7 +312,19 @@ pub fn judge(m: &Measured) -> Result<String, String> {
         m.decoder,
         m.encoder
     );
-    let wrong = |why: String| Err(format!("{why} [{numbers}]"));
+    // What a failure adds: the per-frame figures and the colour at the box's middle.
+    let each = |values: &[f64]| values.iter().map(|v| format!("{v:.0}")).collect::<Vec<_>>().join(" ");
+    let sizes = m.packet_sizes.iter().map(usize::to_string).collect::<Vec<_>>().join(" ");
+    let centre = match m.centre_rgb {
+        Some((decoded, encoded)) => format!("box centre decoded {decoded:?} encoded {encoded:?}"),
+        None => String::from("no decoded frame to compare"),
+    };
+    let wrong = |why: String| {
+        Err(format!(
+            "{why} [{numbers}] [psnr_y per frame: {}] [packet bytes: {sizes}] [{centre}]",
+            each(&m.psnr_y_each)
+        ))
+    };
     if m.frames_out != m.frames_in {
         return wrong(format!("the decoder gave back {} of {} frames", m.frames_out, m.frames_in));
     }

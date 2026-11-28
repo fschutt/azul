@@ -18,6 +18,9 @@ fn good() -> Measured {
         psnr_y_min: 36.5,
         psnr_rgb_mean: 33.0,
         psnr_rgb_min: 30.1,
+        psnr_y_each: vec![41.0; FRAMES as usize],
+        packet_sizes: vec![3000; FRAMES as usize],
+        centre_rgb: Some(([230, 220, 40], [230, 221, 41])),
         encode_first_ms: 31.0,
         encode_ms_per_frame: 7.5,
         decode_first_ms: 22.0,
@@ -149,4 +152,19 @@ fn the_thresholds_are_as_the_module_documents_them() {
     assert!(judge(&m).is_ok(), "exactly at the limits passes");
     m.psnr_rgb_mean -= 0.1;
     assert!(judge(&m).is_err());
+}
+
+#[test]
+fn a_failure_shows_the_figures_of_every_frame_and_the_colour_of_the_box() {
+    let mut m = good();
+    m.frames_out = 29;
+    m.psnr_y_each = vec![33.0, 34.0, 35.0];
+    m.packet_sizes = vec![111, 222];
+    m.centre_rgb = Some(([40, 40, 230], [230, 220, 40]));
+    let why = judge(&m).expect_err("a failure");
+    assert!(why.contains("psnr_y per frame: 33 34 35"), "{why}");
+    assert!(why.contains("packet bytes: 111 222"), "{why}");
+    assert!(why.contains("box centre decoded [40, 40, 230] encoded [230, 220, 40]"), "{why}");
+    m.centre_rgb = None;
+    assert!(judge(&m).expect_err("a failure").contains("no decoded frame to compare"));
 }
