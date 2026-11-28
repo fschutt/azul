@@ -555,3 +555,11 @@ azmail-sync-protocol = der Server hat unerwartet geantwortet: { $detail }
 azmail-sync-storage = der E-Mail-Ordner konnte nicht geschrieben werden: { $detail }
 azmail-sync-stopped = angehalten
 azmail-sent-notice = Gesendet: { $subject }
+
+# Die eigenen Wörter der Seitenleiste (der Statusplatz) und der Vorschau
+azmail-sidebar-unread = Ungelesen
+azmail-preview-title = Nachricht
+azmail-preview-details = Nachrichtendetails
+azmail-preview-attachments = Anhänge
+azmail-preview-people = Personen
+azmail-preview-pictures-held = Bilder zurückgehalten: { $held }

@@ -1,8 +1,9 @@
 //! File: the backstage in the Outlook 2010 look.
 //!
 //! ```text
-//! File | Home | Send / Receive | Folder | View      (the ribbon's tab row stays: File is its
-//! ---------+---------------------------------------  first tab, another tab leaves it)
+//! File | Home | Send / Receive | Folder | View      (the tab strip stays: File is its first
+//! ---------+---------------------------------------  tab and shows the location, whose `...`
+//!                                                    opened these pages; another tab leaves them)
 //! Info     | Account Information
 //! Print    | (@) ada@example.org  IMAP ... (framed: the account shown)
 //! Help     | [+ Add Account]
@@ -92,18 +93,11 @@ pub(crate) fn hidden() -> CssPropertyWithConditionsVec {
     ))
 }
 
-// ==== The File tab ====
+// ==== The File pages ====
 
-/// The File tab: the ribbon's tab row (File lit, its band hidden) over the backstage.
-pub(crate) fn file_tab(s: &MailApp, app: &RefAny, page: usize) -> Dom {
-    Dom::create_div()
-        .with_css("display: flex; flex-direction: column; flex-grow: 1; min-height: 0px;")
-        .with_child(ui_main::ribbon(s, app, true))
-        .with_child(backstage(s, app, page))
-        .with_id(ids::BACKSTAGE)
-}
-
-fn backstage(s: &MailApp, app: &RefAny, page: usize) -> Dom {
+/// File's pages: the navigation column and the page, under the tab strip (File lit, its band
+/// hidden: `ui_frame::backstage_frame`). The `...` of the File tab's location opens them.
+pub(crate) fn backstage(s: &MailApp, app: &RefAny, page: usize) -> Dom {
     let content = match page {
         // The account editor's pages keep the padding they had in the backstage.
         PAGE_ADD_ACCOUNT => editor_page(ui_account::wizard_page(s, app)),

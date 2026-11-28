@@ -555,3 +555,11 @@ azmail-sync-protocol = the server answered unexpectedly: { $detail }
 azmail-sync-storage = could not write the mail folder: { $detail }
 azmail-sync-stopped = stopped
 azmail-sent-notice = Sent: { $subject }
+
+# The sidebar family's own words (the sidebar's status slot, the Preview)
+azmail-sidebar-unread = Unread
+azmail-preview-title = Message
+azmail-preview-details = Message details
+azmail-preview-attachments = Attachments
+azmail-preview-people = People
+azmail-preview-pictures-held = Pictures held back: { $held }

@@ -1,38 +1,37 @@
-//! The main window: Outlook 2010's mail view on the PIM shell, and the backstage.
+//! The main window's content: the ribbon, the message list, the message, the status bar and
+//! File's backstage, in azul's app frame (`ui_frame.rs`).
 //!
 //! ```text
-//! title row (azul's Titlebar: the window is NoTitle)
-//! ribbon: File | Home | Send / Receive | Folder | View      (File: its tab row over the backstage)
-//! navigation pane  | message list           | reading pane        | To-Do bar
-//! (Drag Your Favor-| (search, Arrange By:   | (subject, sender,   | (calendar,
-//!  ite Folders Here|  Date, grouped two-line|  Sent / To / Cc,    |  appointments,
-//!  the accounts'   |  rows)                 |  attachments, body, |  tasks)
-//!  trees, modules) |                        |  People Pane)       |
+//! tab strip (the title bar): File (the location) | Home | Send / Receive | Folder | View
+//! sidebar (accounts'   | message list          | Preview: the message
+//!  folder trees, the   | (search, Arrange By:   | itself, its details
+//!  module buttons,     |  Date, grouped two-line| behind (?) buttons)
+//!  rail: quick access) |  rows)                 |
 //! status bar: Items, Unread, a notice | All folders are up to date. Connected to ... | zoom
 //! ```
 //!
-//! The ribbon is Outlook 2010's, tab for tab and control kind for control kind (see
-//! [`ribbon`]): Home's New | Delete | Respond | Quick Steps | Move | Tags | Find, Send /
-//! Receive, Folder, View.
+//! The ribbon keeps Outlook 2010's tabs, control kind for control kind (see [`ribbon`]): Home's
+//! New | Delete | Respond | Quick Steps | Move | Tags | Find, Send / Receive, Folder, View. File
+//! is the first tab and shows the LOCATION (`ui_location.rs`); File's old pages (Info, Print,
+//! Help, Options, Exit) are the backstage (`ui_backstage.rs`), which the `...` of the location
+//! opens, and File > Options is a window of its own (`ui_options.rs`).
 //!
 //! With no account the window is the same, empty: the message list says "No account yet" and
-//! offers Add Account (the wizard, `ui_account.rs`), and the navigation pane shows Local Folders
-//! (Drafts, Sent Items, Outbox): where the mail written without an account goes (New E-mail
-//! needs none, `ui_compose.rs`). File is `ui_backstage.rs`, File > Options a window of its own
-//! (`ui_options.rs`).
+//! offers Add Account (the wizard, `ui_account.rs`), and the sidebar shows Local Folders (Drafts,
+//! Sent Items, Outbox): where the mail written without an account goes (New E-mail needs none,
+//! `ui_compose.rs`).
 //!
-//! Everything is the toolkit's: `PimShell` (an `OfficeShell`), `Ribbon`, `Backstage`,
-//! `ShellNavigationPane` (`TreeView` per account, unread counts as node badges),
-//! `SummaryList`, `ReadingPane` (+ `InfoBar`), `ToDoBar`, `StatusBar` (+ `StatusBarSync`),
-//! inside a `ShellThemeScope`; the app theme (flat / flora) and the mode (light / dark) are
-//! azul's, switched from the View tab.
+//! Everything is the toolkit's: `AppFrame` with its `Sidebar`, `Preview` and `ActionSheet`, `Ribbon`,
+//! `Backstage`, `SummaryList`, `ToDoBar`, `StatusBar` (+ `StatusBarSync`), inside a
+//! `ShellThemeScope`; the app theme (flat / flora) and the mode (light / dark) are azul's,
+//! switched from the View tab.
 
 use azul::{
     callbacks::{
         ButtonOnClickCallbackType, CheckBoxOnToggleCallbackType, ComboBoxOnSelectCallbackType,
-        ModalOnCloseCallbackType, SummaryListOnEventCallbackType, ReadingPaneOnEventCallbackType,
+        ModalOnCloseCallbackType, SummaryListOnEventCallbackType,
         ResumeCallbackType, RibbonGalleryOnSelectCallbackType, RibbonOnTabClickCallbackType,
-        ShellNavigationPaneOnEventCallbackType, SliderOnValueChangeCallbackType,
+        SliderOnValueChangeCallbackType,
         StandardDialogOnEventCallbackType, ToDoBarOnEventCallbackType, WriteBackCallbackType,
     },
     dom::VirtualKeyCode,
@@ -42,21 +41,17 @@ use azul::{
     menu::{Menu, MenuItem, MenuItemIcon, MenuItemState, MenuPopupPosition, StringMenuItem},
     option::{OptionCssPropertyWithConditionsVec, OptionMenuItemIcon, OptionThreadSendMsg},
     prelude::*,
-    shells::{
-        PimShell, ShellEmptyState, ShellNavigationGroup, ShellNavigationModule,
-        ShellNavigationPane, ShellNavigationPaneEvent, ShellNavigationPaneEventKind,
-        ShellThemeAccent, ShellThemeScope,
-    },
+    shells::ShellEmptyState,
     str::String as AzString,
     vec::U8VecRef,
     widgets::{
-        AboutDialog, CheckBoxState, ComboBox, ComboBoxState, InfoBar, SummaryList,
+        AboutDialog, CheckBoxState, ComboBox, ComboBoxState, SummaryList,
         SummaryListEvent, Modal, ModalState, StandardDialogEvent,
-        SummaryListEventKind, SummaryRow, ReadingPane, ReadingPaneEvent, ReadingPaneEventKind,
-        Ribbon, RibbonAppButton, RibbonArrow, RibbonBehavior, RibbonButton, RibbonGallery,
+        SummaryListEventKind, SummaryRow,
+        Ribbon, RibbonArrow, RibbonBehavior, RibbonButton, RibbonGallery,
         RibbonGalleryCell, RibbonGroup, RibbonItem, RibbonStyle, RibbonTab,
         StatusBar, SliderState, StatusBarSegment, StatusBarSync, StatusBarSyncKind, StatusBarZoom,
-        Titlebar, ToDoBar, ToDoBarEvent, ToDoBarEventKind, ToDoTask, TreeViewNode,
+        TabLabels, TabStyle, ToDoBar, ToDoBarEvent, ToDoBarEventKind, ToDoTask,
     },
 };
 
@@ -66,9 +61,9 @@ use crate::{
     compose::ComposeKind,
     folders::Role,
     html, ids,
-    listing::{self, FolderNode, ListRow},
-    message, pictures, ui_account, ui_backstage, ui_compose, ui_options, with_app, MailApp,
-    SyncState,
+    listing::{self, ListRow},
+    message, pictures, ui_account, ui_backstage, ui_compose, ui_frame, ui_location, ui_options,
+    with_app, MailApp, SyncState,
 };
 
 /// The libraries AzMail is built on and their licences (the About box, File > Help).
@@ -109,6 +104,7 @@ pub(crate) fn zoom_setting(value: Option<&str>) -> f32 {
 pub(crate) fn read_view_settings(s: &mut MailApp, settings: &azul_appkit::AppSettings) {
     let view = |key: &str, default: bool| settings.get_bool(key, default);
     s.nav_collapsed = view(SET_NAVIGATION_COLLAPSED, false);
+    s.sidebar = ui_frame::initial_sidebar(s.form, ui_frame::touch_platform(), s.nav_collapsed);
     s.show_reading = view(SET_READING_PANE, true);
     s.show_todo = view(SET_TODO_BAR, true);
     s.plain_text = view(SET_PLAIN_TEXT, false);
@@ -175,60 +171,25 @@ const PAPER_LINE_HEIGHT: f32 = 18.0;
 
 // ==== The window ====
 
-/// The main window's layout: the title row over the PIM shell (or the backstage).
+/// The main window's layout: azul's app frame (or File's backstage under the tab strip).
 pub(crate) extern "C" fn layout_main(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
     // Reading the mode makes a light / dark switch rebuild the window; the layout's language
     // says the words (a switch of it too).
     let _mode = info.get_mode();
     azul_appkit::l10n::begin_layout(&info);
     let app = data.clone();
+    // The width the window is laid out in: what an event handler asks whether it is a phone's.
+    if let Some(mut s) = data.downcast_mut::<MailApp>() {
+        s.window_width = info.get_window_width();
+    }
     let Some(guard) = data.downcast_ref::<MailApp>() else {
         return Dom::create_body();
     };
     let s = &*guard;
     // File > Options is a window of its own (`ui_options.rs`): this one stays as it is.
-    let shell = match s.backstage {
-        // File: the ribbon's tab row stays on top (File is its first tab), the backstage under
-        // it fills the window.
-        Some(page) => PimShell::create(Dom::create_div(), Dom::create_div(), Dom::create_div())
-            .office_shell()
-            .with_backstage(ui_backstage::file_tab(s, &app, page)),
-        None => {
-            let mut pim = PimShell::create(
-                navigation_pane(s, &app),
-                message_list(s, &app),
-                reading_pane(s, &app),
-            )
-            .with_list_label(label("azmail-message-list"))
-            .with_navigation_ratio(0.2)
-            .with_list_ratio(0.42);
-            if s.show_todo {
-                pim = pim.with_todo_bar(todo_bar(s, &app));
-            }
-            // The chrome is the OfficeShell's.
-            pim.office_shell()
-                .with_ribbon(ribbon(s, &app, false))
-                .with_status_bar(status_bar(s, &app))
-        }
-    };
-    let mut column = Dom::create_div()
-        .with_css("display: flex; flex-direction: column; flex-grow: 1; min-height: 0px;")
-        .with_child(title_row(s));
-    // An Azlin account on a banned drive (ban contract v1): the banner every Azlin app shows.
-    if let Some(bar) = ban_bar(s) {
-        column.add_child(bar);
-    }
-    let mut column = column.with_child(shell.dom());
-    if s.about_open {
-        column.add_child(about_dialog(&app));
-    }
     Dom::create_body()
         .with_css(crate::WINDOW_BODY_CSS)
-        .with_child(
-            ShellThemeScope::create(column)
-                .with_accent(ShellThemeAccent::Blue)
-                .dom(),
-        )
+        .with_child(ui_frame::window(s, &app, &info))
         .with_callback(
             EventFilter::Window(WindowEventFilter::KeyringResult),
             app.clone(),
@@ -256,7 +217,7 @@ extern "C" fn on_main_close_requested(_data: RefAny, mut info: CallbackInfo) -> 
 
 /// The banner over an Azlin account whose drive is banned: why, the hours left to migrate (the
 /// kit's words, AzDrive's too), and that AzMail sends nothing from it.
-fn ban_bar(s: &MailApp) -> Option<Dom> {
+pub(crate) fn ban_bar(s: &MailApp) -> Option<Dom> {
     let account = s.current_account()?;
     let text = azul_appkit::l10n::t_text(&s.sending_refused(&account.id)?);
     Some(
@@ -270,23 +231,8 @@ fn ban_bar(s: &MailApp) -> Option<Dom> {
     )
 }
 
-/// The window's title row, drawn by azul (the window is `NoTitle`): Outlook's "Inbox -
-/// ada@example.org - AzMail" ("Drafts - Local Folders - AzMail").
-fn title_row(s: &MailApp) -> Dom {
-    let folder = current_folder_label(s);
-    let title = match (folder, s.current_account()) {
-        (Some(folder), Some(account)) => format!("{folder} - {} - AzMail", account.email),
-        (None, Some(account)) => format!("{} - AzMail", account.email),
-        (Some(folder), None) if s.shows_local() => {
-            format!("{folder} - {} - AzMail", listing::local_folders())
-        }
-        _ => String::from("AzMail"),
-    };
-    Titlebar::create(title).without_border_bottom().dom()
-}
-
 /// The shown folder's label ("Inbox", "Sent Items").
-fn current_folder_label(s: &MailApp) -> Option<String> {
+pub(crate) fn current_folder_label(s: &MailApp) -> Option<String> {
     let index = s.current?;
     let key = s.folder.as_ref()?;
     s.folders
@@ -363,7 +309,7 @@ extern "C" fn on_main_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
 /// File > Help > About AzMail: the standard About dialog (the kit's About facts, the libraries
 /// AzMail is built on) in a modal over the window. The keyboard shortcuts are the kit's table
 /// (F1).
-fn about_dialog(app: &RefAny) -> Dom {
+pub(crate) fn about_dialog(app: &RefAny) -> Dom {
     let about = crate::args::ABOUT;
     let version = format!("{} {}", t("kit-about-version"), about.version);
     let dialog = AboutDialog::create(about.name, version)
@@ -485,8 +431,10 @@ pub(crate) enum Action {
     /// The status bar's `-` / `+`: the reading pane's zoom.
     ZoomOut,
     ZoomIn,
-    /// The File tab: opens the backstage, or (open) leaves it.
+    /// The location's `...`: File's old pages, the backstage; opened, it leaves it.
     OpenFile,
+    /// The Preview's banner: "Download pictures" for the open message.
+    LoadPictures,
     AddAccount,
     AccountSettings,
     CloseBackstage,
@@ -540,7 +488,7 @@ const QUICK_STEPS: [(&str, &str, Action); 6] = [
 ];
 
 /// Why the commands that change the server's folders are not there yet.
-const READ_ONLY: &str = "azmail-notice-read-only";
+pub(crate) const READ_ONLY: &str = "azmail-notice-read-only";
 /// Why Quick Steps cannot be made yet.
 const QUICK_STEPS_FIXED: &str = "azmail-notice-quick-steps";
 /// Why the server tools of Send / Receive are greyed.
@@ -571,7 +519,7 @@ pub(crate) extern "C" fn on_action(mut data: RefAny, mut info: CallbackInfo) -> 
 }
 
 /// The UIDs of the selected messages.
-fn selected_uids(s: &MailApp) -> Vec<u32> {
+pub(crate) fn selected_uids(s: &MailApp) -> Vec<u32> {
     s.selection
         .keys
         .as_ref()
@@ -587,7 +535,7 @@ fn selected_uids(s: &MailApp) -> Vec<u32> {
 
 /// The account shown keeps its mailbox in an Azlin drive: its folders can be changed (an IMAP
 /// account's stay as the server has them).
-fn shows_azlin(s: &MailApp) -> bool {
+pub(crate) fn shows_azlin(s: &MailApp) -> bool {
     s.current_account().is_some_and(crate::account::Account::is_azlin)
 }
 
@@ -889,6 +837,21 @@ fn remember(s: &MailApp, info: &mut CallbackInfo, key: &str, on: bool) {
     azul_appkit::ui::set_value(&s.kit, info, key, if on { "true" } else { "false" });
 }
 
+/// Remembers whether the sidebar was left collapsed to its rail (a desktop's choice).
+pub(crate) fn remember_nav(s: &MailApp, info: &mut CallbackInfo) {
+    remember(s, info, SET_NAVIGATION_COLLAPSED, s.nav_collapsed);
+}
+
+/// The sidebar's state for the View tab's Navigation Pane: Normal is the expanded sidebar,
+/// Minimized the 18 px rail.
+const fn nav_state(collapsed: bool) -> azul::widgets::SidebarState {
+    if collapsed {
+        azul::widgets::SidebarState::Rail
+    } else {
+        azul::widgets::SidebarState::Expanded
+    }
+}
+
 /// Runs `action` on the app.
 pub(crate) fn run_action(data: &mut RefAny, info: &mut CallbackInfo, action: Action) -> Update {
     with_app(data, |s, app| {
@@ -961,7 +924,8 @@ pub(crate) fn run_action(data: &mut RefAny, info: &mut CallbackInfo, action: Act
             }
             Action::ToggleNavigation => {
                 s.nav_collapsed = !s.nav_collapsed;
-                remember(s, info, SET_NAVIGATION_COLLAPSED, s.nav_collapsed);
+                s.sidebar = nav_state(s.nav_collapsed);
+                remember_nav(s, info);
             }
             Action::ToggleReading => {
                 s.show_reading = !s.show_reading;
@@ -983,6 +947,7 @@ pub(crate) fn run_action(data: &mut RefAny, info: &mut CallbackInfo, action: Act
             // File is the ribbon's first tab: clicked while open, it leaves (Outlook 2010).
             Action::OpenFile if s.backstage.is_some() => leave_backstage(s),
             Action::OpenFile => s.backstage = Some(ui_backstage::PAGE_INFO),
+            Action::LoadPictures => load_pictures(s, info, &app),
             Action::AddAccount => ui_account::open_wizard(s, None),
             Action::AccountSettings => ui_account::open_settings(s),
             Action::CloseBackstage => leave_backstage(s),
@@ -1116,7 +1081,8 @@ pub(crate) fn run_action(data: &mut RefAny, info: &mut CallbackInfo, action: Act
             }
             Action::ShowNavigation(on) => {
                 s.nav_collapsed = !on;
-                remember(s, info, SET_NAVIGATION_COLLAPSED, s.nav_collapsed);
+                s.sidebar = nav_state(s.nav_collapsed);
+                remember_nav(s, info);
             }
             Action::ShowReading(on) => {
                 s.show_reading = on;
@@ -1174,14 +1140,15 @@ fn leave_backstage(s: &mut MailApp) {
 
 // ==== The ribbon ====
 
-/// The ribbon; with `file_open` only its tab row (File lit, no tab active, the band hidden),
-/// over the backstage: Outlook 2010's File is the ribbon's first tab.
+/// The ribbon; with `file_open` only its tab row (File lit, its band hidden), over the
+/// backstage. File is the first tab and shows the LOCATION (`ui_location.rs`); the tab strip is
+/// the window's title bar (`strip`: the room the OS's window controls take).
 ///
 /// Every tab is Outlook 2010's, control kind for control kind: large buttons (icon over a label
 /// of one or two lines, a menu's ▾ under it), small ones stacked three to a column, Follow Up a
 /// split button, Quick Steps a list gallery, Find a Contact a combo box. What AzMail cannot do
 /// (it receives read-only) says why in the status bar, or is greyed with its reason.
-pub(crate) fn ribbon(s: &MailApp, app: &RefAny, file_open: bool) -> Dom {
+pub(crate) fn ribbon(s: &MailApp, app: &RefAny, file_open: bool, strip: &ui_frame::Strip) -> Dom {
     // The pieces take keys of the resources (appkit's label).
     let button = |icon: &str, text: &str, action: Action| {
         RibbonButton::create(icon, label(text))
@@ -1220,7 +1187,11 @@ pub(crate) fn ribbon(s: &MailApp, app: &RefAny, file_open: bool) -> Dom {
         action_ref(app, Action::FollowUpMenu),
         on_action as ButtonOnClickCallbackType,
     );
+    let file = RibbonTab::create(label("azmail-tab-file"))
+        .with_icon("folder")
+        .with_location(ui_location::location(s, app));
     let home = RibbonTab::create(label("azmail-tab-home"))
+        .with_icon("home")
         .with_group(
             RibbonGroup::create(label("azmail-group-new"))
                 .with_item(big("mail", "azmail-cmd-new-mail", Action::NewMail))
@@ -1284,6 +1255,7 @@ pub(crate) fn ribbon(s: &MailApp, app: &RefAny, file_open: bool) -> Dom {
         cancel_all = cancel_all.with_disabled(label("azmail-nothing-running"));
     }
     let send_receive = RibbonTab::create(label("azmail-tab-send-receive"))
+        .with_icon("sync")
         .with_group(
             RibbonGroup::create(label("azmail-group-send-receive"))
                 .with_item(big("sync", "azmail-cmd-send-receive-all", Action::SendReceive))
@@ -1313,6 +1285,7 @@ pub(crate) fn ribbon(s: &MailApp, app: &RefAny, file_open: bool) -> Dom {
 
     // Folder: New | Actions | Clean Up | Properties.
     let folder = RibbonTab::create(label("azmail-tab-folder"))
+        .with_icon("folder_open")
         .with_group(
             RibbonGroup::create(label("azmail-group-new"))
                 .with_item(RibbonItem::LargeButton(off("create_new_folder", "azmail-cmd-new-folder", READ_ONLY)))
@@ -1345,6 +1318,7 @@ pub(crate) fn ribbon(s: &MailApp, app: &RefAny, file_open: bool) -> Dom {
 
     // View: Arrangement | Layout | Message.
     let view = RibbonTab::create(label("azmail-tab-view"))
+        .with_icon("visibility")
         .with_group(
             RibbonGroup::create(label("azmail-group-arrangement"))
                 .with_item(RibbonItem::LargeButton(
@@ -1373,17 +1347,20 @@ pub(crate) fn ribbon(s: &MailApp, app: &RefAny, file_open: bool) -> Dom {
             RibbonGroup::create(label("azmail-group-message"))
                 .with_item(toggle("notes", "azmail-cmd-plain-text", Action::PlainText, s.plain_text)),
         );
-    let mut ribbon = Ribbon::create(vec![home, send_receive, folder, view])
-        .with_app_button(RibbonAppButton::create(label("azmail-tab-file")).with_on_click(
-            action_ref(app, Action::OpenFile),
-            on_action as ButtonOnClickCallbackType,
-        ))
-        .with_active_tab(s.ribbon_tab)
-        .with_on_tab_click(app.clone(), on_ribbon_tab as RibbonOnTabClickCallbackType);
+    let phone = ui_frame::is_phone(s.form, strip.width, ui_frame::touch_platform());
+    let mut ribbon = Ribbon::create(vec![file, home, send_receive, folder, view])
+        .with_active_tab(if file_open { 0 } else { s.ribbon_tab })
+        .with_on_tab_click(app.clone(), on_ribbon_tab as RibbonOnTabClickCallbackType)
+        // No title row over the ribbon: its tabs are the title bar.
+        .with_tabs_in_titlebar(ui_frame::strip_offsets(strip))
+        // The tabs are buttons on the leather: a finger's size and ONE ICON each on a phone, text
+        // on a desktop.
+        .with_tab_style(if phone { TabStyle::TouchPills } else { TabStyle::Pills })
+        .with_labels(TabLabels::Auto)
+        .with_available_width(strip.width);
     if file_open {
-        // An index past the tabs lights none and renders no group (the widget's documented
-        // public-field case); the band itself is hidden, and no double click can bring it back.
-        ribbon.active_tab = usize::MAX;
+        // File is lit and its band is hidden; no double click can bring the band back (the
+        // widget's documented public-field case).
         ribbon.style.content_style =
             OptionCssPropertyWithConditionsVec::Some(ui_backstage::hidden());
         ribbon = ribbon.with_behavior(RibbonBehavior::inert());
@@ -1452,7 +1429,7 @@ extern "C" fn on_ribbon_tab(mut data: RefAny, _info: CallbackInfo, index: usize)
 
 // ==== The status bar ====
 
-fn status_bar(s: &MailApp, app: &RefAny) -> Dom {
+pub(crate) fn status_bar(s: &MailApp, app: &RefAny) -> Dom {
     let unread = s.view.iter().filter(|e| !s.flags.is_read(e)).count();
     let mut segments = Vec::new();
     if !s.search.is_empty() || s.scope == 1 {
@@ -1521,7 +1498,7 @@ pub(crate) fn sync_line(
 
 /// The status bar's sync line while nothing runs: Outlook 2010's "All folders are up to date.",
 /// and the server the shown account is connected to.
-fn up_to_date(s: &MailApp) -> String {
+pub(crate) fn up_to_date(s: &MailApp) -> String {
     match s.current_account() {
         Some(account) => match &account.azlin {
             Some(link) => t_args(
@@ -1541,7 +1518,7 @@ fn up_to_date(s: &MailApp) -> String {
 
 /// The To-Do bar: the month, the appointments, and the shared task store's tasks (`todo.rs`;
 /// a task's id in the bar is its index in `MailApp::tasks`).
-fn todo_bar(s: &MailApp, app: &RefAny) -> Dom {
+pub(crate) fn todo_bar(s: &MailApp, app: &RefAny) -> Dom {
     let tasks: Vec<ToDoTask> = s
         .tasks
         .iter()
@@ -1640,165 +1617,11 @@ extern "C" fn on_tasks_saved(mut app: RefAny, mut reply: RefAny, _info: Callback
     .unwrap_or(Update::DoNothing)
 }
 
-// ==== The navigation pane ====
-
-/// A folder's icon in the tree.
-fn folder_icon(role: Role) -> &'static str {
-    match role {
-        Role::Inbox => "inbox",
-        Role::Drafts => "drafts",
-        Role::Sent => "send",
-        Role::Trash => "delete",
-        Role::Spam => "report",
-        Role::Archive => "archive",
-        Role::All => "all_inbox",
-        Role::Flagged => "flag",
-        Role::Other => "folder",
-    }
-}
-
-/// A folder of the tree as a tree node: its unread count as the node's badge (the Outbox's:
-/// how many wait in it), selected when `selected` says so.
-fn tree_node(node: &FolderNode, role_of: &dyn Fn(&str) -> Role, selected: &dyn Fn(&str) -> bool) -> TreeViewNode {
-    let icon = if node.key == listing::OUTBOX_KEY {
-        "outbox"
-    } else {
-        folder_icon(role_of(&node.key))
-    };
-    let mut tree = TreeViewNode::create(node.label.as_str())
-        .with_icon(icon)
-        .with_expanded(true)
-        .with_selected(selected(&node.key));
-    if node.unread > 0 {
-        tree = tree.with_badge(node.unread.to_string());
-    }
-    for child in &node.children {
-        tree = tree.with_child(tree_node(child, role_of, selected));
-    }
-    tree
-}
-
-/// Mailbox `i`'s group in the navigation pane: `name` (the account's address, "Local
-/// Folders") as the root of its folder tree.
-fn mailbox_group(s: &MailApp, i: usize, name: &str) -> ShellNavigationGroup {
-    let folders = s.folders.get(i).map_or(&[][..], Vec::as_slice);
-    let roles = |key: &str| -> Role {
-        folders
-            .iter()
-            .find(|f| f.key == key)
-            .map_or(Role::Other, |f| f.role)
-    };
-    let here = Some(i) == s.current;
-    let picked = |key: &str| here && s.folder.as_deref() == Some(key);
-    let open = s.groups_open.get(i + 1).copied().unwrap_or(true);
-    let mut root = TreeViewNode::create(name).with_expanded(open);
-    for node in listing::folder_tree(folders) {
-        root = root.with_child(tree_node(&node, &roles, &picked));
-    }
-    ShellNavigationGroup::create(name, root).with_open(open)
-}
-
-/// The navigation pane as Outlook 2010 has it: "Drag Your Favorite Folders Here" over every
-/// account's tree - its address the root, the folders under it in Outlook's order, the unread
-/// counts as badges - then Local Folders (the mail written without an account: always while
-/// there is no account), and the big module buttons at the bottom (Mail, Calendar, Contacts,
-/// Tasks).
-fn navigation_pane(s: &MailApp, app: &RefAny) -> Dom {
-    let mut pane = ShellNavigationPane::create()
-        .with_label(label("azmail-module-mail"))
-        .with_header(favorites_hint())
-        .with_trees_only(true)
-        .with_active_module(s.module)
-        .with_collapsed(s.nav_collapsed)
-        .with_on_event(app.clone(), on_nav_event as ShellNavigationPaneOnEventCallbackType);
-
-    // Every account: its address over its folders.
-    for (i, account) in s.accounts.iter().enumerate() {
-        pane = pane.with_group(mailbox_group(s, i, account.email.as_str()));
-    }
-    // Local Folders: the group after the accounts' (`MailApp::local_index`).
-    if s.local_visible() {
-        pane = pane.with_group(mailbox_group(s, s.local_index(), &listing::local_folders()));
-    }
-
-    let unread: usize = s.current.and_then(|i| s.folders.get(i)).map_or(0, |list| {
-        list.iter()
-            .filter(|f| f.role == Role::Inbox)
-            .map(|f| f.unread)
-            .sum()
-    });
-    let mut mail = ShellNavigationModule::create(label("azmail-module-mail"), "mail");
-    if unread > 0 {
-        mail = mail.with_badge(unread.to_string());
-    }
-    pane.with_module(mail)
-        .with_module(ShellNavigationModule::create(label("azmail-module-calendar"), "calendar_month"))
-        .with_module(ShellNavigationModule::create(label("azmail-module-contacts"), "contacts"))
-        .with_module(ShellNavigationModule::create(label("azmail-module-tasks"), "task_alt"))
-        .dom()
-        .with_id(ids::FOLDER_PANE)
-}
-
-/// The Favorites strip at the top of the pane: Outlook 2010's hint while it holds no folder.
-fn favorites_hint() -> Dom {
-    Dom::create_div()
-        .with_css(
-            "display: flex; flex-direction: row; flex-grow: 1; padding: 5px 8px 6px 10px; \
-             border-bottom: 1px dashed system:separator;",
-        )
-        .with_child(
-            Dom::create_span_with_text(label("azmail-favorites-hint"))
-                .with_css("font-size: 12px; color: system:secondary-text;"),
-        )
-}
-
-extern "C" fn on_nav_event(mut data: RefAny, _info: CallbackInfo, event: ShellNavigationPaneEvent) -> Update {
-    with_app(&mut data, |s, _| {
-        match event.kind {
-            // The pane is trees only: an account's root triangle is its tree's toggle.
-            ShellNavigationPaneEventKind::GroupToggled => return Update::DoNothing,
-            ShellNavigationPaneEventKind::NodeToggled => {
-                if event.index != 0 {
-                    return Update::DoNothing;
-                }
-                if let Some(open) = s.groups_open.get_mut(event.group + 1) {
-                    *open = event.expand;
-                }
-            }
-            ShellNavigationPaneEventKind::NodeClicked => {
-                // Row 0 of a mailbox's tree is its root (an account's address, "Local
-                // Folders"); the groups are the accounts', then Local Folders' when shown.
-                let mailbox = event.group;
-                let shown = mailbox < s.accounts.len()
-                    || (mailbox == s.local_index() && s.local_visible());
-                if !shown {
-                    return Update::DoNothing;
-                }
-                if s.current != Some(mailbox) {
-                    s.show_account(mailbox);
-                }
-                let folders = s.folders.get(mailbox).cloned().unwrap_or_default();
-                let keys = listing::preorder_keys(&listing::folder_tree(&folders));
-                if let Some(key) = event.index.checked_sub(1).and_then(|k| keys.get(k)) {
-                    s.show_folder(key);
-                }
-                s.module = 0;
-            }
-            // Drag and drop onto folders is not wired yet (messages stay put).
-            ShellNavigationPaneEventKind::NodeDropped => return Update::DoNothing,
-            ShellNavigationPaneEventKind::ModuleSelected => s.module = event.index,
-            ShellNavigationPaneEventKind::CollapseToggled => s.nav_collapsed = !event.expand,
-        }
-        Update::RefreshDom
-    })
-    .unwrap_or(Update::DoNothing)
-}
-
 // ==== The message list ====
 
 /// The name of an address entry ("Ben Okafor" from `Ben Okafor <ben@example.org>`); the
 /// address when it has none.
-fn display_name(entries: &str) -> String {
+pub(crate) fn display_name(entries: &str) -> String {
     let first = crate::compose::split_addresses(entries)
         .into_iter()
         .next()
@@ -1809,7 +1632,7 @@ fn display_name(entries: &str) -> String {
     }
 }
 
-fn message_list(s: &MailApp, app: &RefAny) -> Dom {
+pub(crate) fn message_list(s: &MailApp, app: &RefAny) -> Dom {
     if s.module != 0 {
         return module_placeholder(s.module);
     }
@@ -1940,6 +1763,8 @@ extern "C" fn on_list_event(mut data: RefAny, mut info: CallbackInfo, event: Sum
                     .clone()
                     .apply(index as u64, event.shift, event.ctrl);
                 if !event.shift && !event.ctrl {
+                    // a tap holds the Preview on this message until the list is scrolled
+                    s.pinned_top = Some(s.top_row);
                     stop_pictures(s, &mut info);
                     let flags = s.open_message(uid);
                     show_own_pictures(s, &mut info, &app);
@@ -1954,6 +1779,9 @@ extern "C" fn on_list_event(mut data: RefAny, mut info: CallbackInfo, event: Sum
                     && s.folder.as_deref() == Some(crate::compose::DRAFTS_FOLDER)
                 {
                     ui_compose::open_compose(s, &mut info, app, ComposeKind::Draft);
+                } else if event.kind == SummaryListEventKind::Open && ui_frame::phone_now(s) {
+                    // a phone's quick actions for the message (the list reports no long press yet)
+                    s.sheet = Some(uid);
                 }
             }
             SummaryListEventKind::Flag => {
@@ -1987,12 +1815,21 @@ extern "C" fn on_list_event(mut data: RefAny, mut info: CallbackInfo, event: Sum
             }
             SummaryListEventKind::Scroll => {
                 let (start, end) = (event.index, event.end);
+                // The phone's Preview follows the message at the list's top edge, not the
+                // selection: only a scroll the reader made (a tap holds the Preview until the
+                // top edge has moved) and without marking the message read.
+                let follows = ui_frame::phone_now(s) && crate::nav::follows_top_edge(s.pinned_top, start);
+                s.top_row = start;
+                let followed = follows && {
+                    s.pinned_top = None;
+                    follow_top(s, &mut info, &app)
+                };
                 let window_end = s.first_row + LIST_WINDOW;
                 // Rebuild only when the view comes near the window's edges.
                 let near_top = s.first_row > 0 && start < s.first_row + LIST_WINDOW / 8;
                 let near_bottom = window_end < s.rows.len() && end + LIST_WINDOW / 8 > window_end;
                 if !near_top && !near_bottom {
-                    return Update::DoNothing;
+                    return if followed { Update::RefreshDom } else { Update::DoNothing };
                 }
                 s.first_row = start.saturating_sub(LIST_WINDOW / 4);
             }
@@ -2002,90 +1839,34 @@ extern "C" fn on_list_event(mut data: RefAny, mut info: CallbackInfo, event: Sum
     .unwrap_or(Update::DoNothing)
 }
 
+/// Shows the message at the list's top edge in the Preview (without marking it read); whether it
+/// changed.
+fn follow_top(s: &mut MailApp, info: &mut CallbackInfo, app: &RefAny) -> bool {
+    let Some(uid) = crate::nav::top_message(&s.rows, s.top_row) else {
+        return false;
+    };
+    let shown = s
+        .open
+        .as_ref()
+        .is_some_and(|o| o.entry.uid == uid && s.folder.as_deref() == Some(o.folder.as_str()));
+    if shown {
+        return false;
+    }
+    stop_pictures(s, info);
+    s.peek_message(uid);
+    show_own_pictures(s, info, app);
+    // An Azlin account's big message is downloaded now.
+    crate::fetch_if_needed(s, info, app.clone());
+    true
+}
+
 // ==== The reading pane ====
 
-fn reading_pane(s: &MailApp, app: &RefAny) -> Dom {
-    if !s.show_reading {
-        return Dom::create_div();
-    }
-    if s.module != 0 || (s.accounts.is_empty() && !s.shows_local()) {
-        // Without an account the list says it all ("No account yet"): the pane stays blank
-        // (Local Folders show their mail as an account's).
-        return Dom::create_div();
-    }
-    let Some(open) = &s.open else {
-        return ShellEmptyState::create(label("azmail-select-item"))
-            .with_icon("mail")
-            .with_detail(label("azmail-select-item-detail"))
-            .dom();
-    };
-    let view = open.view.clone().unwrap_or_default();
-    let subject = if view.subject.is_empty() {
-        t("azmail-no-subject")
-    } else {
-        view.subject.clone()
-    };
-    let sender = if view.from.is_empty() {
-        open.entry.from.clone()
-    } else {
-        view.from.clone()
-    };
-    let date_source = if view.date.is_empty() {
-        open.entry.date.as_str()
-    } else {
-        view.date.as_str()
-    };
-    let sent = message::short_date_in(date_source, &chrono::Local);
-    let mut pane = ReadingPane::create(subject.as_str(), sender.as_str())
-        .with_date(sent.as_str())
-        .with_field(label("azmail-field-sent"), sent.as_str());
-    if !view.to.is_empty() {
-        pane = pane.with_field(label("azmail-field-to"), view.to.as_str());
-    }
-    if !view.cc.is_empty() {
-        pane = pane.with_field(label("azmail-field-cc"), view.cc.as_str());
-    }
-    if !view.attachments.is_empty() {
-        let names: Vec<AzString> = view
-            .attachments
-            .iter()
-            .map(|a| {
-                AzString::from(format!(
-                    "{} ({})",
-                    a.name,
-                    azul_appkit::l10n::decimal(
-                        azul::file::DiskSpace::format_bytes(a.size as u64).as_str()
-                    )
-                ))
-            })
-            .collect();
-        pane = pane.with_attachments(names);
-    }
-    let name = display_name(&sender);
-    // The PIM apps' avatar initials (DEDUP_EDITORS B24).
-    let initials = azul_pim::initials::initials(&name);
-    pane = pane.with_people(
-        vec![AzString::from(initials)],
-        t_args("azmail-see-more-about", &[("name", Arg::from(name))]),
-    );
+/// The message's text or its sanitized HTML on its paper: what the Preview shows under the
+/// sender line (`ui_preview.rs`).
+pub(crate) fn message_body(s: &MailApp, open: &crate::OpenMessage, view: &message::MessageView) -> Dom {
     let html = open.sanitized.as_ref().filter(|_| !s.plain_text);
-    if let Some(sanitized) = html {
-        if sanitized.blocked_images > 0 && !open.pictures {
-            // What the pre-pass found on the web ("3 pictures and 1 font"), else "some
-            // pictures" (pictures that are not on the web).
-            let held_back = match sanitized.remote.summary() {
-                summary if summary.is_empty() => t("azmail-some-pictures"),
-                summary => summary,
-            };
-            let text = t_args("azmail-pictures-held", &[("held", Arg::from(held_back))]);
-            pane = pane.with_info_bar(
-                InfoBar::create(text.as_str())
-                    .with_icon("info")
-                    .with_action(label("azmail-download-pictures")),
-            );
-        }
-    }
-    let body = if open.fetching {
+    if open.fetching {
         // An Azlin account's big message on its way from the drive: no error.
         Dom::create_span_with_text(open.error.as_str()).with_css("padding: 16px;")
     } else if !open.error.is_empty() {
@@ -2106,12 +1887,7 @@ fn reading_pane(s: &MailApp, app: &RefAny) -> Dom {
             }
             None => plain_body(&view.text, s.zoom),
         }
-    };
-    pane.with_body(body)
-        .with_on_load_images(app.clone(), on_reading_event as ReadingPaneOnEventCallbackType)
-        .with_on_link(app.clone(), on_reading_event as ReadingPaneOnEventCallbackType)
-        .with_on_attachment(app.clone(), on_reading_event as ReadingPaneOnEventCallbackType)
-        .dom()
+    }
 }
 
 /// Plain text on paper at `zoom` percent: every line a row, quoted lines indented behind a bar
@@ -2166,25 +1942,6 @@ fn html_body(sanitized: &html::Sanitized) -> Dom {
         ))
         .with_css(ERROR_LINE),
     }
-}
-
-extern "C" fn on_reading_event(mut data: RefAny, mut info: CallbackInfo, event: ReadingPaneEvent) -> Update {
-    with_app(&mut data, |s, app| {
-        match event.kind {
-            ReadingPaneEventKind::LoadImages => load_pictures(s, &mut info, &app),
-            ReadingPaneEventKind::Attachment => {
-                s.notice = t_args(
-                    "azmail-attachment-later",
-                    &[("name", Arg::from(event.text.as_str()))],
-                );
-            }
-            ReadingPaneEventKind::Sender | ReadingPaneEventKind::People => {
-                return Update::DoNothing;
-            }
-        }
-        Update::RefreshDom
-    })
-    .unwrap_or(Update::DoNothing)
 }
 
 // ==== Pictures: the mail's own at once, its web pictures after "Download pictures" ====

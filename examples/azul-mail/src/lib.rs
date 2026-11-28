@@ -96,12 +96,18 @@ mod test_switch_tests;
 mod marks_tests;
 #[cfg(test)]
 mod sync_drive_tests;
+mod nav;
 mod ui_account;
 mod ui_backstage;
 mod ui_bridge;
 mod ui_compose;
+mod ui_frame;
+mod ui_location;
 mod ui_main;
 mod ui_options;
+mod ui_preview;
+mod ui_sheet;
+mod ui_sidebar;
 
 // The tests' helpers (a temporary folder, the SMTP sink) are azul-mail-core's `testing` ones.
 #[cfg(test)]
@@ -199,9 +205,34 @@ pub(crate) struct MailApp {
     /// Which mailbox trees are open in the navigation pane: slot 0 (Favorites' once) unused,
     /// then one per account, then Local Folders'.
     pub(crate) groups_open: Vec<bool>,
+    /// The sidebar was left collapsed to its rail on a desktop (the View tab's Navigation Pane
+    /// and the sidebar's own toggle remember it across restarts).
     pub(crate) nav_collapsed: bool,
     /// Mail, Calendar, Contacts, Tasks.
     pub(crate) module: usize,
+    /// Folders whose children the sidebar hides: (mailbox, folder key). All open by default.
+    pub(crate) closed_folders: std::collections::BTreeSet<(usize, String)>,
+
+    // -- the frame (azul's sidebar family) --
+    /// Desktop or phone: `AZMAIL_FORM`, else asked of the window.
+    pub(crate) form: azul::widgets::FormFactor,
+    /// The sidebar's state: the 18 px rail, the expanded sidebar (a phone's drawer), or the 16 px
+    /// handle.
+    pub(crate) sidebar: azul::widgets::SidebarState,
+    /// The window's width at the last layout: what an event handler asks whether the window is
+    /// a phone's (`ui_frame::phone_now`).
+    pub(crate) window_width: f32,
+    /// The Preview's size as a drag left it (0: the widget's default).
+    pub(crate) preview_size: f32,
+    /// The list's first visible row at the last scroll report: the phone's Preview follows the
+    /// message at this top edge.
+    pub(crate) top_row: usize,
+    /// A tap on a row overrides what the scroll shows in the phone's Preview until the next
+    /// scroll (the selection never follows the scroll, only the Preview does): the list's top row
+    /// at the tap, while the tap holds.
+    pub(crate) pinned_top: Option<usize>,
+    /// The message a phone's action sheet is open for (its uid); `None`: the sheet is closed.
+    pub(crate) sheet: Option<u32>,
 
     // -- the message list --
     /// The shown folder's index, as it is on disk.
@@ -450,6 +481,14 @@ impl MailApp {
             groups_open: vec![true; n + 2],
             nav_collapsed: false,
             module: 0,
+            closed_folders: std::collections::BTreeSet::new(),
+            form: ui_frame::form_of(std::env::var(ui_frame::FORM_VAR).ok().as_deref()),
+            sidebar: azul::widgets::SidebarState::Rail,
+            window_width: 0.0,
+            preview_size: 0.0,
+            top_row: 0,
+            pinned_top: None,
+            sheet: None,
             entries: Vec::new(),
             flags: LocalFlags::create(),
             view: Vec::new(),
@@ -486,6 +525,15 @@ impl MailApp {
         // The view as it was left: the View tab's switches and the zoom, in the kit's
         // settings.json (File > Options' Cancel reads them again the same way).
         ui_main::read_view_settings(&mut app, &settings);
+        // a phone starts with the drawer shut (the rail); a desktop as it was left
+        app.sidebar = ui_frame::initial_sidebar(app.form, ui_frame::touch_platform(), app.nav_collapsed);
+        if n > nav::MAX_MAILBOXES {
+            eprintln!(
+                "[azmail] the sidebar lists {} mailboxes: {} more are left out",
+                nav::MAX_MAILBOXES,
+                n - nav::MAX_MAILBOXES
+            );
+        }
         app
     }
 
@@ -585,6 +633,13 @@ impl MailApp {
             }
             if waiting > 0 || i == local {
                 list.push(listing::outbox_folder(waiting));
+            }
+            let dropped = nav::cap_folders(&mut list);
+            if dropped > 0 {
+                eprintln!(
+                    "[azmail] the sidebar lists {} folders of a mailbox: {dropped} more are left out",
+                    nav::MAX_FOLDERS
+                );
             }
             folders.push(list);
         }
@@ -709,6 +764,18 @@ impl MailApp {
     /// Opens message `uid` of the shown folder in the reading pane, and marks it read here.
     /// Returns the flags to save when the mark changed them.
     pub(crate) fn open_message(&mut self, uid: u32) -> Option<LocalFlags> {
+        self.open_message_as(uid, true)
+    }
+
+    /// Shows message `uid` of the shown folder in the reading pane WITHOUT marking it read: what
+    /// the phone's Preview does while the list scrolls under it (a message is read by a tap).
+    pub(crate) fn peek_message(&mut self, uid: u32) {
+        let _ = self.open_message_as(uid, false);
+    }
+
+    /// [`Self::open_message`] / [`Self::peek_message`]: `mark_read` says whether the message is
+    /// marked read.
+    fn open_message_as(&mut self, uid: u32, mark_read: bool) -> Option<LocalFlags> {
         let folder = self.folder.clone()?;
         let entry = self.entries.iter().find(|e| e.uid == uid).cloned()?;
         let store = self.message_store(&folder);
@@ -776,7 +843,7 @@ impl MailApp {
             sheets: Vec::new(),
             fonts_asked: Vec::new(),
         });
-        if was_read {
+        if was_read || !mark_read {
             return None;
         }
         self.flags.read.insert(uid, true);
