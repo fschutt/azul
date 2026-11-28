@@ -24,6 +24,7 @@ that appears is the app asking, and answering it is yours.
 """
 import argparse
 import json
+import plistlib
 import re
 import subprocess
 import sys
@@ -132,16 +133,35 @@ def launch(device, bundle, seconds, attended):
     return out or ""
 
 
+DEFAULT_BUNDLE = "com.azul.AzSelfTest"
+
+
+def bundle_of(app, explicit):
+    """The bundle identifier to launch: the one asked for, else the one the app says (CFBundleIdentifier), else the default."""
+    if explicit:
+        return explicit
+    if app:
+        try:
+            with open(Path(app) / "Info.plist", "rb") as f:
+                found = plistlib.load(f).get("CFBundleIdentifier")
+            if found:
+                return found
+        except (OSError, plistlib.InvalidFileException):
+            pass
+    return DEFAULT_BUNDLE
+
+
 def main(argv):
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("device", help="the phone: its name or identifier from `xcrun devicectl list devices`")
-    ap.add_argument("--bundle", default="com.azul.AzSelfTest", help="the app's bundle identifier")
+    ap.add_argument("--bundle", help="the app's bundle identifier (default: the one of --app's Info.plist, else com.azul.AzSelfTest)")
     ap.add_argument("--app", help="a signed AzSelfTest.app to install first")
     ap.add_argument("--attended", action="store_true", help="show the list and wait for a person (press Run all)")
     ap.add_argument("--seconds", type=int, default=120, help="how long to keep the console")
     ap.add_argument("--out", default="ios-phone-selftest", help="where the files are written")
     args = ap.parse_args(argv)
     seconds = max(20, min(args.seconds, 900))
+    args.bundle = bundle_of(args.app, args.bundle)
     try:
         listed = subprocess.run(["xcrun", "devicectl", "list", "devices"], capture_output=True, text=True, timeout=60)
     except (OSError, subprocess.TimeoutExpired) as e:
