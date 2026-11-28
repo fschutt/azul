@@ -105,7 +105,7 @@ fn the_first_insets_snapshot_is_five_insets_then_the_features_array() {
 /// status bar still shown), the next one, a few milliseconds later, the bar hidden. A bar the app asked to hide that the snapshot still shows, or says
 /// nothing of, is a request the snapshot does not show yet; an app that asks nothing never waits.
 ///
-/// Mutation: the answer true whenever the app asks for something (the gate that skipped the snapshot for AzWriter although it showed the request done).
+/// Mutation: the answer true whenever the app asks for something (the gate that skipped the snapshot for `AzWriter` although it showed the request done).
 #[test]
 fn a_request_the_snapshot_shows_done_moves_nothing() {
     let bar = |visible| Some(Bar { rect: Px { left: 0, top: 0, right: 1080, bottom: 128 }, visible });

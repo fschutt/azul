@@ -124,10 +124,9 @@ fn bar(flat: &[i32], at: usize) -> Option<Option<Bar>> {
 #[must_use]
 pub fn bars_request_moves_insets(shown: Option<&DisplayFeaturesPx>, status_hidden: bool, navigation_hidden: bool, draw_into_cutout: bool) -> bool {
     let still_shown = |hidden_wanted: bool, bar: Option<Bar>| hidden_wanted && bar.is_none_or(|b| b.visible);
-    match shown {
-        None => status_hidden || navigation_hidden || draw_into_cutout,
-        Some(features) => still_shown(status_hidden, features.status) || still_shown(navigation_hidden, features.navigation),
-    }
+    shown.map_or(status_hidden || navigation_hidden || draw_into_cutout, |features| {
+        still_shown(status_hidden, features.status) || still_shown(navigation_hidden, features.navigation)
+    })
 }
 
 /// Split what `NativeTextBridge.insetsSnapshot` hands the engine into the insets and the display features.
