@@ -12577,6 +12577,9 @@
                             {
                                 "path": {
                                     "type": "OptionFilePath"
+                                },
+                                "error": {
+                                    "type": "OptionString"
                                 }
                             }
                         ],
@@ -12612,6 +12615,9 @@
                             {
                                 "paths": {
                                     "type": "FilePathVec"
+                                },
+                                "error": {
+                                    "type": "OptionString"
                                 }
                             }
                         ],
@@ -12789,6 +12795,9 @@
                             {
                                 "target": {
                                     "type": "OptionSaveTarget"
+                                },
+                                "error": {
+                                    "type": "OptionString"
                                 }
                             }
                         ],
