@@ -131,7 +131,8 @@ action.
 A permission dialog comes **only when the user triggered a feature that needs it**.
 
 - `get_permission_status` never prompts: it reads the manager, which folds in the platform's
-  quiet read once a second.
+  quiet read at most once a second, with every pass of the event loop (a click, a key, the window
+  coming back from the system's settings), so a switch the user flipped there shows up.
 - A request goes out only after a user gesture (a click, a tap, a key press), one capability
   per gesture - a probe node in the first DOM never asks at launch.
 - A denied permission is remembered and **not asked again**. Tell the user and offer

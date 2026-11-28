@@ -389,6 +389,10 @@ pub struct PermissionManager {
     /// request has used yet: the next one that may ask goes within [`GESTURE_WINDOW`] of it
     /// ([`PermissionManager::admit`]).
     gesture: Option<std::time::Instant>,
+    /// The capability the last gesture was used for, and when that gesture was made: the same
+    /// gesture admits the same capability again ([`PermissionManager::admit`]: a probe's
+    /// Subscribe reaches the platform through two managers in one pass, and both are of one click).
+    used: Option<(Capability, std::time::Instant)>,
     /// When the platforms' quiet read of the capabilities in use was last folded in
     /// ([`PermissionManager::probe_due`]).
     probed_at: Option<std::time::Instant>,
@@ -567,6 +571,7 @@ impl PermissionManager {
     /// [`Self::note_gesture`] at the time `at`.
     pub const fn note_gesture_at(&mut self, at: std::time::Instant) {
         self.gesture = Some(at);
+        self.used = None;
     }
 
     /// Whether an op that may ask the user for `capability` (its probe node's Subscribe, a
@@ -576,8 +581,9 @@ impl PermissionManager {
     /// - `Denied` / `Restricted`: never ([`Admission::Skip`]): the user decided, the app reads the
     ///   state and offers the settings, it is not asked again;
     /// - a request is in flight (`Requested`): not yet;
-    /// - not decided: only after a user gesture, and ONE request per gesture, so a probe in the
-    ///   first DOM never asks at launch and two capabilities never ask at once.
+    /// - not decided: only after a user gesture, and ONE capability per gesture (asking the same
+    ///   capability again within that gesture goes too), so a probe in the first DOM never asks at
+    ///   launch and two capabilities never ask at once.
     pub fn admit(&mut self, capability: Capability) -> Admission {
         self.admit_at(capability, std::time::Instant::now())
     }
@@ -590,14 +596,21 @@ impl PermissionManager {
             PermissionState::Denied | PermissionState::Restricted => Admission::Skip,
             PermissionState::Requested => Admission::Hold,
             PermissionState::NotDetermined => {
-                let fresh = self
-                    .gesture
-                    .take()
-                    .is_some_and(|at| now.saturating_duration_since(at) < GESTURE_WINDOW);
-                if fresh {
-                    Admission::Go
-                } else {
-                    Admission::Hold
+                // The gesture that admitted this capability admits it again: one probe's
+                // Subscribe reaches the platform through two managers in one pass (the
+                // permission manager's and the location manager's), both are of one click.
+                let same_gesture = self.used.is_some_and(|(used, at)| {
+                    used == capability && now.saturating_duration_since(at) < GESTURE_WINDOW
+                });
+                if same_gesture {
+                    return Admission::Go;
+                }
+                match self.gesture.take() {
+                    Some(at) if now.saturating_duration_since(at) < GESTURE_WINDOW => {
+                        self.used = Some((capability, at));
+                        Admission::Go
+                    }
+                    _ => Admission::Hold,
                 }
             }
         }

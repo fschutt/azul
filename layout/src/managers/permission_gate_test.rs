@@ -167,6 +167,44 @@ fn a_held_geolocation_subscribe_goes_with_the_gesture_and_a_release_drops_it() {
 }
 
 #[test]
+fn the_gesture_that_admitted_a_capability_admits_it_again_and_no_other() {
+    let at = std::time::Instant::now();
+    let mut mgr = PermissionManager::new();
+    mgr.note_gesture_at(at);
+    assert_eq!(mgr.admit_at(Capability::Geolocation, at), Admission::Go);
+    assert_eq!(
+        mgr.admit_at(Capability::Geolocation, at),
+        Admission::Go,
+        "the same click, the same capability"
+    );
+    assert_eq!(
+        mgr.admit_at(Capability::Camera, at),
+        Admission::Hold,
+        "another capability waits for a click of its own"
+    );
+    // A new click starts over.
+    mgr.note_gesture_at(at);
+    assert_eq!(mgr.admit_at(Capability::Camera, at), Admission::Go);
+    assert_eq!(mgr.admit_at(Capability::Geolocation, at), Admission::Hold);
+}
+
+#[test]
+fn one_gesture_starts_a_probe_through_both_of_its_managers() {
+    use crate::managers::geolocation::{GeolocationDiffEvent, GeolocationManager};
+    // The probe of the location is a Subscribe of the permission manager AND of the location
+    // manager: the click that mounts it goes through both, not through the first one only.
+    let cfg = azul_core::geolocation::GeolocationProbeConfig::default();
+    let mut perm = subscribed(Capability::Geolocation);
+    let mut geo = GeolocationManager::new();
+    geo.diff_layout(|emit| emit(cfg));
+    perm.note_gesture();
+    assert_eq!(subscribe_count(&perm.take_dispatchable()), 1);
+    let go = geo.take_admitted_events(|| perm.admit(Capability::Geolocation));
+    assert!(matches!(go.as_slice(), [GeolocationDiffEvent::Subscribe { .. }]), "{go:?}");
+    assert_eq!(perm.admit(Capability::Camera), Admission::Hold, "another capability needs its own click");
+}
+
+#[test]
 fn the_settings_target_is_one_page_per_platform_and_none_on_linux() {
     use SettingsPlatform::*;
     for capability in Capability::ALL {

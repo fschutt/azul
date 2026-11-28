@@ -143,7 +143,8 @@ pub fn pump(lw: &mut LayoutWindow) -> bool {
         changed |= lw.permission_manager.set_status(capability, state);
     }
     // The platforms' QUIET read of the capabilities in use - the ones an app asked the state of and
-    // the ones with a probe node (it never prompts) - once a second: the OS knows more than the
+    // the ones with a probe node (it never prompts) - at most once a second, with each pass the loop
+    // runs (it arms no timer of its own; the window coming back from the settings is a pass): the OS knows more than the
     // manager (a switch the user flipped in the settings, a camera a backend opened on its own)
     // and `get_permission_status` reads the manager. An app that asks nothing reads nothing.
     // A Subscribe that waits for the user's gesture is looked at again, sooner: the state the read
