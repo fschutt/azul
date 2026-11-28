@@ -60,6 +60,7 @@ contains
   ! dropped a value these bindings cannot build: `StyleDirectionValue` is an ABI-opaque blob in the Fortran bindings (no constructor)
   ! dropped a value these bindings cannot build: `StyleTextDecorationColorValue` is an ABI-opaque blob in the Fortran bindings (no constructor)
   ! dropped a value these bindings cannot build: `StyleTextDecorationThicknessValue` is an ABI-opaque blob in the Fortran bindings (no constructor)
+  ! dropped a value these bindings cannot build: `StyleTextDecorationStyleValue` is an ABI-opaque blob in the Fortran bindings (no constructor)
   ! dropped a value these bindings cannot build: `StyleTextUnderlineOffsetValue` is an ABI-opaque blob in the Fortran bindings (no constructor)
   ! dropped a value these bindings cannot build: `StyleTextUnderlinePositionValue` is an ABI-opaque blob in the Fortran bindings (no constructor)
   ! dropped a value these bindings cannot build: `StyleHyphenationLanguageValue` is an ABI-opaque blob in the Fortran bindings (no constructor)
@@ -70,7 +71,7 @@ contains
     type(AzCssPropertyWithConditionsVec) :: r
     type(AzStyleFontFamily), target :: t1(2)
     type(AzStyleFontFamily), target :: t2(1)
-    type(AzCssPropertyWithConditions), target :: t3(21)
+    type(AzCssPropertyWithConditions), target :: t3(24)
     t1(1) = az_style_font_family_system(azul_string('Arial'))
     t1(2) = az_style_font_family_system(azul_string('sans-serif'))
     t2(1) = az_style_font_family_system(azul_string('caption'))
@@ -90,12 +91,15 @@ contains
     t3(14) = az_css_property_with_conditions_simple(az_css_property_tab_size(AzStyleTabSize(inner=az_pixel_value_em(4.0_c_float))))
     t3(15) = az_css_property_with_conditions_simple(az_css_property_user_select(StyleUserSelect_None))
     t3(16) = az_css_property_with_conditions_simple(az_css_property_text_decoration(StyleTextDecoration_Underline))
-    t3(17) = az_css_property_with_conditions_simple(az_css_property_caret_color(AzCaretColor(inner=AzColorU(r_=-1_c_int8_t, g=0_c_int8_t, b=0_c_int8_t, a=-1_c_int8_t))))
-    t3(18) = az_css_property_with_conditions_simple(az_css_property_caret_animation_duration(AzCaretAnimationDuration(inner=AzCssDuration(inner=500_c_int32_t, unit=CssDurationUnit_Milliseconds))))
-    t3(19) = az_css_property_with_conditions_simple(az_css_property_selection_background_color(AzSelectionBackgroundColor(inner=AzColorU(r_=51_c_int8_t, g=-103_c_int8_t, b=-1_c_int8_t, a=-1_c_int8_t))))
-    t3(20) = az_css_property_with_conditions_simple(az_css_property_selection_color(AzSelectionColor(inner=AzColorU(r_=-1_c_int8_t, g=-1_c_int8_t, b=-1_c_int8_t, a=-1_c_int8_t))))
-    t3(21) = az_css_property_with_conditions_simple(az_css_property_font(az_style_font_family_vec_copy_from_ptr(c_loc(t2(1)), 1_c_size_t)))
-    r = az_css_property_with_conditions_vec_copy_from_ptr(c_loc(t3(1)), 21_c_size_t)
+    t3(17) = az_css_property_with_conditions_simple(az_css_property_initial(CssPropertyType_TextDecorationStyle))
+    t3(18) = az_css_property_with_conditions_simple(az_css_property_initial(CssPropertyType_TextDecorationColor))
+    t3(19) = az_css_property_with_conditions_simple(az_css_property_initial(CssPropertyType_TextDecorationThickness))
+    t3(20) = az_css_property_with_conditions_simple(az_css_property_caret_color(AzCaretColor(inner=AzColorU(r_=-1_c_int8_t, g=0_c_int8_t, b=0_c_int8_t, a=-1_c_int8_t))))
+    t3(21) = az_css_property_with_conditions_simple(az_css_property_caret_animation_duration(AzCaretAnimationDuration(inner=AzCssDuration(inner=500_c_int32_t, unit=CssDurationUnit_Milliseconds))))
+    t3(22) = az_css_property_with_conditions_simple(az_css_property_selection_background_color(AzSelectionBackgroundColor(inner=AzColorU(r_=51_c_int8_t, g=-103_c_int8_t, b=-1_c_int8_t, a=-1_c_int8_t))))
+    t3(23) = az_css_property_with_conditions_simple(az_css_property_selection_color(AzSelectionColor(inner=AzColorU(r_=-1_c_int8_t, g=-1_c_int8_t, b=-1_c_int8_t, a=-1_c_int8_t))))
+    t3(24) = az_css_property_with_conditions_simple(az_css_property_font(az_style_font_family_vec_copy_from_ptr(c_loc(t2(1)), 1_c_size_t)))
+    r = az_css_property_with_conditions_vec_copy_from_ptr(c_loc(t3(1)), 24_c_size_t)
   end function style_text
 
   ! CSS: .shorthands

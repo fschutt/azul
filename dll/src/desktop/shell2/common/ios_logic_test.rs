@@ -456,3 +456,80 @@ fn a_finger_landing_while_another_is_still_down_is_never_primary() {
     // Nothing landed: nothing to decide.
     assert_eq!(primary_after_began(None, 0, &[]), None);
 }
+
+// ---- what a touch phase does to the mouse the engine mirrors it with (the touch slop and the cancelled gesture) ----
+
+use crate::desktop::shell2::android_core::slop::{Lift, Move};
+
+const LANDED: (f32, f32) = (40.0, 120.0);
+
+/// A finger that went down is a TAP CANDIDATE: until it has moved more than the slop it scrolls nothing and the pointer
+/// stays where it landed. The shell moved the pointer and the page by ANY move above a hundredth of a point, so a real
+/// finger's jitter scrolled the page and the click was lost whenever the node under the finger changed.
+#[test]
+fn a_move_inside_the_slop_leaves_the_pointer_where_the_finger_landed() {
+    let plan = mouse_plan(TouchPhase::Moved, true, Some(Move::Hold), None);
+    assert_eq!(plan.cursor, CursorPlan::Stay, "the pointer stays at the landing point");
+    assert_eq!(plan.left_down, None);
+    assert_eq!(plan.hit, HitPlan::Keep, "the hit test of the landing point stands");
+}
+
+#[test]
+fn the_move_that_crosses_the_slop_and_every_move_after_it_carry_the_pointer() {
+    for slop in [Some(Move::Start { delta: (3.0, 0.0) }), Some(Move::Follow), None] {
+        let plan = mouse_plan(TouchPhase::Moved, true, slop, None);
+        assert_eq!(plan.cursor, CursorPlan::Follow, "{slop:?}");
+        assert_eq!(plan.hit, HitPlan::AtCursor, "{slop:?}");
+    }
+}
+
+#[test]
+fn a_tap_lifts_as_a_click_where_the_finger_landed_not_where_the_jitter_left_it() {
+    let plan = mouse_plan(TouchPhase::Ended, true, None, Some(Lift::Click { at: Some(LANDED) }));
+    assert_eq!(plan.left_down, Some(false));
+    assert_eq!(plan.cursor, CursorPlan::At(LANDED));
+    assert_eq!(plan.hit, HitPlan::AtCursor);
+}
+
+#[test]
+fn a_contact_the_slop_does_not_apply_to_lifts_where_it_is() {
+    let plan = mouse_plan(TouchPhase::Ended, true, None, Some(Lift::Click { at: None }));
+    assert_eq!(plan.left_down, Some(false));
+    assert_eq!(plan.cursor, CursorPlan::Follow);
+    assert_eq!(plan.hit, HitPlan::AtCursor);
+}
+
+/// The end of a pan clicks nothing: the button comes up over NOTHING (the pointer leaves), as the end of an aborted
+/// gesture does.
+#[test]
+fn the_lift_of_a_pan_is_no_click() {
+    let plan = mouse_plan(TouchPhase::Ended, true, None, Some(Lift::Pan));
+    assert_eq!(plan.left_down, Some(false));
+    assert_eq!(plan.cursor, CursorPlan::Leave);
+    assert_eq!(plan.hit, HitPlan::Nowhere);
+}
+
+/// `touchesCancelled:` ("an event that the system cancelled, e.g. a system alert, the notification center, an incoming
+/// call"; UIResponder: "clean up any state") was an ENDED touch: the button came up over the node under the finger, which
+/// is a click - a finger the system took over, on a Delete button, deleted.
+#[test]
+fn a_cancelled_gesture_releases_the_button_over_nothing() {
+    let plan = mouse_plan(TouchPhase::Cancelled, true, None, None);
+    assert_eq!(plan.left_down, Some(false));
+    assert_eq!(plan.cursor, CursorPlan::Leave);
+    assert_eq!(plan.hit, HitPlan::Nowhere);
+}
+
+#[test]
+fn the_first_finger_presses_and_a_second_finger_is_nothing_to_the_mouse() {
+    let first = mouse_plan(TouchPhase::Began, true, None, None);
+    assert_eq!(first, MousePlan { left_down: Some(true), cursor: CursorPlan::Follow, hit: HitPlan::AtCursor });
+    for phase in [TouchPhase::Began, TouchPhase::Moved, TouchPhase::Ended, TouchPhase::Cancelled] {
+        let other = mouse_plan(phase, false, None, None);
+        assert_eq!(
+            other,
+            MousePlan { left_down: None, cursor: CursorPlan::Stay, hit: HitPlan::Keep },
+            "{phase:?} of a finger that is not the primary"
+        );
+    }
+}

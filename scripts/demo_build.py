@@ -23,6 +23,7 @@ import hashlib
 import json
 import os
 import pathlib
+import re
 import shutil
 import subprocess
 import sys
@@ -39,6 +40,24 @@ import demo_gate  # noqa: E402
 # ---------------------------------------------------------------------------------------------
 # small helpers
 # ---------------------------------------------------------------------------------------------
+def count_initializers(text):
+    """The number of entries `xcrun dyld_info -inits` lists: the lines that start with an address (`0x00024068  <anon-00024068>`)."""
+    return sum(1 for line in (text or "").splitlines() if re.match(r"^\s+0x[0-9A-Fa-f]+\s+\S", line))
+
+
+def apple_initializers(path, which=shutil.which):
+    """How many initializers an Apple binary lists (the entries of __init_offsets on iOS, of __mod_init_func on macOS), None where the
+    tool is not (a Linux or Windows runner) or fails. The generated ABI guard's load-time entry is one of them (dyld_info prints a Rust
+    function pointer anonymously): ONE is the expected evidence, none the failure to look for."""
+    if which("xcrun") is None:
+        return None
+    try:
+        p = subprocess.run(["xcrun", "dyld_info", "-inits", str(path)], capture_output=True, text=True, timeout=120)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return count_initializers(p.stdout) if p.returncode == 0 else None
+
+
 def sha256_of(path):
     h = hashlib.sha256()
     with open(path, "rb") as fh:
@@ -121,7 +140,8 @@ class Job:
         self.manifest = demo_apps.load()
         self.apps = {a["package"]: a for a in self.manifest["app"]}
 
-    def result(self, app, column, target, status, reason="", artifact=None, seconds=0, gate=None, first_error="", variant=""):
+    def result(self, app, column, target, status, reason="", artifact=None, seconds=0, gate=None, first_error="", variant="",
+               initializers=None, page_aligned_libs=None):
         r = {
             "app": app["package"], "column": column, "target": target, "status": status, "reason": reason,
             "artifact": None, "sha256": None, "size": None, "shipped_size": None, "seconds": int(seconds),
@@ -130,6 +150,10 @@ class Job:
         }
         if variant:     # a QA build (artifact only): its own file, never the shipped cell of the column
             r["variant"] = variant
+        if initializers is not None:   # an Apple binary: how many initializers dyld_info lists (one is the ABI guard's load-time entry)
+            r["initializers"] = int(initializers)
+        if page_aligned_libs is not None:   # an APK: how many of its libraries passed the 16 KiB check (every PT_LOAD aligned to 0x4000)
+            r["page_aligned_libs"] = int(page_aligned_libs)
         if artifact:
             p = pathlib.Path(artifact)
             r.update(artifact=p.name, sha256=sha256_of(p), size=p.stat().st_size, shipped_size=shipped_size(p))
@@ -276,7 +300,8 @@ def desktop(args, job):
             dst.unlink()
             job.drop_logs(jpath, epath)
             continue
-        job.result(app, leg, args.target, "built", seconds=time.time() - started, artifact=dst, gate=gate)
+        job.result(app, leg, args.target, "built", seconds=time.time() - started, artifact=dst, gate=gate,
+                   initializers=apple_initializers(dst) if leg.startswith("macos") else None)
         job.drop_logs(jpath, epath)
         if args.run_check:
             checks[pkg] = run_check(dst)
@@ -390,11 +415,12 @@ def phone(args, job, kind):
             shutil.rmtree(work, ignore_errors=True)
             continue
         dst = job.out / demo_apps.staged_name(app, column, e2e=bool(variant))
+        page_aligned = None
         try:
             if kind == "android":
                 abi = {"aarch64-linux-android": "arm64-v8a", "x86_64-linux-android": "x86_64"}[args.target]
                 apk = ROOT / "target" / "android-bundle" / f"{pkg}-{abi}" / "aligned.apk"
-                verify_apk(apk, abi)
+                page_aligned = verify_apk(apk, abi)
                 shutil.copy2(apk, dst)
             else:
                 app_dir = ROOT / "target" / "ios-bundle" / args.target / f"{pkg}.app"
@@ -409,13 +435,16 @@ def phone(args, job, kind):
             job.drop_logs(json_log, err_log)
             shutil.rmtree(work, ignore_errors=True)
             continue
-        job.result(app, column, args.target, "built", seconds=time.time() - started, artifact=dst, gate=gate, variant=variant)
+        job.result(app, column, args.target, "built", seconds=time.time() - started, artifact=dst, gate=gate, variant=variant,
+                   initializers=apple_initializers(ROOT / "target" / "ios-bundle" / args.target / f"{pkg}.app" / pkg) if kind == "ios" else None,
+                   page_aligned_libs=page_aligned)
         job.drop_logs(json_log, err_log)
         shutil.rmtree(work, ignore_errors=True)
 
 
 def verify_apk(apk, abi):
-    """What the phone checks before it runs anything (the old job's checks, kept)."""
+    """What the phone checks before it runs anything (the old job's checks, kept). Returns how many libraries of the APK passed the
+    16 KiB page check (it raises when one does not)."""
     if not apk.is_file():
         raise RuntimeError(f"no APK at {apk}")
     sdk = os.environ.get("ANDROID_HOME") or os.environ.get("ANDROID_SDK_ROOT") or ""
@@ -437,6 +466,7 @@ def verify_apk(apk, abi):
         badging = subprocess.run([str(bt / "aapt2"), "dump", "badging", str(apk)], capture_output=True, text=True).stdout
         if "launchable-activity" not in badging:
             raise RuntimeError("the APK declares no launchable activity")
+    return len(android_elf_check.libraries(str(apk)))
 
 
 # ---------------------------------------------------------------------------------------------
