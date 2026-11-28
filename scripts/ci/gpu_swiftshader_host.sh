@@ -92,6 +92,16 @@ for entry in $stacks; do
     grep -E "^\[probe\]" "$out/$name-$t.log" | cut -c1-260 | head -n 140
     [ -s "$out/gltrace-$name-$t.txt" ] && { grep -m3 -E "glGetString\(which=79(36|37|38)" "$out/gltrace-$name-$t.txt"; gzip -f "$out/gltrace-$name-$t.txt"; }
   done
+  # the page test once per single WebRender option (the same switches as AZ_GPU_EXPERIMENT on a phone): which of them makes the page draw like the CPU's
+  if [ "$name" = swiftshader ]; then
+    for exp in ${AZ_SW_EXPERIMENTS:-storage_off swizzle_off instancing_off upload_immediate no_program_cache clear_scissor_on clear_quads_off depth_off no_invalidate markers_off scatter_off disable_batching disable_clip}; do
+      echo "=== $name / page with AZ_GPU_EXPERIMENT=$exp"
+      runner=""; command -v xvfb-run >/dev/null 2>&1 && runner="xvfb-run -a"
+      env -u EGL_PLATFORM AZ_REQUIRE_GLES=1 AZ_GLES_HOST_TESTS=1 AZ_GPU_EXPERIMENT="$exp" AZ_GPU_PIXELS_DIR="$PWD/$out/pixels-$name" \
+        timeout 300 $runner env "${extra[@]}" LD_LIBRARY_PATH="$ld" "$bin" "desktop::shell2::common::gles_host_test::webrender_over_gles_draws_the_page_the_cpu_renderer_draws" --exact --test-threads=1 --nocapture >"$out/$name-page-$exp.log" 2>&1
+      grep -E "^page:|test result|experiment" "$out/$name-page-$exp.log" | cut -c1-260 | head -n 4
+    done
+  fi
 done
 ls -la "$out" | head -n 60
 echo "gpu swiftshader host: done"
