@@ -60,6 +60,14 @@ srcgate)
     step srcgate cargo test -p azul-srcgate --no-fail-fast
     guard srcgate
     ;;
+fonts)
+    # The font cache's tests and the source gates: for a change of those tests alone, after the whole `dll` half passed
+    # on the same production code.
+    step dll-fonts cargo test -p azul-dll --lib -- app_font_cache font_cache_guard font_instance_store
+    guard dll-fonts
+    step srcgate cargo test -p azul-srcgate --no-fail-fast
+    guard srcgate
+    ;;
 layout)
     sudo apt-get install -y -qq fonts-liberation fonts-dejavu-core > /dev/null 2>&1
     export AZ_REQUIRE_TEST_FONTS=1
