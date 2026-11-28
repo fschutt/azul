@@ -66,10 +66,19 @@ pub fn is_phone_window(touch: bool, width: f32, height: f32) -> bool {
     touch && (width < PHONE_MAX_WIDTH || height < PHONE_MAX_HEIGHT)
 }
 
-/// [`is_phone_window`] for this build's platform.
+/// [`is_phone_window`] for this build's platform and the window the layout callback is asked for.
+/// The size goes through the callback's RECORDED queries, so a resize that flips the answer builds
+/// the window again (reading the size itself would leave the DOM stale across exactly that
+/// resize); a desktop asks nothing, so no resize of its window rebuilds for this.
 #[must_use]
-pub fn phone_window(width: f32, height: f32) -> bool {
-    is_phone_window(cfg!(any(target_os = "android", target_os = "ios")), width, height)
+pub fn phone_window(info: &LayoutCallbackInfo) -> bool {
+    if !cfg!(any(target_os = "android", target_os = "ios")) {
+        return false;
+    }
+    // Both are asked every time, so both are recorded.
+    let narrow = info.window_width_less_than(PHONE_MAX_WIDTH);
+    let short = info.window_height_less_than(PHONE_MAX_HEIGHT);
+    narrow || short
 }
 
 #[cfg(test)]

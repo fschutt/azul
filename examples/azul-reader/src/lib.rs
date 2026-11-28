@@ -193,7 +193,7 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
     let theme = info.get_theme();
     let size = (info.get_window_width(), info.get_window_height());
     let safe = SafeInsets::of(&info);
-    let phone = phone_window(size.0, size.1);
+    let phone = phone_window(&info);
     let app = data.clone();
     if let Some(mut st) = data.downcast_mut::<AppState>() {
         st.dark = matches!(mode, DarkLightMode::Dark);

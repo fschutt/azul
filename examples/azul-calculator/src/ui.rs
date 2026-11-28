@@ -246,8 +246,15 @@ pub fn view_for_size(width: f32, height: f32) -> View {
 /// one only where the window can hold it (a phone has no tab for it).
 #[must_use]
 pub fn tab_pins(width: f32, height: f32) -> Vec<Pin> {
+    tab_pins_for(view_for_size(width, height) == View::Graph)
+}
+
+/// [`tab_pins`] for a window that can (`graph`) or cannot hold the graphing view: the layout
+/// callback learns that from its recorded size queries, not from the size itself.
+#[must_use]
+pub fn tab_pins_for(graph: bool) -> Vec<Pin> {
     let mut pins = vec![Pin::Standard, Pin::Programmer];
-    if width >= GRAPH_MIN_WIDTH && height >= GRAPH_MIN_HEIGHT {
+    if graph {
         pins.push(Pin::Graphing);
     }
     pins.push(Pin::Date);
@@ -1437,9 +1444,10 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
     let dark = matches!(info.get_mode(), DarkLightMode::Dark);
     let flora = info.get_theme().as_str().starts_with("flora");
     let look = Look { flora, dark };
-    let (width, height) = (info.get_window_width(), info.get_window_height());
+    // The window's size reaches this callback only through its recorded queries (a resize that
+    // flips one builds the window again).
     let by_size = view_of_window(&info);
-    let phone = azul_appkit::insets::phone_window(width, height);
+    let phone = azul_appkit::insets::phone_window(&info);
     let touch = cfg!(any(target_os = "android", target_os = "ios"));
     let safe = azul_appkit::insets::SafeInsets::of(&info);
     // The room the window's controls take at the top (a desktop's: the traffic lights, the
@@ -1451,7 +1459,7 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
     };
     let s = &mut *guard;
     s.phone = phone;
-    s.tab_pins = tab_pins(width, height);
+    s.tab_pins = tab_pins_for(by_size == View::Graph);
     let view = match s.pin.view() {
         // The graphing view in a window too small for it shows what the size alone would.
         Some(View::Graph) if by_size != View::Graph => by_size,
