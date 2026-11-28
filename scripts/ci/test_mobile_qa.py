@@ -527,6 +527,37 @@ class StartupLinesTests(unittest.TestCase):
         self.assertIsNone(q.median_start(["nothing"]))
 
 
+class PermissionDialogTests(unittest.TestCase):
+    APP = "com.azul.AzMeet"
+    CLEAN = ('<hierarchy><node package="com.azul.AzMeet" class="android.widget.Button" text="Mute" resource-id="" bounds="[0,0][10,10]"/></hierarchy>')
+    DIALOG = ('<hierarchy><node package="com.google.android.permissioncontroller" class="android.widget.Button" text="While using the app" '
+              'resource-id="com.android.permissioncontroller:id/permission_allow_foreground_only_button" bounds="[0,0][10,10]"/></hierarchy>')
+
+    def test_a_clean_screen_has_no_dialog(self):
+        self.assertIsNone(q.detect_permission_dialog("  mCurrentFocus=Window{1 u0 com.azul.AzMeet/com.azul.app.AzulActivity}", self.CLEAN, self.APP))
+
+    def test_the_permission_controller_in_front_is_a_dialog(self):
+        focus = "  mCurrentFocus=Window{9 u0 com.google.android.permissioncontroller/com.android.permissioncontroller.permission.ui.GrantPermissionsActivity}"
+        self.assertIn("focused window", q.detect_permission_dialog(focus, "", self.APP))
+
+    def test_its_buttons_in_the_dump_are_a_dialog_even_when_the_focus_line_is_missing(self):
+        self.assertIn("permission controller", q.detect_permission_dialog("", self.DIALOG, self.APP))
+
+    def test_an_allow_button_of_another_package_is_a_dialog_but_the_apps_own_is_not(self):
+        other = '<node package="com.android.systemui" class="android.widget.Button" text="Allow" resource-id="" />'
+        own = '<node package="com.azul.AzMeet" class="android.widget.Button" text="Allow" resource-id="" />'
+        self.assertIn("allow", q.detect_permission_dialog("", other, self.APP))          # the text is compared in lower case
+        self.assertIsNone(q.detect_permission_dialog("", own, self.APP))
+
+    def test_tccd_prompt_lines_of_the_app_are_found(self):
+        log = ("2026-11-28 01:00:00 tccd: AUTHREQ_PROMPTING: msgID=1.2, service=kTCCServiceCamera, subject=com.azul.AzMeet\n"
+               "2026-11-28 01:00:01 tccd: AUTHREQ_PROMPTING: msgID=1.3, service=kTCCServiceMicrophone, subject=com.other.app\n"
+               "2026-11-28 01:00:02 tccd: something else\n")
+        self.assertEqual(len(q.ios_permission_prompts(log, "com.azul.AzMeet")), 1)
+        self.assertEqual(len(q.ios_permission_prompts(log)), 2)
+        self.assertEqual(q.ios_permission_prompts("", "x"), [])
+
+
 class PickTargetTests(unittest.TestCase):
     # AzWidgets' real dump: the label above the field and the field carry the same name
     DUMP = ("<hierarchy>"

@@ -426,6 +426,39 @@ def node_checked(xml_text, label):
     return None
 
 
+PERMISSION_PACKAGES = ("permissioncontroller", "packageinstaller", "com.android.systemui:id/permission")
+PERMISSION_BUTTON_IDS = re.compile(r"permission_(allow|deny)[a-z_]*button|permission_message|grant_dialog|one_time_button", re.I)
+PERMISSION_TEXTS = ("allow", "don't allow", "dont allow", "while using the app", "only this time", "deny")
+
+
+def detect_permission_dialog(focus, ui_xml, package=""):
+    """Is a SYSTEM permission dialog on the screen of an app that was just started? `focus` = the window `dumpsys window` names as the focus,
+    `ui_xml` = a `uiautomator dump`. -> a short description of what shows, or None. A dialog is: the focused window belongs to the permission
+    controller (or the package installer), or the dump holds the controller's buttons (`permission_allow_button`, `permission_deny_button`, ...)
+    or a button of another package that says Allow / Don't allow / While using the app."""
+    focus = focus or ""
+    if any(w in focus.lower() for w in PERMISSION_PACKAGES) and package not in focus:
+        return f"the focused window is the system's: {focus.strip()[:100]}"
+    for m in re.finditer(r"<node\b([^>]*)>", ui_xml or ""):
+        attrs = dict(re.findall(r'([\w-]+)="([^"]*)"', m.group(1)))
+        pkg, rid, text = attrs.get("package", ""), attrs.get("resource-id", ""), (attrs.get("text") or attrs.get("content-desc") or "").strip().lower()
+        if "permissioncontroller" in pkg or PERMISSION_BUTTON_IDS.search(rid):
+            return f"the dump holds the permission controller's node {rid or pkg!r} {text!r}"
+        if package and pkg and pkg != package and attrs.get("class", "").endswith("Button") and text in PERMISSION_TEXTS:
+            return f"a button {text!r} of {pkg}"
+    return None
+
+
+def ios_permission_prompts(log_text, bundle=""):
+    """The lines of the Simulator's log (tccd, SpringBoard) that say a permission prompt was put up for `bundle` (or any app when it is empty):
+    tccd writes `AUTHREQ_PROMPTING` for a prompt it shows."""
+    found = []
+    for line in (log_text or "").splitlines():
+        if "AUTHREQ_PROMPTING" in line and (not bundle or bundle in line):
+            found.append(line.strip()[:200])
+    return found
+
+
 def pick_target(xml_text, label):
     """The centre (x, y) of the node of a `uiautomator dump` a person would TOUCH for `label`: of the nodes named `label` (text or
     content-desc) that have a box, the editable field (`EditText`) first, then a focusable or clickable one, then the first. A field and
@@ -1166,6 +1199,11 @@ def android_scenarios(args):
         state["portrait"] = dev.look(s, "portrait")
         dev.alive_and_front(s)
         dev.no_crash_since(s, mark)
+        # a fresh install, nothing granted: no system permission dialog may stand over the app 5 s after its first frame
+        dev.settle(2.0)
+        dev.sh("uiautomator dump /sdcard/qa-perm.xml", timeout=40)
+        dialog = detect_permission_dialog(dev.sh("dumpsys window | grep -E 'mCurrentFocus'"), dev.sh("cat /sdcard/qa-perm.xml"), args.package)
+        s.check("no system permission dialog stands over the app 5 s after its first frame (a fresh install, nothing granted)", dialog is None, dialog or "")
         # what the app costs when nothing happens
         pid = dev.pid()
         if pid:
@@ -2141,6 +2179,11 @@ def ios_scenarios(args):
         panics = [ln for ln in (err_txt + out_txt).splitlines() if "panicked" in ln or "unexpected panic" in ln or "FATAL" in ln]
         s.check("the console shows no panic", not panics, panics[0][:200] if panics else "")
         s.note(f"console: {len(out_txt.splitlines())} stdout lines, {len(err_txt.splitlines())} stderr lines")
+        # a fresh install, nothing granted: tccd must not have put up a permission prompt for the app (its log says AUTHREQ_PROMPTING)
+        dev.settle(2.0)
+        rc, tcc = dev.simctl("spawn", args.udid, "log", "show", "--last", "2m", "--predicate", 'process == "tccd"', "--style", "compact", timeout=120)
+        prompts = ios_permission_prompts(tcc if rc == 0 else "", args.bundle)
+        s.check("no permission prompt was put up for the app after a fresh install (tccd's log)", not prompts, prompts[0] if prompts else "", required=False)
 
     run.step("03-cold-start", "start the app from nothing: first frame, portrait picture, no panic, no crash report", s_cold)
 
