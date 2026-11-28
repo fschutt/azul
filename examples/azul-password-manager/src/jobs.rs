@@ -776,7 +776,7 @@ pub extern "C" fn on_close_requested(mut data: RefAny, mut info: CallbackInfo) -
 /// The screen locked or the machine is about to sleep: the vault locks with it, as a
 /// password manager's does. An unlock or a wake leaves it locked.
 pub extern "C" fn on_session_change(mut data: RefAny, mut info: CallbackInfo) -> Update {
-    use azul::events::SessionChange;
+    use azul::dom::SessionChange;
     let locking = matches!(
         info.get_session_change().into_option(),
         Some(SessionChange::Locked | SessionChange::WillSleep)
