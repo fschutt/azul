@@ -443,6 +443,58 @@ fn the_notification_event_op_queues_a_click_an_action_and_a_dismissal_with_their
     assert!(event("e1-launch").launched_app);
 }
 
+/// The app's life, as a phone's shell reports it, reaches the mailbox the dll's event pass runs the app's handler
+/// from: every event the op names is queued, in order, whatever its spelling.
+#[test]
+fn the_simulate_lifecycle_op_queues_the_events_the_apps_handler_will_hear() {
+    use azul_core::lifecycle::LifecycleEvent;
+
+    let app = notification_app();
+    let (result, _runner) = super::run_e2e_test_in_app(&every_step(
+        "lifecycle_events",
+        serde_json::json!([
+            { "op": "simulate_lifecycle", "event": "paused" },
+            { "op": "simulate_lifecycle", "event": "low-memory" },
+            { "op": "simulate_lifecycle", "event": "Resumed" },
+            { "op": "simulate_lifecycle", "event": "will_terminate" }
+        ]),
+    ), &app);
+    let events = app.lifecycle.drain_lifecycle_events();
+
+    assert_eq!(result.status, "pass", "{:#?}", step_errors(&result));
+    assert_eq!(
+        events,
+        vec![
+            LifecycleEvent::Paused,
+            LifecycleEvent::LowMemory,
+            LifecycleEvent::Resumed,
+            LifecycleEvent::WillTerminate
+        ]
+    );
+}
+
+/// A typo'd event is refused by name, with the known ones, and nothing is queued for it.
+#[test]
+fn an_unknown_lifecycle_event_is_refused_by_name_and_nothing_is_queued() {
+    let app = notification_app();
+    let (result, _runner) = super::run_e2e_test_in_app(&every_step(
+        "lifecycle_event_refusals",
+        serde_json::json!([
+            { "op": "simulate_lifecycle", "event": "backgrounded" },
+            { "op": "simulate_lifecycle", "event": "" }
+        ]),
+    ), &app);
+    let events = app.lifecycle.drain_lifecycle_events();
+
+    let errors = step_errors(&result);
+    assert_eq!(errors.len(), 2, "both steps are refused: {errors:#?}");
+    assert!(
+        errors[0].contains("backgrounded") && errors[0].contains("low_memory"),
+        "the unknown event is named, with the known ones: {errors:#?}"
+    );
+    assert!(events.is_empty(), "nothing was queued: {events:#?}");
+}
+
 /// A typo'd kind, an action without its button id and a missing id are
 /// refused by name, and nothing is queued for them.
 #[test]

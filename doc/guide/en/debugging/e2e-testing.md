@@ -251,6 +251,8 @@ Under `AZ_BACKEND=headless` the notification backend records what the app posts 
 
 The in-crate headless runner (`azul-doc e2e`) has no notification service: there `notification_event` only queues the event, and nothing runs it.
 
+- `simulate_lifecycle` (param: `event`, one of `paused`, `resumed`, `low_memory`, `will_terminate`). Reports the app's life as a phone's shell does: the event is queued and the dll's event pass runs the handler the app set with `CallbackInfo::set_lifecycle_handler`, which reads it with `CallbackInfo::get_lifecycle_event`, before the next `wait_frame` completes. An app without a handler hears nothing; an unknown `event` fails the step. The in-crate headless runner has no event pass: there the event only waits in the mailbox.
+
 ## Step results
 
 Each step returns:
