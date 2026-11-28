@@ -123,8 +123,10 @@ fn a_protected_store_is_never_a_weaker_one() {
     // its record cannot be written (never an item an app cannot tell from a plain one).
     in_order(store, "set_generic_password_options(", "write_meta(", "store");
     at(store, "let _ = delete_item(service, key);", "store");
-    // An unprotected store drops a stale meta record: it would make the plain item read as a protected one.
+    // An unprotected store drops a stale meta record: it would make the plain item read as a protected one. And an item
+    // that was protected is deleted first (a delete never asks for the check, an update of a bound item can).
     in_order(store, "set_generic_password(service, key, secret)", "delete_item(&meta_service(service), key)", "store");
+    in_order(store, "read_meta(service, key)", "set_generic_password(service, key, secret)", "store");
     // Only iOS binds items: macOS needs the keychain-access-groups entitlement an unsigned build lacks.
     at(body(&code, "const fn can_bind_items("), "cfg!(target_os = \"ios\")", "can_bind_items");
 }

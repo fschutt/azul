@@ -203,8 +203,12 @@ fn result_of(outcome: Outcome, stored: KeyringResult) -> KeyringResult {
 
 fn store(service: &str, key: &str, secret: &[u8], protection: KeyringProtection, interaction: Interaction) -> KeyringResult {
     let Some(level) = level_of(protection) else {
-        // Unprotected: any interaction. A stale meta record (the key was protected once) goes: it would make the
-        // plain item read as a protected one.
+        // Unprotected: any interaction. An item that was protected once is REPLACED, not updated in place (the update of a
+        // bound item can ask for the check, and a delete never does); its meta record goes after the new item is in:
+        // it would make the plain item read as a protected one.
+        if read_meta(service, key).is_some() {
+            let _ = delete_item(service, key);
+        }
         return match set_generic_password(service, key, secret) {
             Ok(()) => {
                 let _ = delete_item(&meta_service(service), key);
