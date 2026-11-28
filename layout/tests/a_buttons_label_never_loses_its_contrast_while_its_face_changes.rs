@@ -185,6 +185,25 @@ fn press(lw: &mut LayoutWindow) {
     }
 }
 
+/// The window lays its page out again, as it does when its size or its insets move: over the styled DOM
+/// it holds (no rebuild), its display list built anew from that DOM's styles.
+fn relayout(lw: &mut LayoutWindow) {
+    let ws = lw.current_window_state.clone();
+    let styled = lw
+        .layout_results
+        .remove(&DomId::ROOT_ID)
+        .map(|result| result.styled_dom)
+        .expect("laid out");
+    lw.layout_and_generate_display_list(
+        styled,
+        &ws,
+        &RendererResources::default(),
+        &ExternalSystemCallbacks::rust_internal(),
+        &mut None,
+    )
+    .expect("the page lays out again");
+}
+
 /// One frame of the animation driver: the clock steps by `dt`, then the frame does the work the tick
 /// says it owes, as the shells do it.
 fn frame(lw: &mut LayoutWindow, dt: f32) {
@@ -193,6 +212,8 @@ fn frame(lw: &mut LayoutWindow, dt: f32) {
         ProcessEventResult::ShouldUpdateDisplayListCurrentWindow => {
             lw.regenerate_display_list_for_dom(DomId::ROOT_ID);
         }
+        // A press moves a box by a pixel: the frame owes the relayout the shells do.
+        ProcessEventResult::ShouldIncrementalRelayout => relayout(lw),
         ProcessEventResult::ShouldReRenderCurrentWindow | ProcessEventResult::DoNothing => {}
         other => panic!("a face fade moves no box, yet its frame owes {other:?}"),
     }
@@ -308,25 +329,91 @@ enum Face {
     Any,
 }
 
-/// The page `first` that the app rebuilds as `next`, under `theme`: for each node `which` names in the new
-/// page, the time its face takes and the frames of the change. `pressed`: the buttons were held down when
-/// the app rebuilt.
-#[allow(clippy::too_many_arguments)] // one change: what, in which theme, mode and scale, how, and what to watch
-fn the_change(
+/// How one run of a change is set up.
+#[derive(Debug, Clone, Copy)]
+struct Run {
     theme: UiTheme,
-    first: Dom,
-    next: Dom,
     dark: bool,
     scale: f32,
+    /// The buttons were held down when the app rebuilt (a click leaves them so).
     pressed: bool,
+    /// How many times the app rebuilt, a frame apart (its layout asked for again right after the first).
+    rebuilds: usize,
+    /// How many times the window laid the page out again while it faded, a frame apart (its size or its
+    /// insets moved: a phone's bars hide when the preset is on).
+    relayouts: usize,
+}
+
+impl Run {
+    fn name(self) -> String {
+        format!(
+            "{:?}, {}, scale {}{}{}{}",
+            self.theme,
+            if self.dark { "dark" } else { "light" },
+            self.scale,
+            if self.pressed { ", held down" } else { "" },
+            if self.rebuilds > 1 { format!(", rebuilt {} times", self.rebuilds) } else { String::new() },
+            if self.relayouts > 0 { format!(", laid out again {} times", self.relayouts) } else { String::new() }
+        )
+    }
+}
+
+/// The runs of `dark`, `pressed` and `rebuilds` in every theme at every scale of `scales`.
+fn runs(dark: bool, pressed: bool, rebuilds: usize, scales: &[f32]) -> Vec<Run> {
+    THEMES
+        .iter()
+        .flat_map(|theme| {
+            scales.iter().map(move |scale| Run {
+                theme: *theme,
+                dark,
+                scale: *scale,
+                pressed,
+                rebuilds,
+                relayouts: 0,
+            })
+        })
+        .collect()
+}
+
+/// What a change showed: the frames of each watched node, and what the SETTLED page showed that a page
+/// built in the new state does not.
+struct Changed {
+    nodes: Vec<(f32, Vec<Row>)>,
+    unsettled: Vec<String>,
+}
+
+/// Two colours a rounding apart.
+fn alike(a: ColorU, b: ColorU) -> bool {
+    a.r.abs_diff(b.r) <= 2 && a.g.abs_diff(b.g) <= 2 && a.b.abs_diff(b.b) <= 2
+}
+
+/// The page `first` that the app rebuilds as `next`, as `run` says: for each node `which` names in the new
+/// page, the time its face takes and the frames of the change; and, once everything has settled, whether
+/// the picture is the one of a page that was built in the new state (the face and the label of each watched
+/// node), which a fade that was never finished, or a list that was patched and then rebuilt from stale
+/// values, is not.
+fn the_change(
+    run: Run,
+    first: &dyn Fn() -> Dom,
+    next: &dyn Fn() -> Dom,
     expect: Face,
-    which: impl Fn(&LayoutWindow) -> Vec<NodeId>,
-) -> Vec<(f32, Vec<Row>)> {
-    let mut lw = window(theme, first, dark, scale);
-    if pressed {
+    which: &dyn Fn(&LayoutWindow) -> Vec<NodeId>,
+) -> Changed {
+    let mut lw = window(run.theme, first(), run.dark, run.scale);
+    if run.pressed {
         press(&mut lw);
     }
-    rebuild(&mut lw, next);
+    rebuild(&mut lw, next());
+    for _ in 1..run.rebuilds {
+        // The app's layout is asked for again a frame later (the window state the first rebuild changed).
+        frame(&mut lw, 1.0 / 60.0);
+        rebuild(&mut lw, next());
+    }
+    for _ in 0..run.relayouts {
+        // The window lays the page out again while it fades (its insets moved).
+        frame(&mut lw, 1.0 / 60.0);
+        relayout(&mut lw);
+    }
     let nodes = which(&lw);
     assert!(!nodes.is_empty(), "harness: the page has the nodes whose label is watched");
     let totals: Vec<f32> = nodes.iter().map(|n| face_ms(&lw, *n)).collect();
@@ -362,7 +449,26 @@ fn the_change(
         frame(&mut lw, 1.0 / 60.0);
         ms += 1000.0 / 60.0;
     }
-    totals.into_iter().zip(frames).collect()
+    // Settled: the same page, built in the new state, is the picture the change must end in.
+    // (Not for a button held down: the states a rebuild carries over are a question of their own.)
+    let fresh = window(run.theme, next(), run.dark, run.scale);
+    let mut unsettled = Vec::new();
+    for (i, node) in nodes.iter().enumerate().filter(|_| !run.pressed) {
+        let (ground, fresh_ground) = (face(&lw, *node), face(&fresh, *node));
+        let (ink, fresh_ink) = (label(&lw, *node, ground), label(&fresh, *node, fresh_ground));
+        if !alike(ground, fresh_ground) || !alike(ink, fresh_ink) {
+            unsettled.push(format!(
+                "node {i}: settled on a face #{:02x}{:02x}{:02x} with a label #{:02x}{:02x}{:02x}, a page built in the \
+                 new state shows #{:02x}{:02x}{:02x} with #{:02x}{:02x}{:02x}",
+                ground.r, ground.g, ground.b, ink.r, ink.g, ink.b, fresh_ground.r, fresh_ground.g, fresh_ground.b,
+                fresh_ink.r, fresh_ink.g, fresh_ink.b
+            ));
+        }
+    }
+    Changed {
+        nodes: totals.into_iter().zip(frames).collect(),
+        unsettled,
+    }
 }
 
 /// The frames of a change, one line each: when (and how far into the face's time), the ink, the face,
@@ -385,14 +491,16 @@ fn report(total: f32, frames: &[Row]) -> String {
         .join("\n")
 }
 
-/// Every frame of every node of the change reads at 3:1 or better: nothing when it does, else one line
-/// for the node whose worst frame reads the worst (when, how far into the face's time, the pair).
+/// Every frame of every node of the change reads at 3:1 or better, and the page ends as a page built in the
+/// new state looks: nothing when both hold, else a line for the node whose worst frame reads the worst (when,
+/// how far into the face's time, the pair) and a line for each node that did not settle where it should.
 /// `AZ_TEST_SHOW_FRAMES=1` prints every frame of every change.
-fn breach_of(what: &str, changes: &[(f32, Vec<Row>)]) -> Option<String> {
+fn breach_of(what: &str, changed: &Changed) -> Option<String> {
     let show = std::env::var_os("AZ_TEST_SHOW_FRAMES").is_some();
+    let mut lines: Vec<String> = Vec::new();
     let mut worst: Option<String> = None;
     let mut worst_ratio = FLOOR;
-    for (which, (total, frames)) in changes.iter().enumerate() {
+    for (which, (total, frames)) in changed.nodes.iter().enumerate() {
         if show {
             eprintln!("{what}, node {which}: the face takes {total:.0} ms\n{}", report(*total, frames));
         }
@@ -411,14 +519,17 @@ fn breach_of(what: &str, changes: &[(f32, Vec<Row>)]) -> Option<String> {
             }
         }
     }
-    worst
+    lines.extend(worst);
+    lines.extend(changed.unsettled.iter().map(|line| format!("{what}, {line}")));
+    (!lines.is_empty()).then(|| lines.join("\n"))
 }
 
 /// The test fails with every breach listed (a matrix of changes is read whole, not one failure at a time).
 fn no_breach(breaches: &[String]) {
     assert!(
         breaches.is_empty(),
-        "{} change(s) take the label under {FLOOR}:1 at some frame (AZ_TEST_SHOW_FRAMES=1 prints the frames):\n{}",
+        "{} change(s) break the floor of {FLOOR}:1 or do not settle as a page built in the new state \
+         (AZ_TEST_SHOW_FRAMES=1 prints the frames):\n{}",
         breaches.len(),
         breaches.join("\n")
     );
@@ -440,110 +551,102 @@ const KINDS: [ButtonType; 8] = [
     ButtonType::Illuminated,
 ];
 
-/// A button of kind `from` that the app rebuilds as one of kind `to`, under `theme`: the breach, if any.
-fn button_becomes(
-    theme: UiTheme,
-    from: ButtonType,
-    to: ButtonType,
-    dark: bool,
-    scale: f32,
-    pressed: bool,
-    expect: Face,
-) -> Option<String> {
+/// A phone's scale, alone: the runs that vary the way the app rebuilds do not repeat at every scale.
+const PHONE: [f32; 1] = [2.625];
+
+/// A button of kind `from` that the app rebuilds as one of kind `to`, as `run` says: the breach, if any.
+fn button_becomes(run: Run, from: ButtonType, to: ButtonType, expect: Face) -> Option<String> {
     let button = |kind: ButtonType| move || Button::with_type(AzString::from("Go"), kind).dom();
-    let changes = the_change(
-        theme,
-        page(theme, button(from)),
-        page(theme, button(to)),
-        dark,
-        scale,
-        pressed,
+    let changed = the_change(
+        run,
+        &|| page(run.theme, button(from)),
+        &|| page(run.theme, button(to)),
         expect,
-        |lw| nodes_with_class(lw, &["__azul-native-button"]),
+        &|lw| nodes_with_class(lw, &["__azul-native-button"]),
     );
-    breach_of(
-        &format!("{theme:?}: {from:?} becomes {to:?} (dark: {dark}, scale {scale}, pressed: {pressed})"),
-        &changes,
-    )
+    breach_of(&format!("{}: {from:?} becomes {to:?}", run.name()), &changed)
 }
 
 /// A row of three pills whose selection moves from the first to the second: the first stops being
 /// the stone, the second becomes it. The breach, if any.
-fn selection_moves(theme: UiTheme, style: TabStyle, dark: bool, scale: f32, pressed: bool) -> Option<String> {
+fn selection_moves(run: Run, style: TabStyle) -> Option<String> {
     let row = |active: usize| {
         move || {
             TabHeader::create(StringVec::from_vec(
                 ["Home", "Insert", "Design"].iter().map(|s| AzString::from(*s)).collect(),
             ))
             .with_active_tab(active)
-            .with_theme(theme)
+            .with_theme(run.theme)
             .with_style(style)
             .dom()
         }
     };
-    let changes = the_change(theme, page(theme, row(0)), page(theme, row(1)), dark, scale, pressed, Face::Fades, |lw| {
+    let changed = the_change(
+        run,
+        &|| page(run.theme, row(0)),
+        &|| page(run.theme, row(1)),
+        Face::Fades,
         // The first two pills: the one that was the stone and the one that becomes it.
-        nodes_with_class(
-            lw,
-            &["__azul-native-tabs-tab-active", "__azul-native-tabs-tab-not-active"],
-        )
-        .into_iter()
-        .take(2)
-        .collect()
-    });
-    breach_of(
-        &format!("{theme:?}: the selection of a {style:?} row moves (dark: {dark}, scale {scale}, pressed: {pressed})"),
-        &changes,
-    )
+        &|lw| {
+            nodes_with_class(
+                lw,
+                &["__azul-native-tabs-tab-active", "__azul-native-tabs-tab-not-active"],
+            )
+            .into_iter()
+            .take(2)
+            .collect()
+        },
+    );
+    breach_of(&format!("{}: the selection of a {style:?} row moves", run.name()), &changed)
 }
 
 /// A segmented control of three segments whose selection moves from segment `from` to segment `to`: every
 /// segment is watched (the one that loses the selection, the one that gains it, the one that has none).
 /// The breach, if any.
-fn selection_of_segments_moves(theme: UiTheme, from: usize, to: usize, dark: bool, scale: f32) -> Option<String> {
+fn selection_of_segments_moves(run: Run, from: usize, to: usize) -> Option<String> {
     let control = |selected: usize| {
         move || {
             let mut control = Segmented::create(StringVec::from_vec(
                 ["Day", "Week", "Month"].iter().map(|s| AzString::from(*s)).collect(),
             ))
-            .with_theme(theme);
+            .with_theme(run.theme);
             control.segmented_state.inner.selected_index = selected;
             control.dom()
         }
     };
-    let changes = the_change(
-        theme,
-        page(theme, control(from)),
-        page(theme, control(to)),
-        dark,
-        scale,
-        false,
+    let changed = the_change(
+        run,
+        &|| page(run.theme, control(from)),
+        &|| page(run.theme, control(to)),
         Face::Instant,
-        |lw| nodes_with_class(lw, &["__azul-native-segmented-item"]),
+        &|lw| nodes_with_class(lw, &["__azul-native-segmented-item"]),
     );
     breach_of(
-        &format!(
-            "{theme:?}: the selection of a segmented control moves from {from} to {to} (dark: {dark}, scale {scale})"
-        ),
-        &changes,
+        &format!("{}: the selection of a segmented control moves from {from} to {to}", run.name()),
+        &changed,
     )
+}
+
+/// Every kind of button that becomes every other, in each of `runs`.
+fn every_kind_becomes_every_other(set: &[Run]) -> Vec<String> {
+    let mut breaches = Vec::new();
+    for run in set {
+        for from in KINDS {
+            for to in KINDS {
+                if from != to {
+                    breaches.extend(button_becomes(*run, from, to, Face::Any));
+                }
+            }
+        }
+    }
+    breaches
 }
 
 #[test]
 fn a_button_that_becomes_primary_is_never_a_light_label_on_a_light_face() {
     let mut breaches = Vec::new();
-    for theme in THEMES {
-        for scale in SCALES {
-            breaches.extend(button_becomes(
-                theme,
-                ButtonType::Default,
-                ButtonType::Primary,
-                false,
-                scale,
-                false,
-                Face::Fades,
-            ));
-        }
+    for run in runs(false, false, 1, &SCALES) {
+        breaches.extend(button_becomes(run, ButtonType::Default, ButtonType::Primary, Face::Fades));
     }
     no_breach(&breaches);
 }
@@ -551,48 +654,40 @@ fn a_button_that_becomes_primary_is_never_a_light_label_on_a_light_face() {
 #[test]
 fn a_button_that_stops_being_primary_is_never_a_dark_label_on_a_dark_face() {
     let mut breaches = Vec::new();
-    for theme in THEMES {
-        for scale in SCALES {
-            breaches.extend(button_becomes(
-                theme,
-                ButtonType::Primary,
-                ButtonType::Default,
-                false,
-                scale,
-                false,
-                Face::Fades,
-            ));
-        }
-    }
-    no_breach(&breaches);
-}
-
-/// Every kind of button that becomes every other, in `dark` or light, at every scale, `pressed` (held
-/// down, as a click leaves it) or not.
-fn every_kind_becomes_every_other(dark: bool, pressed: bool) {
-    let mut breaches = Vec::new();
-    for theme in THEMES {
-        for scale in SCALES {
-            for from in KINDS {
-                for to in KINDS {
-                    if from != to {
-                        breaches.extend(button_becomes(theme, from, to, dark, scale, pressed, Face::Any));
-                    }
-                }
-            }
-        }
+    for run in runs(false, false, 1, &SCALES) {
+        breaches.extend(button_becomes(run, ButtonType::Primary, ButtonType::Default, Face::Fades));
     }
     no_breach(&breaches);
 }
 
 #[test]
 fn a_button_keeps_its_label_readable_while_it_becomes_any_other_kind_of_button() {
-    every_kind_becomes_every_other(false, false);
+    no_breach(&every_kind_becomes_every_other(&runs(false, false, 1, &SCALES)));
 }
 
 #[test]
 fn a_button_that_is_held_down_when_the_app_rebuilds_keeps_its_label_readable_too() {
-    every_kind_becomes_every_other(false, true);
+    no_breach(&every_kind_becomes_every_other(&runs(false, true, 1, &PHONE)));
+}
+
+#[test]
+fn a_layout_that_is_asked_for_again_a_frame_later_ends_in_the_picture_of_the_new_state() {
+    let mut all = runs(false, false, 2, &PHONE);
+    all.extend(runs(false, true, 2, &PHONE));
+    no_breach(&every_kind_becomes_every_other(&all));
+}
+
+#[test]
+fn a_window_that_lays_its_page_out_again_while_the_faces_fade_ends_in_the_picture_of_the_new_state() {
+    // The phone path of the AzWidgets page (Android emulator, 2026-11-28): the faces of the rebuilt buttons
+    // were never repainted while their text colours were, for as long as the window was looked at.
+    let mut all = Vec::new();
+    for relayouts in [1, 3] {
+        for rebuilds in [1, 2] {
+            all.extend(runs(false, false, rebuilds, &PHONE).into_iter().map(|run| Run { relayouts, ..run }));
+        }
+    }
+    no_breach(&every_kind_becomes_every_other(&all));
 }
 
 #[test]
@@ -600,21 +695,25 @@ fn by_night_the_label_holds_the_floor_in_every_change_too() {
     if pinned_by_env() {
         return;
     }
-    every_kind_becomes_every_other(true, false);
-    every_kind_becomes_every_other(true, true);
+    let mut all = runs(true, false, 1, &SCALES);
+    all.extend(runs(true, true, 1, &PHONE));
+    all.extend(runs(true, false, 2, &PHONE));
+    all.extend(runs(true, true, 2, &PHONE));
+    no_breach(&every_kind_becomes_every_other(&all));
 }
 
 #[test]
 fn the_pills_of_a_tab_row_keep_their_labels_while_the_selection_moves() {
     let mut breaches = Vec::new();
-    for theme in THEMES {
-        for scale in SCALES {
-            for pressed in [false, true] {
-                breaches.extend(selection_moves(theme, TabStyle::Pills, false, scale, pressed));
-                if !pinned_by_env() {
-                    breaches.extend(selection_moves(theme, TabStyle::Pills, true, scale, pressed));
-                }
-            }
+    for dark in [false, true] {
+        if dark && pinned_by_env() {
+            continue;
+        }
+        let mut all = runs(dark, false, 1, &SCALES);
+        all.extend(runs(dark, true, 1, &PHONE));
+        all.extend(runs(dark, true, 2, &PHONE));
+        for run in all {
+            breaches.extend(selection_moves(run, TabStyle::Pills));
         }
     }
     no_breach(&breaches);
@@ -623,13 +722,13 @@ fn the_pills_of_a_tab_row_keep_their_labels_while_the_selection_moves() {
 #[test]
 fn the_segments_of_a_segmented_control_read_in_both_states_and_in_both_themes() {
     let mut breaches = Vec::new();
-    for theme in THEMES {
-        for scale in SCALES {
+    for dark in [false, true] {
+        if dark && pinned_by_env() {
+            continue;
+        }
+        for run in runs(dark, false, 1, &SCALES) {
             for (from, to) in [(0, 1), (1, 0), (1, 2), (2, 0)] {
-                breaches.extend(selection_of_segments_moves(theme, from, to, false, scale));
-                if !pinned_by_env() {
-                    breaches.extend(selection_of_segments_moves(theme, from, to, true, scale));
-                }
+                breaches.extend(selection_of_segments_moves(run, from, to));
             }
         }
     }
