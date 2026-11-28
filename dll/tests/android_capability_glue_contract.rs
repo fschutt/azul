@@ -175,27 +175,45 @@ fn the_retained_frame_goes_on_a_new_surface_before_the_layout() {
 
 /// `Url::open` answered `false` on Android for every URL with no log line (core spawns `open` / `xdg-open` /
 /// `rundll32`, and a phone has none): an app could not open a page, nor send a user who refused a permission for good to the
-/// settings (AN-15). api.json's `Url.open` calls `unified::url_opener::open`, which starts an activity through
-/// `AzulUrl.open` on Android (a new task, an `ActivityNotFoundException` is `false`), where `azul-settings:app` is the
-/// app's own page in the system settings; a headless or scripted test run starts nothing, as on the desktop.
+/// settings (AN-15), and `CallbackInfo::open_app_settings` answered `Unsupported`. Core's `opener_command` has an arm for
+/// Android as for iOS (the "program" `android:open-url`, a link only), `spawn_opener` hands it to `azul_android_open_url`, which
+/// the shell defines (`desktop::extra::url_opener`) and which starts an activity through `AzulUrl.open` (a new task, an
+/// `ActivityNotFoundException` is `false`); `azul-settings:app` and the permission manager's `android-settings:app-details` are
+/// the app's own page in the system settings; a headless or scripted test run starts nothing, as on the desktop. ONE route: api.json's
+/// `Url.open` is core's `object.open()` again.
 ///
-/// Mutation: api.json's body back to `object.open()` (the state of 6ce827b284).
+/// Mutation: the `"android"` arm of `opener_command` removed (the state of 6ce827b284).
 #[test]
 fn a_url_opens_on_android_and_the_app_can_open_its_settings() {
+    let core = rust_code("core/src/url.rs");
+    assert!(
+        core.contains("\"android\"if!is_path=>Some((ANDROID_OPEN_PROGRAM,alloc::vec![target])),"),
+        "core: a link on Android goes to the shell's hook, a path has no opener"
+    );
+    assert!(core.contains("constANDROID_OPEN_PROGRAM:&str=\"android:open-url\";"));
+    assert!(
+        core.contains("#[cfg(all(feature=\"std\",target_os=\"android\"))]extern\"Rust\"{fnazul_android_open_url(url:&str)->bool;}"),
+        "core declares the hook the shell defines"
+    );
+    let spawn = body(&core, "fnspawn_opener(target:&str,is_path:bool)->bool{");
+    let hook = spawn.find("program==ANDROID_OPEN_PROGRAM").expect("spawn_opener names the Android program");
+    let call = spawn.find("azul_android_open_url(url)").expect("and calls the shell's hook");
+    let process = spawn.find("std::process::Command::new(program)").expect("a process for the others");
+    assert!(hook < call && call < process, "the hook is asked before a process is spawned");
+
     let api = read("api.json");
     let doc = api
         .find("\"Opens this URL in the system's default browser.\"")
         .expect("api.json: Url.open");
     let body_at = doc + api[doc..].find("\"fn_body\"").expect("its body");
     let line = &api[body_at..body_at + api[body_at..].find('\n').unwrap()];
-    assert!(line.contains("azul_dll::unified::url_opener::open(object)"), "Url.open goes through the platform's opener: {line}");
-
-    let unified = rust_code("dll/src/unified/url_opener.rs");
-    let open = body(&unified, "pubfnopen(url:&azul_core::url::Url)->bool{");
-    assert!(open.contains("crate::desktop::extra::url_opener::open(url.href.as_str())"), "the Android arm");
-    assert!(open.contains("url.open()"), "everywhere else it is core's opener, as it was");
+    assert!(line.contains("\"object.open()\""), "Url.open is core's opener, which has the Android hook: {line}");
 
     let rust = rust_code("dll/src/desktop/extra/url_opener.rs");
+    assert!(
+        rust.contains("#[cfg(target_os=\"android\")]#[no_mangle]pubfnazul_android_open_url(url:&str)->bool{open(url)}"),
+        "the shell defines the hook core declares"
+    );
     let started = body(&rust, "pubfnopen(href:&str)->bool{");
     let hooks = started.find("azul_core::run_mode::test_hooks().open_nothing").expect("a scripted run starts nothing");
     let call = started.find("\"com/azul/url/AzulUrl\"").expect("the Java opener");
@@ -212,6 +230,20 @@ fn a_url_opens_on_android_and_the_app_can_open_its_settings() {
         "the app's own settings page"
     );
     assert!(java.contains("public static final String APP_SETTINGS = \"azul-settings:app\";"));
+    assert!(
+        java.contains("public static final String APP_DETAILS = \"android-settings:app-details\";")
+            && open.contains("APP_SETTINGS.equals(url) || APP_DETAILS.equals(url)"),
+        "the permission manager's name for the page opens it as well"
+    );
+    // Once the permission manager names the settings page of each platform (`settings_url`), the name it gives Android is one the
+    // Java opener answers to.
+    let manager = rust_code("layout/src/managers/permission.rs");
+    if manager.contains("fnsettings_url(") {
+        assert!(
+            manager.contains("SettingsPlatform::Android=>Some(\"android-settings:app-details\"),"),
+            "the permission manager's name for the settings page of Android"
+        );
+    }
 }
 
 /// `PowerState::query` answered `(None, None)` on Android: on mains false and idle 0 for ever, on the charger too

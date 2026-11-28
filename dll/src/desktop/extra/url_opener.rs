@@ -2,8 +2,13 @@
 //!
 //! `azul_core::url::Url::open` starts `open` / `xdg-open` / `rundll32`; Android has none of them (it answered `false`,
 //! with no log line, for every URL). A link is opened by starting an ACTIVITY: `AzulUrl.open(activity, url)`
-//! (scripts/android/AzulUrl.java) does it and answers whether one was started. `azul-settings:app` is the app's own
-//! page in the system settings (where an app sends a user who refused a permission for good).
+//! (scripts/android/AzulUrl.java) does it and answers whether one was started. `azul-settings:app` (and
+//! `android-settings:app-details`, the name of the permission manager) is the app's own page in the system settings (where an
+//! app sends a user who refused a permission for good).
+//!
+//! `Url::open` reaches this through the hook core declares for Android (`azul_android_open_url`, defined below, as iOS has
+//! `azul_ios_open_url`): every caller of `Url::open` in the engine and in an app - the C API's `Url.open`, the permission
+//! manager's `CallbackInfo::open_app_settings`, a link of a widget - starts the activity, not only one route.
 //!
 //! A headless or scripted TEST run (`run_mode::test_hooks().open_nothing`) starts nothing and answers `true`, as the
 //! desktop opener does: a test must never pop the system settings of the device it runs on.
@@ -53,4 +58,12 @@ pub fn open(href: &str) -> bool {
             false
         }
     }
+}
+
+/// The hook of `azul_core::url::Url::open` for Android (`extern "Rust" { fn azul_android_open_url }` in core): `true` once an
+/// activity was started for `url`. `Context.startActivity` may be called from any thread, so this runs on the caller's.
+#[cfg(target_os = "android")]
+#[no_mangle]
+pub fn azul_android_open_url(url: &str) -> bool {
+    open(url)
 }
