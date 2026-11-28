@@ -43,7 +43,7 @@ tests() {
   local code=0
   # the tests of this work by name: the module names carry them
   cargo test -p azul-css -p azul-core -p azul-layout --lib --features "$features" --no-fail-fast -- \
-    accessibility text_scale prop_cache_motion system_style_event preference_watch 2>&1 | tee a11y-tests.txt
+    accessibility text_scale prop_cache_motion system_style_event system_style_notice reduced_motion_tween presentation preference_watch 2>&1 | tee a11y-tests.txt
   code=${PIPESTATUS[0]}
   return "$code"
 }
