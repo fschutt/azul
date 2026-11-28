@@ -279,6 +279,32 @@ def ledger_table(reports, device_name):
     return "\n".join(lines) + "\n"
 
 
+def crash_reports_since(directory, executable, since):
+    """The crash reports (`<executable>-<date>.ips` / `.crash`) of the app that appeared in `directory` after `since` (seconds): a launch
+    that dies leaves one on the host the Simulator runs on, and it names the frame."""
+    found = []
+    try:
+        for path in sorted(Path(directory).glob(f"{executable}*")):
+            if path.suffix in (".ips", ".crash") and path.stat().st_mtime >= since:
+                found.append(path)
+    except OSError:
+        pass
+    return found
+
+
+def collect_crash_reports(executable, since, out):
+    """Copy the crash reports of this run into `out/crash/` (a copy: nothing is moved or deleted). -> the names."""
+    import shutil
+
+    copied = []
+    for path in crash_reports_since(Path.home() / "Library" / "Logs" / "DiagnosticReports", executable, since):
+        dest = out / "crash"
+        dest.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(path, dest / path.name)
+        copied.append(path.name)
+    return copied
+
+
 def sh(argv, timeout=120, check=False):
     try:
         p = subprocess.run(argv, capture_output=True, text=True, timeout=timeout)
@@ -455,6 +481,7 @@ def main(argv):
         sh(["xcrun", "simctl", "bootstatus", udid, "-b"], timeout=300)
     sh(["xcrun", "simctl", "install", udid, str(app)], timeout=300, check=True)
     findings, summary, reports = [], [], {}
+    started_at = time.time()
     first, second, held = fonts_proof(udid, bundle, out)
     print("\n================ font cache (two launches after the install) ================")
     for n, lines in ((1, first), (2, second)):
@@ -491,6 +518,9 @@ def main(argv):
             findings.append("[fresh] the app asked the system for a permission by itself on a fresh install: "
                             + " | ".join(result["asked"][:4]))
         summary.append(f"{name}: {len(result['report'].get('rows', []))} rows")
+    crashes = collect_crash_reports(app.stem, started_at, out)
+    if crashes:
+        findings.append(f"the app crashed during this job: {', '.join(crashes)} (copied to {out}/crash/)")
     print("\n================ summary ================")
     if note:
         summary.append(f"device: {note}")

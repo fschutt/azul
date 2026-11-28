@@ -150,6 +150,27 @@ class Ledger(unittest.TestCase):
         self.assertIn("| sensors.geolocation | - | PASS | no |", md)
 
 
+class Crashes(unittest.TestCase):
+    def test_only_the_reports_of_this_app_after_the_start_are_found(self):
+        import os
+        import tempfile
+        import time
+
+        with tempfile.TemporaryDirectory() as d:
+            d = pathlib.Path(d)
+            (d / "AzSelfTest-2026-11-28-040000.ips").write_text("crash")
+            (d / "AzSelfTest-2026-11-28-040001.txt").write_text("not a crash report")
+            (d / "Other-2026-11-28-040000.ips").write_text("another app")
+            old = d / "AzSelfTest-old.ips"
+            old.write_text("a crash of an earlier job")
+            os.utime(old, (time.time() - 3600, time.time() - 3600))
+            found = sim.crash_reports_since(d, "AzSelfTest", time.time() - 60)
+            self.assertEqual([p.name for p in found], ["AzSelfTest-2026-11-28-040000.ips"])
+
+    def test_a_missing_directory_is_no_crash(self):
+        self.assertEqual(sim.crash_reports_since("/nonexistent/dir", "AzSelfTest", 0), [])
+
+
 class Launch(unittest.TestCase):
     def test_the_app_environment_goes_through_the_simctl_child_prefix(self):
         env = sim.launch_env()
