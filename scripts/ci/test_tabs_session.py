@@ -123,6 +123,23 @@ class MatrixTextSizeTests(unittest.TestCase):
             self.assertIn("else", text[text.index("AZ_QA_TEXT_SIZES"):])
 
 
+class AuditJobTests(unittest.TestCase):
+    TEXT = (HERE / "audit_job.sh").read_text(encoding="utf-8")
+
+    def test_the_job_builds_the_e2e_variant_of_the_app_and_runs_the_audit_session_on_it(self):
+        self.assertIn("mobile-e2e", self.TEXT)
+        self.assertIn('"$app audit" audit', self.TEXT)
+        self.assertIn("demo-out/qa-audit", self.TEXT)
+
+    def test_the_script_is_valid_shell(self):
+        import subprocess
+        self.assertEqual(subprocess.run(["bash", "-n", str(HERE / "audit_job.sh")]).returncode, 0)
+
+    def test_the_audit_session_runs_an_app_script_for_azmaps_by_the_name_of_the_apk(self):
+        text = (HERE / "android_qa.sh").read_text(encoding="utf-8")
+        self.assertIn("AzMaps-*) ascript=maps", text)
+
+
 class MatrixRecordTests(unittest.TestCase):
     TEXT = (HERE / "ios_qa.sh").read_text(encoding="utf-8")
 

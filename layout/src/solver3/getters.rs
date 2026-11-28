@@ -7105,6 +7105,174 @@ pub fn collect_used_codepoints_all(styled_dom: &StyledDom) -> std::collections::
     out
 }
 
+/// What the faces registered in MEMORY ([`crate::text3::cache::FontManager::memory_families`]: the ones azul bundles, the
+/// ones the app ships with `AppConfig::add_font` and the ones it registers while it runs) do with the text of a DOM: the
+/// reason the layout needs the system's fonts, or `Draws` when it does not.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum MemoryFacesVerdict {
+    /// Every stack opens with faces in memory, and those draw every character.
+    Draws,
+    /// There is no text a face has to draw (spaces and control characters are no glyph).
+    NoText,
+    /// A stack opens with a family that has no face in memory (a system family, or a generic one): the stack's first.
+    SystemFamily(String),
+    /// The faces in memory of a stack do not draw the character `ch`: the stack's first family.
+    NotDrawn {
+        /// The first family of the stack.
+        family: String,
+        /// The first character of the text that none of the stack's faces in memory draws.
+        ch: char,
+    },
+}
+
+impl core::fmt::Display for MemoryFacesVerdict {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Self::Draws => f.write_str("the faces in memory draw the text"),
+            Self::NoText => f.write_str("no text a face has to draw"),
+            Self::SystemFamily(family) => write!(f, "the stack of \"{family}\" opens with a system family"),
+            Self::NotDrawn { family, ch } => write!(
+                f,
+                "U+{:04X} is not drawn by the faces in memory of the stack of \"{family}\"",
+                u32::from(*ch)
+            ),
+        }
+    }
+}
+
+/// The wait for the system's fonts that resolving the chains of `collected` owes, made before they are resolved: the host's
+/// [`crate::text3::cache::SystemFontsGate`] holds the layout until the families of every stack the faces in memory do not
+/// draw are in the font cache.
+///
+/// On a font cache MISS (the first start after an install, an OS update or a changed font) the registry's scan takes hundreds
+/// of milliseconds on a desktop and seconds on a phone, and the first frame used to wait for it whatever the app's text was
+/// set in (the startup timeline of 2026-11-28: iOS Simulator 3148 ms against 1151 ms on a hit). A DOM the faces in memory
+/// draw needs nothing the scan is looking for, and its layout goes on. The rule is CONSERVATIVE: each way it could say
+/// "yes" wrongly is closed, and a "no" only costs the wait of before. For every stack of the text, over the characters of
+/// the whole DOM (`chars`):
+///
+/// - A DOM with no text, or with none a face has to draw (spaces and control characters are no glyph), waits: an empty
+///   field still takes its line from a face, the system's.
+/// - A stack is read family by family up to the first one that is not a memory family. A stack that STARTS with a system
+///   family (or a generic one, `serif`, `system-ui`) waits: the system face would draw the characters it has before any
+///   memory face after it. Names after the memory families (`"Calmet UI", "EB Garamond", Georgia, serif`) cannot change the
+///   first frame when the memory faces cover the text: the resolver puts the memory faces first in the chain and a system
+///   face behind them.
+/// - The face of each leading family that the stack's weight and style ask for (the one the chain would draw with),
+///   together, must cover every character of the text with the cmap they were registered with: ONE character none of them
+///   draws makes the stack wait (a CJK character, an emoji, a symbol would fall to a system face).
+///
+/// Every DOM that is laid out asks, the first and a child's, and so does text that comes later: what the wait is for is
+/// asked where the chains are resolved. An installed copy of a family the app also ships (the memory face is the FALLBACK
+/// tier) is used when the scan has parsed it by then, and the shipped face draws otherwise.
+fn await_system_fonts<T: ParsedFontTrait>(
+    font_manager: &crate::text3::cache::FontManager<T>,
+    collected: &CollectedFontStacks,
+    chars: impl FnOnce() -> std::collections::BTreeSet<char>,
+) {
+    let Some(gate) = font_manager.system_fonts_gate.as_deref() else {
+        return;
+    };
+    if !gate.pending() {
+        return;
+    }
+    let wanted = chars_needing_a_glyph(&chars());
+    // The index the resolver matches names against: the faces registered while the app runs are in it.
+    let memory_families = font_manager
+        .registered_fonts
+        .with_runtime_faces(&font_manager.memory_families, &font_manager.fc_cache);
+    let mut needed: Vec<Vec<String>> = Vec::new();
+    let mut why: Option<MemoryFacesVerdict> = None;
+    for stack in collected.font_stacks.iter().filter(|stack| !stack.is_empty()) {
+        let key = FontChainKey::from_selectors(stack);
+        // The name as the stylesheet wrote it, without the quotes the parser keeps.
+        let first = || {
+            key.font_families
+                .first()
+                .map(|family| family.trim_matches(['"', '\'']).to_string())
+                .unwrap_or_default()
+        };
+        let verdict = if wanted.is_empty() {
+            MemoryFacesVerdict::NoText
+        } else {
+            match stack_verdict(&key.font_families, &key.request, &memory_families, &wanted) {
+                StackVerdict::Draws => continue,
+                StackVerdict::NoMemoryFamily => MemoryFacesVerdict::SystemFamily(first()),
+                StackVerdict::NotDrawn(ch) => MemoryFacesVerdict::NotDrawn { family: first(), ch },
+            }
+        };
+        why.get_or_insert(verdict);
+        if !needed.contains(&key.font_families) {
+            needed.push(key.font_families);
+        }
+    }
+    if let Some(why) = why {
+        gate.wait_for(&needed, &why.to_string());
+    }
+}
+
+/// The characters of `chars` a face has to draw: the ones that are no space, no control and no format character
+/// (`needs_own_glyph`, the question the chain's coverage is judged by).
+fn chars_needing_a_glyph(chars: &std::collections::BTreeSet<char>) -> Vec<char> {
+    chars
+        .iter()
+        .copied()
+        .filter(|c| crate::text3::cache::needs_own_glyph(*c))
+        .collect()
+}
+
+/// What the faces in memory of one stack do with the characters a face has to draw.
+enum StackVerdict {
+    /// They draw all of them.
+    Draws,
+    /// The stack opens with a family that has no face in memory.
+    NoMemoryFamily,
+    /// The first character none of them draws.
+    NotDrawn(char),
+}
+
+/// The memory faces the stack `font_families` OPENS with, at the weight and the style of `request`, against every
+/// character of `wanted` with the cmap they were registered with: the stack needs no face from the disk when they draw
+/// all of them, and the registry's scan of the system's fonts has nothing to say about it.
+///
+/// "Opens with": the families are read in order up to the first one that has no memory face (Primary or Fallback tier,
+/// the one `pick_memory_face` hands the chain); the faces picked for those, together, must cover every character.
+fn stack_verdict(
+    font_families: &[String],
+    request: &FontRequest,
+    memory_families: &HashMap<String, Vec<crate::text3::cache::MemoryFace>>,
+    wanted: &[char],
+) -> StackVerdict {
+    use crate::text3::cache::MemoryFontTier;
+
+    let mut leading: Vec<&crate::text3::cache::MemoryFace> = Vec::new();
+    for family in font_families {
+        let norm = rust_fontconfig::utils::normalize_family_name(family);
+        let Some(faces) = memory_families.get(&norm) else {
+            break;
+        };
+        let Some(face) = pick_memory_face(faces, request, MemoryFontTier::Primary)
+            .or_else(|| pick_memory_face(faces, request, MemoryFontTier::Fallback))
+        else {
+            break;
+        };
+        leading.push(face);
+    }
+    if leading.is_empty() {
+        return StackVerdict::NoMemoryFamily;
+    }
+    let undrawn = wanted.iter().find(|c| {
+        let cp = u32::from(**c);
+        !leading.iter().any(|face| {
+            face.font_match
+                .unicode_ranges
+                .iter()
+                .any(|range| cp >= range.start && cp <= range.end)
+        })
+    });
+    undrawn.map_or(StackVerdict::Draws, |c| StackVerdict::NotDrawn(*c))
+}
+
 /// Trim a [`FontFallbackChain`] down to the minimum set of `FontMatch`
 /// entries needed to cover `used_chars` (typically from
 /// [`collect_used_codepoints`]).
@@ -7994,6 +8162,11 @@ pub fn collect_and_resolve_font_chains_covering<T: ParsedFontTrait>(
     for font_ref in collected.font_refs.values() {
         font_manager.register_embedded_font(font_ref);
     }
+    await_system_fonts(font_manager, &collected, || {
+        let mut used_chars = collect_used_codepoints_all(styled_dom);
+        used_chars.extend(also.iter().copied());
+        used_chars
+    });
     resolve_collected_stacks_covering(
         &collected,
         fc_cache,
@@ -8028,6 +8201,7 @@ pub(crate) fn resolve_font_stacks_covering<T: ParsedFontTrait>(
         hash_to_index: HashMap::new(),
         font_refs: HashMap::new(),
     };
+    await_system_fonts(font_manager, &collected, || chars.clone());
     resolve_collected_stacks_covering(
         &collected,
         fc_cache,
