@@ -114,7 +114,7 @@ use azul::{
     },
     css::{ColorU, CssProperty, CssPropertyWithConditions, DarkLightMode, LayoutWidth, PixelValue, SystemColorRef},
     dom::{DomId, GeolocationProbeConfig, VirtualKeyCode},
-    misc::{Capability, PermissionState},
+    misc::{Capability, PermissionState, SettingsOpened},
     option::OptionString,
     prelude::*,
     sensor::SensorKind,
@@ -349,6 +349,8 @@ const NOTICE_SPOT_PHONE: &str = "position: absolute; left: 8px; right: 72px; bot
 const NOTICE: &str = "text-align: center; font-size: 12px; color: #ffffff; background: \
                       rgba(176,0,32,0.9); padding: 6px 10px; border-radius: 6px; @theme(flora) \
                       { color: #F4F2EA; background: rgba(126, 74, 66, 0.94); border-radius: 3px; }";
+/// The row of a toast's button: the button centred under the text.
+const NOTICE_ACTION: &str = "display: flex; flex-direction: row; justify-content: center; margin-top: 6px;";
 const LOCATION_DOT: &str = "width: 16px; height: 16px; background: #4285f4; border-radius: 8px; \
                             box-shadow: 0px 0px 0px 3px rgba(66,133,244,0.35); @theme(flora) { \
                             background: system:accent; box-shadow: 0px 0px 0px 3px \
@@ -462,6 +464,9 @@ struct MapState {
     mag_y: f32,
     has_mag: bool,
     locate_failed: bool,
+    /// The system refuses the location (asked and denied, or restricted): the toast says so and offers the way back,
+    /// the system's settings page of the permission. Cleared by the next press of the locate key.
+    location_denied: bool,
     locate_ticks: u32,
     /// The viewport changed and is not kept yet; ticks since the change.
     view_dirty: bool,
@@ -566,6 +571,7 @@ impl MapState {
         self.locating = !self.locating;
         if self.locating {
             self.locate_failed = false;
+            self.location_denied = false;
             self.locate_ticks = 0;
             self.notice.clear();
         }
@@ -1587,7 +1593,23 @@ fn screen(s: &MapState, app: &RefAny, dark: bool, insets: kit::TitleInsets) -> D
             .with_css(ATTRIBUTION)
             .with_child(Dom::create_span_with_text(credits)),
     );
-    if !s.notice.is_empty() {
+    if s.location_denied {
+        // The refusal of the location: the text, and the way back (a refused permission is not asked again).
+        let spot = if s.size.get().0 < COMPACT_WIDTH { NOTICE_SPOT_PHONE } else { NOTICE_SPOT };
+        root.add_child(
+            Dom::create_div()
+                .with_css(format!("{spot} {NOTICE}"))
+                .with_child(Dom::create_span_with_text(label("azmaps-location-denied").as_str()))
+                .with_child(
+                    Dom::create_div().with_css(NOTICE_ACTION).with_child(
+                        Button::create(label("azmaps-open-settings"))
+                            .with_on_click(app.clone(), on_open_location_settings as ButtonOnClickCallbackType)
+                            .dom()
+                            .with_id(ids::OPEN_SETTINGS),
+                    ),
+                ),
+        );
+    } else if !s.notice.is_empty() {
         let spot = if s.size.get().0 < COMPACT_WIDTH { NOTICE_SPOT_PHONE } else { NOTICE_SPOT };
         root.add_child(
             Dom::create_div()
@@ -2152,6 +2174,19 @@ extern "C" fn on_zoom_out(mut data: RefAny, _info: CallbackInfo) -> Update {
     with_map(&mut data, |s| s.zoom_by(-1.0))
 }
 
+/// The toast's "Open settings": the system's page of AzMaps' location permission, where a refusal is turned back (a refused
+/// permission is not asked again). A system with no such page (Linux) gets the text that says where to look instead of a
+/// button that does nothing.
+extern "C" fn on_open_location_settings(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    if matches!(info.open_app_settings(Capability::Geolocation), SettingsOpened::Opened) {
+        return Update::DoNothing;
+    }
+    with_map(&mut data, |s| {
+        s.location_denied = false;
+        s.notice = t_args("azmaps-settings-unsupported", &[]);
+    })
+}
+
 extern "C" fn on_locate(mut data: RefAny, mut info: CallbackInfo) -> Update {
     let fix = info
         .get_location_fix()
@@ -2267,6 +2302,11 @@ extern "C" fn tick(mut data: RefAny, mut info: TimerCallbackInfo) -> TimerCallba
     let mut search = None;
     let mut keep_view = None;
     if let Some(mut s) = data.downcast_mut::<MapState>() {
+        // The person allowed the location in the settings and came back: the toast that sent them there is done.
+        if s.location_denied && !location_refused {
+            s.location_denied = false;
+            changed = true;
+        }
         // The typeahead: the field's text, once the typing rested.
         if let Some((end, at)) = s.typed {
             if at.elapsed().as_millis() >= TYPEAHEAD_REST_MS {
@@ -2311,8 +2351,9 @@ extern "C" fn tick(mut data: RefAny, mut info: TimerCallbackInfo) -> TimerCallba
                         s.locating = false;
                         s.locate_failed = true;
                         if location_refused {
-                            // The system will not ask again by itself: the person turns it on in the settings.
-                            s.notice = t_args("azmaps-location-denied", &[]);
+                            // The system will not ask again by itself: the person turns it on in the settings, and the
+                            // toast has the button that opens them.
+                            s.location_denied = true;
                         }
                         changed = true;
                     }
@@ -2544,6 +2585,7 @@ pub fn start() {
         mag_y: 0.0,
         has_mag: false,
         locate_failed: false,
+        location_denied: false,
         locate_ticks: 0,
         view_dirty: false,
         view_idle_ticks: 0,

@@ -16,6 +16,8 @@ pub const CANVAS: AzString = AzString::from_const_str("__azwriter_canvas");
 pub const PAGES: AzString = AzString::from_const_str("__azwriter_pages");
 /// One A4 sheet (the class of every page's paper).
 pub const SHEET: AzString = AzString::from_const_str("__azwriter_sheet");
+/// What a blank sheet says ("Start writing...", with a caret): under the editor, gone with the first word.
+pub const PLACEHOLDER: AzString = AzString::from_const_str("__azwriter_placeholder");
 /// The empty state shown when no document is open.
 pub const EMPTY: AzString = AzString::from_const_str("__azwriter_empty");
 /// The backstage's list of documents.

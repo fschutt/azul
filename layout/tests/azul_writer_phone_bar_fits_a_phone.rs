@@ -1,10 +1,10 @@
-//! AzWriter's format bar on a phone: a row of 48 dp keys that scrolls sideways.
+//! AzWriter's keys on a phone: a row of 48 dp keys that scrolls sideways.
 //!
 //! The ribbon (a tab strip over a band of groups, its small keys 22 px tall) does not fit a phone: on the
 //! 411 dp emulator the tab strip and the groups ran out of the window on its right and the keys were no touch
-//! targets. In a window narrower than `PHONE_WIDTH` the app shows `phone_bar` in the ribbon's place: File, then
-//! the keys people use while they write, every one the engine's Button (48 dp on Android), in a row that
-//! scrolls sideways when it is longer than the screen.
+//! targets. In a window narrower than `PHONE_WIDTH` the app shows `phone_strip` (FILE, HOME, INSERT and VIEW as
+//! touch pills in the status bar's band) and under it `phone_bar`: the keys of the active tab, every one the
+//! engine's Button (48 dp on Android), in a row that scrolls sideways when it is longer than the screen.
 //!
 //! The app is an example crate this one cannot link, so this reads its SOURCE, the way
 //! `azul_paint_toolbar_fits_a_phone.rs` does: the row's style is the constant of
@@ -55,9 +55,8 @@ fn const_css(name: &str) -> String {
     panic!("the literal of {name} does not end");
 }
 
-/// The icons of `fn phone_bar` after File (undo, redo, bold, italic, underline, bullets, numbering,
-/// the three alignments, settings).
-const KEYS: [&str; 11] = [
+/// The icons of `fn home_keys` (undo, redo, bold, italic, underline, bullets, numbering, the three alignments).
+const HOME: [&str; 10] = [
     "undo",
     "redo",
     "format_bold",
@@ -68,15 +67,22 @@ const KEYS: [&str; 11] = [
     "format_align_left",
     "format_align_center",
     "format_align_right",
-    "settings",
 ];
 
-/// body > [bar > [File, the keys], page] in a window `width` x 800 with the style of an Android phone.
-fn lay_out(width: f32) -> LayoutWindow {
+/// The icons of `fn insert_keys` (the table, the page break, the line).
+const INSERT: [&str; 3] = ["table_chart", "insert_page_break", "horizontal_rule"];
+
+/// The icons of `fn view_keys` (the two layouts, the zoom, 100 %, the settings, About).
+const VIEW: [&str; 7] = ["print", "web", "zoom_in", "zoom_out", "fit_screen", "settings", "info"];
+
+/// The key sets of the three tabs.
+const KEY_SETS: [&[&str]; 3] = [&HOME, &INSERT, &VIEW];
+
+/// body > [bar > [the keys], page] in a window `width` x 800 with the style of an Android phone.
+fn lay_out(width: f32, keys: &[&str]) -> LayoutWindow {
     let mut bar = Dom::create_div().with_css(&const_css("PHONE_BAR")).with_id("bar".into());
-    bar.add_child(Button::create(AzString::from("File")).dom());
-    for icon in KEYS {
-        bar.add_child(Button::create(AzString::from("")).with_icon(AzString::from(icon)).dom());
+    for icon in keys {
+        bar.add_child(Button::create(AzString::from("")).with_icon(AzString::from(*icon)).dom());
     }
     let dom = Dom::create_body()
         .with_css("margin: 0px; width: 100%; height: 100%; display: flex; flex-direction: column;")
@@ -126,32 +132,34 @@ fn keys_of_the_bar(w: &LayoutWindow) -> (LogicalRect, Vec<LogicalRect>) {
 
 #[test]
 fn the_bar_is_the_width_of_the_screen_and_every_key_is_48_dp() {
-    for width in [360.0, 393.0, 411.0] {
-        let w = lay_out(width);
-        let (bar, keys) = keys_of_the_bar(&w);
-        assert!(
-            bar.origin.x >= -0.5 && bar.origin.x + bar.size.width <= width + 0.5,
-            "{width} dp: the bar runs from {} to {}",
-            bar.origin.x,
-            bar.origin.x + bar.size.width
-        );
-        assert_eq!(keys.len(), KEYS.len() + 1, "{width} dp: File and the keys are the bar's children");
-        for (index, key) in keys.iter().enumerate() {
+    for (set, icons) in KEY_SETS.iter().enumerate() {
+        for width in [360.0, 393.0, 411.0] {
+            let w = lay_out(width, icons);
+            let (bar, keys) = keys_of_the_bar(&w);
             assert!(
-                key.size.width >= 47.9 && key.size.height >= 47.9,
-                "{width} dp: key {index} is {} x {}",
-                key.size.width,
-                key.size.height
+                bar.origin.x >= -0.5 && bar.origin.x + bar.size.width <= width + 0.5,
+                "tab {set}, {width} dp: the bar runs from {} to {}",
+                bar.origin.x,
+                bar.origin.x + bar.size.width
             );
+            assert_eq!(keys.len(), icons.len(), "tab {set}, {width} dp: the keys are the bar's children");
+            for (index, key) in keys.iter().enumerate() {
+                assert!(
+                    key.size.width >= 47.9 && key.size.height >= 47.9,
+                    "tab {set}, {width} dp: key {index} is {} x {}",
+                    key.size.width,
+                    key.size.height
+                );
+            }
+            assert!(bar.size.height >= 48.0, "tab {set}, {width} dp: the bar is {} tall", bar.size.height);
         }
-        assert!(bar.size.height >= 48.0, "{width} dp: the bar is {} tall", bar.size.height);
     }
 }
 
 #[test]
 fn the_first_keys_are_on_the_screen_without_scrolling() {
     for (width, at_least) in [(360.0, 5), (393.0, 6), (411.0, 7)] {
-        let w = lay_out(width);
+        let w = lay_out(width, &HOME);
         let (_, keys) = keys_of_the_bar(&w);
         let visible = keys
             .iter()
@@ -166,7 +174,7 @@ fn the_first_keys_are_on_the_screen_without_scrolling() {
 
 #[test]
 fn the_keys_come_in_a_row_in_the_order_of_the_bar() {
-    let w = lay_out(411.0);
+    let w = lay_out(411.0, &HOME);
     let (bar, keys) = keys_of_the_bar(&w);
     for pair in keys.windows(2) {
         assert!(

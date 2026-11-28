@@ -80,6 +80,8 @@ pub mod ios_display;
 /// The engine's `DisplayFeatures` of an iOS display (the answer of `ios_display` in the shapes of the layout window), host-tested.
 pub mod ios_display_features;
 pub mod ios_logic;
+/// The SystemConfiguration symbols iOS marks unavailable that the iroh dependencies still reference (E63): the table the iOS shim defines.
+pub mod ios_system_configuration;
 pub mod layout;
 /// The runtime gate for every `log_*!` macro, plus RAII enter/exit spans.
 /// Logging is gated here by atomics — never by a cargo feature.

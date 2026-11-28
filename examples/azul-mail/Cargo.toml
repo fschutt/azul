@@ -72,6 +72,10 @@ microdns = "0.1"
 # the message stays micromail's. New in the tree: lettre and email_address only.
 lettre = { version = "0.11.23", default-features = false, features = ["smtp-transport", "rustls-no-provider", "webpki-roots"] }
 
+[target.'cfg(target_os = "android")'.dependencies]
+# The Android entry: the library starts the app when the activity loads it (lib.rs, android_ctor), as the other phone apps do.
+ctor = "0.2"
+
 [dev-dependencies]
 # The one temporary folder for tests (azul_storage::testing::TempDir), and the keyring a test reaches
 # (`azlin_keyring()`): a map of the process, never the owner's system keychain (X-TESTFIX-AZUL2-4).

@@ -166,7 +166,7 @@ mod tests {
     fn an_empty_or_missing_file_is_the_default_without_a_complaint() {
         assert_eq!(AppSettings::parse(""), (AppSettings::default(), None));
         assert_eq!(AppSettings::parse("{}").0, AppSettings::default());
-        assert_eq!(AppSettings::default().theme, Theme::Flat);
+        assert_eq!(AppSettings::default().theme, Theme::Flora, "every app starts in flora");
         assert_eq!(AppSettings::default().mode, ModePref::System);
     }
 
@@ -196,7 +196,7 @@ mod tests {
         assert!(problem.unwrap().contains("not a settings file"));
         let (s, problem) =
             AppSettings::parse(r#"{"theme": "neon", "mode": "dark", "values": {"a": "b"}}"#);
-        assert_eq!(s.theme, Theme::Flat, "an unknown theme is the default one");
+        assert_eq!(s.theme, Theme::default(), "an unknown theme is the default one");
         assert_eq!(s.mode, ModePref::Dark, "the rest of the file still counts");
         assert_eq!(s.get("a"), Some("b"));
         assert!(problem.unwrap().contains("neon"));

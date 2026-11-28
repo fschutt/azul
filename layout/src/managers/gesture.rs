@@ -142,7 +142,8 @@ pub type GestureDetectionConfig = GestureConfig;
 
 /// How far from each edge of the window the system takes a swipe, in logical pixels: the numbers of one kind of
 /// system gesture region ([`SystemGestureInsets`]).
-#[derive(Debug, Clone, Copy, PartialEq, Default)]
+#[derive(Debug, Default, Clone, Copy, PartialEq)]
+#[repr(C)]
 pub struct EdgeInsetsPx {
     /// From the left edge.
     pub left: f32,
@@ -177,7 +178,8 @@ impl EdgeInsetsPx {
 /// there should be moved in, or its rect excluded
 /// ([`crate::window::LayoutWindow::set_system_gesture_exclusion_rects`]). A shell fills it at window creation
 /// and whenever the insets change; a window nobody filled it for has no regions (the desktop).
-#[derive(Debug, Clone, Copy, PartialEq, Default)]
+#[derive(Debug, Default, Clone, Copy, PartialEq)]
+#[repr(C)]
 pub struct SystemGestureInsets {
     /// The edges where the system takes a swipe, and the app may ask it not to
     /// (`WindowInsets.getSystemGestureInsets`).
