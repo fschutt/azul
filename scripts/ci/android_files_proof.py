@@ -375,6 +375,95 @@ class Proof:
         self.expect("edited by AzSelfTest" in (stored or ""), "ShareLab's own file holds the line the app added", (stored or "")[:200])
         self.expect("# Edit me" in (stored or ""), "and the rest of the document is still there")
 
+    # ---- the system's pickers, driven the way a person does it ----
+
+    def tap_first(self, texts, resource_ids=(), seconds=30.0):
+        """Waits until one of `texts` (or one of `resource_ids`) is on the screen and taps it; -> what was tapped or ''."""
+        t0 = time.time()
+        while time.time() - t0 < seconds:
+            xml = self.ui()
+            for text in texts:
+                if self.dev.tap_node(xml, text=text):
+                    return text
+            for rid in resource_ids:
+                if self.dev.tap_node(xml, resource_id=rid):
+                    return rid
+            time.sleep(1.0)
+        return ""
+
+    def row_verdict(self, row_id, seconds=60.0):
+        """The `AZ_SELFTEST_ROW` line of `row_id` the app logs when the row ends, waited for; -> the dict or None."""
+        t0 = time.time()
+        while time.time() - t0 < seconds:
+            for row in row_lines(self.log()):
+                if row.get("id") == row_id:
+                    return row
+            time.sleep(1.0)
+        return None
+
+    def folder(self):
+        self.say("10. a folder the person grants: kept, used, and still there after a restart")
+        self.dev.sh("mkdir -p /sdcard/Documents/AzProof")
+        self.dev.sh("sh -c 'echo seed > /sdcard/Documents/AzProof/seed.txt'")
+        self.start_row("files.folder_grant")
+        focus = self.wait_focus(r"(?i)documentsui|PickActivity|picker", seconds=40)
+        self.expect(bool(focus), "the system's folder picker is on the screen", focus.strip()[:160])
+        if not focus:
+            self.shot("11-folder-no-picker")
+            return
+        time.sleep(2.0)
+        self.shot("11-folder-picker")
+        used = self.tap_first(["Use this folder", "USE THIS FOLDER"], ["com.android.documentsui:id/button_pick"], seconds=30)
+        self.expect(bool(used), "the picker offers to use the folder it opened at (Documents/AzProof)", used)
+        time.sleep(1.5)
+        self.shot("12-folder-allow")
+        allowed = self.tap_first(["Allow", "ALLOW"], ["android:id/button1"], seconds=20)
+        self.expect(bool(allowed), "and asks whether the app may use it", allowed)
+        row = self.row_verdict("files.folder_grant")
+        self.shot("13-folder-granted")
+        self.expect(row is not None and row.get("verdict") == "PASS", "the row used the granted folder: list, create, write, read, Exists, delete",
+                    json.dumps(row)[:400] if row else "no verdict")
+        # the grant is the SYSTEM's: after the app was killed and started again it is still one of its places
+        self.dev.sh(f"am force-stop {self.package}")
+        self.dev.adb("logcat", "-c")
+        self.dev.sh("setprop debug.az.selftest_rows files.folder_use")
+        time.sleep(1.0)
+        self.dev.sh(f"am start -n {self.package}/{APP_ACTIVITY}")
+        time.sleep(5.0)
+        self.dev.sh("input tap 20 200")
+        again = self.row_verdict("files.folder_use")
+        self.shot("14-folder-after-restart")
+        self.expect(again is not None and again.get("verdict") == "PASS", "after a restart the folder is still a place and works",
+                    json.dumps(again)[:400] if again else "no verdict")
+        self.dev.sh("rm -f /sdcard/Documents/AzProof/azul-selftest-*.txt")
+
+    def export(self):
+        self.say("11. save as: the answer comes after the bytes are written where the person chose")
+        self.dev.sh("rm -f /sdcard/Download/selftest-export.azt /sdcard/Documents/selftest-export.azt")
+        self.start_row("files.export")
+        focus = self.wait_focus(r"(?i)documentsui|PickActivity|picker|create", seconds=40)
+        self.expect(bool(focus), "the system's save dialog is on the screen", focus.strip()[:160])
+        if not focus:
+            self.shot("15-export-no-dialog")
+            return
+        time.sleep(2.0)
+        self.shot("15-export-dialog")
+        saved = self.tap_first(["Save", "SAVE"], ["com.android.documentsui:id/container_save", "com.android.documentsui:id/button_save"], seconds=25)
+        self.expect(bool(saved), "the dialog offers to save in the folder it opened in", saved)
+        row = self.row_verdict("files.export")
+        self.shot("16-export-done")
+        self.expect(row is not None and row.get("verdict") == "PASS", "the row was answered after the write", json.dumps(row)[:300] if row else "no verdict")
+        data = share_one_bytes()
+        found = ""
+        for path in ("/sdcard/Download/selftest-export.azt", "/sdcard/Documents/selftest-export.azt"):
+            size = (self.dev.sh(f"stat -c %s {path}") or "").strip()
+            if size == str(len(data)):
+                found = path
+        self.expect(bool(found), "the file is where the person chose, with the length of the bytes the app gave", found or "not found")
+        if found:
+            digest = (self.dev.sh(f"sha256sum {found}") or "").split()
+            self.expect(bool(digest) and digest[0] == sha256(data), "and with exactly those bytes", " ".join(digest)[:80])
+
     def provider_is_closed(self):
         self.say("4. the provider serves only the share's files")
         info = self.dev.sh(f"dumpsys package {self.package}")
@@ -405,7 +494,7 @@ def main(argv):
     ap.add_argument("--package", default="")
     ap.add_argument("--activity", default="")
     ap.add_argument("--lab-apk", default="", help="a built ShareLab (default: built here with scripts/ci/sharelab/build.sh)")
-    ap.add_argument("--only", default="", help="comma list of steps: share_one,share_many,open_with,provider,open_running,open_cold,send_many,write_back")
+    ap.add_argument("--only", default="", help="comma list of steps: share_one,share_many,open_with,provider,open_running,open_cold,send_many,write_back,folder,export")
     args, _unknown = ap.parse_known_args(argv)
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
@@ -430,11 +519,11 @@ def main(argv):
     dev.sh("input keyevent 82")
     proof = Proof(dev, out, package)
     steps = [s for s in (args.only.split(",") if args.only else
-                         ["share_one", "share_many", "open_with", "provider", "open_running", "open_cold", "send_many", "write_back"]) if s]
+                         ["share_one", "share_many", "open_with", "provider", "open_running", "open_cold", "send_many", "write_back", "folder", "export"]) if s]
     for step in steps:
         fn = {"share_one": proof.share_one, "share_many": proof.share_many, "open_with": proof.open_with,
               "provider": proof.provider_is_closed, "open_running": proof.open_running, "open_cold": proof.open_cold,
-              "send_many": proof.send_many, "write_back": proof.write_back}.get(step)
+              "send_many": proof.send_many, "write_back": proof.write_back, "folder": proof.folder, "export": proof.export}.get(step)
         if fn is None:
             print(f"unknown step {step}")
             return 2
