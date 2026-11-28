@@ -152,9 +152,19 @@ run dll_check dll_check
 apps() {
   local code=0
   cargo run -r -p azul-doc -- codegen all || return 1
+  # the apps link libazul over the C ABI: its debug build in a folder of its own, as the CI's lib tests have it
+  cargo build -p azul-dll --features build-dll || return 1
+  local cabi
+  cabi="$(mktemp -d)"
+  cp target/debug/libazul.so "$cabi/"
+  export AZ_LINK_PATH="$cabi"
   cargo check -p AzMaps -p AzCode --lib --tests || code=1
-  cargo test -p AzMaps -p AzCode --lib --no-fail-fast 2>&1 | tee apps-tests.txt
+  cargo test -p AzMaps --lib --no-fail-fast 2>&1 | tee azmaps-tests.txt
   [ "${PIPESTATUS[0]}" -eq 0 ] || code=1
+  ./scripts/zero_test_guard.sh --strict azmaps-tests.txt || code=1
+  cargo test -p AzCode --lib --no-fail-fast 2>&1 | tee azcode-tests.txt
+  [ "${PIPESTATUS[0]}" -eq 0 ] || code=1
+  ./scripts/zero_test_guard.sh --strict azcode-tests.txt || code=1
   return "$code"
 }
 run apps apps
