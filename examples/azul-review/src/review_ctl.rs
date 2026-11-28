@@ -74,22 +74,36 @@ pub fn stop_name() -> String {
     t_args("azreview-review-stop-name", &[("keys", Arg::from(shown(KEYS_TOGGLE)))])
 }
 
-/// Whether audio is being captured now: a session records AND the microphone is open (kept ready, or taking a dictation). The dot is red for
-/// this and for nothing else.
+/// Whether the session itself captures audio now: it records AND the microphone is open (kept ready, or taking a dictation).
 #[must_use]
 pub fn capturing(state: State, mic: Mic) -> bool {
     state == State::Recording && mic.is_open()
 }
 
-/// The dot of the key: red ONLY while audio is being captured (`capturing`), amber while the session is held, grey otherwise (a session that
-/// records with the microphone closed: it opens when the pen comes near).
+/// Whether ANY audio is being captured now: the session's microphone (`capturing`) or a voice clip (the Record key, or a press with the audio
+/// nib: both are the person's own act and have a level meter and a Stop recording key of their own). The dot is red for this and for nothing else.
 #[must_use]
-pub fn dot_css(state: State, capturing: bool) -> &'static str {
-    match (state, capturing) {
-        (State::Recording, true) => "background: system:danger;",
-        (State::Paused, _) => "background: system:warning;",
+pub fn audio_captured(state: State, mic: Mic, clip_records: bool) -> bool {
+    capturing(state, mic) || clip_records
+}
+
+/// The dot of the key: red whenever audio is captured, whatever the session says; amber while the session is held and nothing is captured; grey
+/// otherwise (a session that records with the microphone closed: it opens when the pen comes near).
+#[must_use]
+pub fn dot_css(state: State, captured: bool) -> &'static str {
+    match (state, captured) {
+        (_, true) => "background: system:danger;",
+        (State::Paused, false) => "background: system:warning;",
         _ => "background: system:separator;",
     }
+}
+
+/// The dot: decorative (the name of the key says the rest).
+fn dot(state: State, captured: bool) -> Dom {
+    Dom::create_div()
+        .with_id(ids::REVIEW_DOT)
+        .with_accessibility_info(AccessibilityInfo { role: AccessibilityRole::Nothing, ..AccessibilityInfo::create_default() })
+        .with_css(format!("width: 9px; height: 9px; border-radius: 5px; flex-shrink: 0; {}", dot_css(state, captured)).as_str())
 }
 
 const PILL: &str = "padding: 0px 8px; gap: 6px; background: system:control-background; border: 1px solid system:separator; \
@@ -107,26 +121,23 @@ pub fn pill(s: &AppState, data: &RefAny) -> Dom {
     let said = words(state, elapsed);
     let name = AzString::from(said.name.as_str());
     let mut group = Dom::create_div().with_id(ids::REVIEW_GROUP).with_css("display: flex; flex-direction: row; align-items: center; gap: 3px;");
+    // one red dot while ANY audio is captured: the session's microphone, or a voice clip that records with no session at all
+    let captured = audio_captured(state, s.voice.mic, s.recording.is_some());
     match state {
         State::Idle | State::Stopped => {
-            group.add_child(
-                ui::with_tip(ui::key(START, name.clone(), data.clone(), on_start as CallbackType), &name)
-                    .with_id(ids::REVIEW_STATE)
-                    .with_child(Dom::create_icon("mic").with_css("font-size: 14px;"))
-                    .with_child(Dom::create_span_with_text(said.text.as_str())),
-            );
+            let mut start = ui::with_tip(ui::key(START, name.clone(), data.clone(), on_start as CallbackType), &name).with_id(ids::REVIEW_STATE);
+            if captured {
+                start.add_child(dot(state, true));
+            }
+            start.add_child(Dom::create_icon("mic").with_css("font-size: 14px;"));
+            start.add_child(Dom::create_span_with_text(said.text.as_str()));
+            group.add_child(start);
         }
         State::Recording | State::Paused => {
-            let captured = capturing(state, s.voice.mic);
             group.add_child(
                 ui::with_tip(ui::key(PILL, name.clone(), data.clone(), on_pause as CallbackType), &name)
                     .with_id(ids::REVIEW_STATE)
-                    .with_child(
-                        Dom::create_div()
-                            .with_id(ids::REVIEW_DOT)
-                            .with_accessibility_info(AccessibilityInfo { role: AccessibilityRole::Nothing, ..AccessibilityInfo::create_default() })
-                            .with_css(format!("width: 9px; height: 9px; border-radius: 5px; flex-shrink: 0; {}", dot_css(state, captured)).as_str()),
-                    )
+                    .with_child(dot(state, captured))
                     .with_child(Dom::create_span_with_text(said.text.as_str())),
             );
             let stop = AzString::from(stop_name().as_str());

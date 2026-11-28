@@ -129,6 +129,8 @@ const NOT_WALKED: &[(&str, &str, &str)] = &[
     ("layout/src/managers/global_hotkey.rs", "AppJob", APP),
     ("layout/src/managers/global_hotkey.rs", "HotkeyDelivery", APP),
     ("layout/src/managers/tray_event.rs", "TrayDelivery", APP),
+    ("layout/src/managers/lifecycle.rs", "LifecycleDelivery", APP),
+    ("layout/src/managers/lifecycle.rs", "LifecycleEvents", APP),
     ("layout/src/callbacks.rs", "CallbackChange", IN_FLIGHT),
     ("layout/src/callbacks.rs", "MenuCallback", IN_FLIGHT),
     ("layout/src/thread.rs", "ThreadWriteBackMsg", IN_FLIGHT),
