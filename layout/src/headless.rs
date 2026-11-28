@@ -116,6 +116,10 @@ pub struct CpuHitTester {
     /// The nodes that take a press (a click, mouse or touch callback, a tab stop): what the touch
     /// hit-slop may widen ([`Self::touch_slop_hit`], [`crate::hit_slop`]).
     interactive: std::collections::BTreeSet<(DomId, NodeId)>,
+    /// Per dom, the places in `node_rects` of the entries that take a press (a scrollbar never does):
+    /// what [`Self::touch_slop_hit`] walks, so a touch on a page of thousands of boxes looks at the
+    /// few that listen.
+    interactive_entries: BTreeMap<DomId, Vec<usize>>,
     /// Print every query's hits, front to back: which node a click lands on, without a
     /// debugger (`WindowSettings::trace_hit`, `AZ_TRACE_HIT`; [`Self::set_trace`]).
     trace: bool,
@@ -2207,6 +2211,7 @@ impl CpuHitTester {
             index: BTreeMap::new(),
             baked_frames: std::collections::HashMap::new(),
             interactive: std::collections::BTreeSet::new(),
+            interactive_entries: BTreeMap::new(),
             trace: false,
         }
     }
@@ -2444,6 +2449,7 @@ impl CpuHitTester {
         let _p = crate::probe::Probe::span("cpu_hit_tester_rebuild");
         self.node_rects.clear();
         self.interactive.clear();
+        self.interactive_entries.clear();
         self.chains.clear();
         // chain 0 = empty
         self.chains.push(ChainNode {
@@ -2775,6 +2781,16 @@ impl CpuHitTester {
             let mut index = DomIndex::build(&entries, index_clips);
             index.split_framed(*dom_id, &self.chains);
             self.index.insert(*dom_id, index);
+            // The entries that take a press, in the order the list now has.
+            let listening: Vec<usize> = entries
+                .iter()
+                .enumerate()
+                .filter(|(_, e)| e.scrollbar.is_none() && self.interactive.contains(&(*dom_id, e.node_id)))
+                .map(|(i, _)| i)
+                .collect();
+            if !listening.is_empty() {
+                self.interactive_entries.insert(*dom_id, listening);
+            }
             self.node_rects.insert(*dom_id, entries);
         }
     }
@@ -2860,7 +2876,7 @@ impl CpuHitTester {
     ) -> Option<(DomId, NodeId, LogicalPosition)> {
         use crate::hit_slop::{effective_rect, pick, SlopCandidate};
 
-        if self.interactive.is_empty() || occluders.iter().any(|r| point_in_rect(position, r)) {
+        if self.interactive_entries.is_empty() || occluders.iter().any(|r| point_in_rect(position, r)) {
             return None;
         }
         // The boxes the touch is in, front to back: one of them being interactive is the normal
@@ -2885,12 +2901,12 @@ impl CpuHitTester {
         );
         points.stamps_of = stamps_of;
         let mut candidates: Vec<SlopCandidate<(DomId, NodeId)>> = Vec::new();
-        for (dom_id, entries) in &self.node_rects {
-            for entry in entries {
-                if entry.scrollbar.is_some()
-                    || entry.pointer_events_none
-                    || !self.interactive.contains(&(*dom_id, entry.node_id))
-                {
+        for (dom_id, listening) in &self.interactive_entries {
+            let Some(entries) = self.node_rects.get(dom_id) else {
+                continue;
+            };
+            for entry in listening.iter().filter_map(|i| entries.get(*i)) {
+                if entry.pointer_events_none {
                     continue;
                 }
                 let Some(point) = points.local(entry.chain).map(plane_point) else {
