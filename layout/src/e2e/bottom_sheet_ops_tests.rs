@@ -145,6 +145,7 @@ fn finger(from: f32, to_y: f32, step: f32) -> Vec<serde_json::Value> {
         y = if to_y < y { (y - step).max(to_y) } else { (y + step).min(to_y) };
         out.push(to(y));
         out.push(frame());
+        out.push(frame());
     }
     out
 }
@@ -157,7 +158,7 @@ fn mouse(op: &str, y: f32) -> serde_json::Value {
 fn a_finger_pulling_the_grip_up_moves_the_sheet_and_it_settles_on_the_nearest_detent() {
     // Down on the grip (y 686); 10 px up decides the drag (the sheet is 140 px tall: its top edge follows the finger), 12 px at a time
     // on to 500 (317 px), where the finger stops (150 ms) and lifts: nearer to half (400) than to the peek (130).
-    let mut steps = vec![frame(), height_is(130.0), down(686.0), frame(), to(676.0), frame(), height_is(140.0)];
+    let mut steps = vec![frame(), height_is(130.0), down(686.0), frame(), to(676.0), frame(), frame(), height_is(140.0)];
     steps.extend(finger(676.0, 500.0, 12.0));
     steps.extend([height_is(316.0), tick(150), up(), frame(), frame(), height_is(400.0)]);
     let (result, events) = run("sheet_pull", SheetDetent::Peek, &steps);
