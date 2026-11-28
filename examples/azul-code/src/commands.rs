@@ -725,7 +725,8 @@ pub extern "C" fn on_drive_done(mut app: RefAny, mut msg: RefAny, mut info: Call
             DriveOutcome::Read { key, result } => match result {
                 Ok(bytes) => {
                     let id = st.new_id();
-                    let mut doc = Doc::open(id, &root, &key, &bytes);
+                    let grammar = st.grammar();
+                    let mut doc = Doc::open(id, &root, &key, &bytes, &grammar);
                     println!("AZCODE_OPENED {key} {}", doc.line_count);
                     st.diag.say(&t_args("azcode-opened-file", &[("file", Arg::from(key.as_str()))]));
                     if let Some((ident, found)) = st.reveal.take() {

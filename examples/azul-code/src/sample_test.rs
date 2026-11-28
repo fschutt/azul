@@ -1,5 +1,5 @@
 use super::*;
-use crate::{buffer::TextBuffer, highlight::Highlighter, highlight::syntax_for};
+use crate::{buffer::TextBuffer, highlight::{Grammar, Highlighter}};
 
 #[test]
 fn huge_rs_has_a_hundred_thousand_lines_and_reads_back() {
@@ -21,7 +21,7 @@ fn huge_rs_has_a_hundred_thousand_lines_and_reads_back() {
 #[test]
 fn the_sample_sources_highlight_as_rust() {
     let b = TextBuffer::from_text(MAIN_RS);
-    let mut h = Highlighter::new(syntax_for("main.rs", ""));
+    let mut h = Highlighter::new(Grammar::load(), "main.rs", "");
     let text_of = |i: usize| b.line(i);
     for line in 0..b.line_count() {
         assert!(h.line_spans(line, &text_of).is_some());

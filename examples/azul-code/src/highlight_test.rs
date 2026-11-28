@@ -1,7 +1,7 @@
 use super::*;
 
-fn rust() -> &'static SyntaxReference {
-    syntax_for("main.rs", "")
+fn rust() -> Highlighter {
+    Highlighter::new(Grammar::load(), "main.rs", "")
 }
 
 fn source(text: &str) -> impl Fn(usize) -> String {
@@ -18,7 +18,7 @@ fn kind_at(spans: &[CodeSpan], byte: u32) -> TokenKind {
 
 #[test]
 fn a_rust_line_has_keyword_function_and_string_runs() {
-    let mut h = Highlighter::new(rust());
+    let mut h = rust();
     assert_eq!(h.language(), "Rust");
     let text = "fn main() { let s = \"hi\"; }";
     let spans = h.line_spans(0, &source(text)).expect("line 0 is near");
@@ -31,7 +31,7 @@ fn a_rust_line_has_keyword_function_and_string_runs() {
 
 #[test]
 fn a_block_comment_carries_its_state_to_the_next_lines() {
-    let mut h = Highlighter::new(rust());
+    let mut h = rust();
     let src = source("/* start\nstill comment\nend */ fn x() {}");
     let middle = h.line_spans(1, &src).expect("near");
     assert_eq!(kind_at(&middle, 0), TokenKind::Comment);
@@ -44,7 +44,7 @@ fn a_block_comment_carries_its_state_to_the_next_lines() {
 #[test]
 fn an_edit_invalidates_from_its_line_and_the_lines_above_stay_cached() {
     let text: String = (0..50).map(|i| format!("let x{i} = {i};")).collect::<Vec<_>>().join("\n");
-    let mut h = Highlighter::new(rust());
+    let mut h = rust();
     h.line_spans(49, &source(&text)).expect("near");
     assert!(h.is_cached(19) && h.is_cached(20) && h.is_cached(49));
     h.edited(20, 0, 0);
@@ -55,7 +55,7 @@ fn an_edit_invalidates_from_its_line_and_the_lines_above_stay_cached() {
 #[test]
 fn opening_a_comment_recolours_the_lines_after_it() {
     let before = "fn a() {}\nfn b() {}\nfn c() {}\nfn d() {}";
-    let mut h = Highlighter::new(rust());
+    let mut h = rust();
     let spans = h.line_spans(3, &source(before)).expect("near");
     assert_eq!(kind_at(&spans, 0), TokenKind::Keyword);
     let after = "fn a() {}\nfn b() {}\n/* fn c() {}\nfn d() {}";
@@ -68,7 +68,7 @@ fn opening_a_comment_recolours_the_lines_after_it() {
 fn a_far_line_waits_for_the_background_walk_then_comes_from_its_checkpoints() {
     let text: String = (0..6000).map(|i| format!("fn f{i}() {{}}")).collect::<Vec<_>>().join("\n");
     let src = source(&text);
-    let mut h = Highlighter::new(rust());
+    let mut h = rust();
     assert!(h.line_spans(5000, &src).is_none(), "5000 lines are too many for the UI thread");
     let job = h.job_for(5000, &src);
     let result = job.run();
@@ -87,7 +87,7 @@ fn a_far_line_waits_for_the_background_walk_then_comes_from_its_checkpoints() {
 fn after_an_edit_that_keeps_the_state_the_old_checkpoints_are_taken_back() {
     let text: String = (0..400).map(|i| format!("let x{i} = {i};")).collect::<Vec<_>>().join("\n");
     let src = source(&text);
-    let mut h = Highlighter::new(rust());
+    let mut h = rust();
     h.line_spans(300, &src).expect("near");
     h.cache.clear();
     h.edited(10, 0, 0);

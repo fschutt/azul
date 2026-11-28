@@ -20,7 +20,7 @@ use crate::{
     buffer::{Edit, LineEnding, Pos, TextBuffer},
     diagnostics::Diagnostics,
     git,
-    highlight::{syntax_for, Highlighter, TokenKind},
+    highlight::{Grammar, Highlighter, TokenKind},
     keyrow::{self, KeyAction},
     search::{self, Found},
     storage::FileHits,
@@ -75,12 +75,12 @@ impl Doc {
     /// File `key` of `root`, read: `bytes` (UTF-8, invalid bytes
     /// replaced).
     #[must_use]
-    pub fn open(id: u64, root: &Root, key: &str, bytes: &[u8]) -> Doc {
+    pub fn open(id: u64, root: &Root, key: &str, bytes: &[u8], grammar: &Arc<Grammar>) -> Doc {
         let text = String::from_utf8_lossy(bytes);
         let buffer = TextBuffer::from_text(&text);
         let first_line = buffer.line(0);
         let name = file_name(key).to_string();
-        let highlighter = Highlighter::new(syntax_for(&name, &first_line));
+        let highlighter = Highlighter::new(Arc::clone(grammar), &name, &first_line);
         let language = highlighter.language().to_string();
         let line_count = u32::try_from(buffer.line_count()).unwrap_or(u32::MAX);
         let ending = buffer.line_ending();
@@ -487,6 +487,9 @@ pub struct AppState {
     /// The file of the workspace to open once its root is listed and no file is open (a phone's first look is
     /// code, not the welcome page): the sample's `src/main.rs`.
     pub open_first: Option<String>,
+    /// The grammars the highlighters of every open file share: loaded when the first file is opened (a phone's
+    /// start has no use for them before), kept for the app's life. See [`AppState::grammar`].
+    grammar: Option<Arc<Grammar>>,
     pub workspace: Option<Workspace>,
     /// The git branch of the workspace's folder (the status bar's).
     pub branch: Option<String>,
@@ -551,6 +554,7 @@ impl AppState {
             workspace_to_open: None,
             file_to_open: None,
             open_first: None,
+            grammar: None,
             workspace: None,
             branch: None,
             tabs: Tabs::default(),
@@ -588,6 +592,12 @@ impl AppState {
     pub fn new_id(&mut self) -> u64 {
         self.next_id += 1;
         self.next_id
+    }
+
+    /// The grammars the highlighters share: loaded on the first call, the same ones afterwards (the app's own
+    /// state, not a process-wide cache).
+    pub fn grammar(&mut self) -> Arc<Grammar> {
+        Arc::clone(self.grammar.get_or_insert_with(Grammar::load))
     }
 
     /// Something could not be done: the notice says so, and the Problems list has it (with the file it
