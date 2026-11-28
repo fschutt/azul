@@ -32,3 +32,14 @@ fn the_rows_write_under_the_folder_of_the_app() {
     assert_eq!(std::fs::read(&path).unwrap(), b"xyz");
     drop(std::fs::remove_dir_all(dir.join("probe-test")));
 }
+
+#[test]
+fn the_open_handler_appends_one_line_per_request_to_its_log() {
+    let log = folder().join(OPEN_LOG);
+    drop(std::fs::remove_file(&log));
+    append_open_log("{\"action\":\"View\"}");
+    append_open_log("{\"action\":\"Send\"}");
+    let text = std::fs::read_to_string(&log).unwrap();
+    assert_eq!(text, "{\"action\":\"View\"}\n{\"action\":\"Send\"}\n");
+    drop(std::fs::remove_file(&log));
+}

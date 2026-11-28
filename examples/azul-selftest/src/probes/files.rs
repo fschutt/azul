@@ -109,6 +109,22 @@ fn folder() -> std::path::PathBuf {
     home.unwrap_or_else(std::env::temp_dir).join(FOLDER)
 }
 
+/// The file the open handler appends its lines to, next to the files of the rows: a request that STARTED the app (the system opened
+/// it, nobody captured its console) is read from here.
+pub const OPEN_LOG: &str = "open.log";
+
+/// Append one line to [`OPEN_LOG`] (a failure is ignored: the console line is the first record).
+pub fn append_open_log(line: &str) {
+    use std::io::Write as _;
+    let dir = folder();
+    if std::fs::create_dir_all(&dir).is_err() {
+        return;
+    }
+    if let Ok(mut file) = std::fs::OpenOptions::new().create(true).append(true).open(dir.join(OPEN_LOG)) {
+        drop(writeln!(file, "{line}"));
+    }
+}
+
 /// `bytes` into `<folder>/<sub>/<name>`; the path.
 fn write(sub: &str, name: &str, bytes: &[u8]) -> Result<String, String> {
     let dir = folder().join(sub);

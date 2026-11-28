@@ -172,6 +172,8 @@ python() {
     python3 scripts/test_documents_manifest.py || code=1
   fi
   python3 scripts/demo_apps.py check || code=1
+  # the pure parts of the two emulator / Simulator proofs (the bytes the self-test rows write, the lines the apps log)
+  python3 -I scripts/ci/test_files_proofs.py || code=1
   return "$code"
 }
 run python python

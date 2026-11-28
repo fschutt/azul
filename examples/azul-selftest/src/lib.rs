@@ -429,6 +429,7 @@ extern "C" fn on_open(mut data: RefAny, info: CallbackInfo) -> Update {
     if let Some(request) = info.get_open_request().into_option() {
         let summary = probes::files::summarize(&request);
         println!("AZ_SELFTEST_OPEN {}", summary.json);
+        probes::files::append_open_log(&summary.json);
         {
             use std::io::Write as _;
             let _ = std::io::stdout().flush();
