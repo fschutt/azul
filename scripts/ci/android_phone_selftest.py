@@ -3,12 +3,14 @@
 fingerprint sensor, the haptic motor, the proximity sensor, a real camera, GPS, the soft keyboard of the phone's own IME)
 (standard library only).
 
-    python3 scripts/ci/android_phone_selftest.py --apk AzSelfTest-android-arm64.apk [--serial <adb serial>] [--grant] [--out android-phone-selftest]
+    python3 scripts/ci/android_phone_selftest.py --apk AzSelfTest-e2e-android-arm64.apk [--serial <adb serial>] [--grant] [--out android-phone-selftest]
+    python3 scripts/ci/android_phone_selftest.py --no-install --rows sensors.geolocation,system.haptics     # only these rows
 
 The phone must be connected by USB with USB debugging on (Settings > Developer options) and trusted for this computer (accept the
 "Allow USB debugging?" question on the phone once). `adb` is taken from PATH or from $ANDROID_HOME/platform-tools. The APK is the
-QA build of the demos run (artifact `AzSelfTest-android-arm64.apk` of a `demos` run that asked for the QA variants:
-`gh run download <run id> -n <artifact name>`); `--no-install` runs the app that is already installed.
+QA build `AzSelfTest-e2e-android-arm64.apk`: `scripts/remote.sh run <ref> ubuntu-22.04 'bash scripts/ci/android_build_app.sh AzSelfTest aarch64-linux-android'
+--codegen --artifacts 'demo-out/apps/*'` builds just that one (about 30 minutes on a runner), `gh run download <run id>` fetches it; the `demos` runs that
+ask for the QA variants build it too. `--no-install` runs the app that is already installed.
 
 What it does, in this order, telling you what to do:
 
@@ -182,6 +184,7 @@ def main(argv=None):
     ap.add_argument("--grant", action="store_true", help="grant location, notifications, camera and microphone first")
     ap.add_argument("--revoke", action="store_true", help="revoke them first (to see the denied path)")
     ap.add_argument("--unattended-only", action="store_true", help="skip the pass with a person")
+    ap.add_argument("--rows", default="", help="run only these rows, comma separated ids (sensors.geolocation,system.haptics): the app runs them and prints the report")
     ap.add_argument("--out", default="android-phone-selftest", help="where the reports and the log go")
     args = ap.parse_args(argv)
 
@@ -204,6 +207,21 @@ def main(argv=None):
             phone.sh(f"pm grant {PACKAGE} {perm}")   # a permission the Android version does not know is refused: fine
         elif args.revoke:
             phone.sh(f"pm revoke {PACKAGE} {perm}")
+
+    if args.rows:
+        # only the named rows, with the phone's person (or this script's feed): one report, no list to tap through
+        phone.sh(f"setprop debug.az.selftest_rows '{args.rows}'")
+        print(f"\nrows: {args.rows} (the app runs only these; answer the dialog that appears)")
+        phone.sh("setprop debug.az.selftest 0")
+        phone.launch()
+        report, _ = phone.wait_for_report(ATTENDED_WAIT_S)
+        phone.sh("setprop debug.az.selftest_rows ''")
+        (out / "logcat.txt").write_text(phone.logcat(), encoding="utf-8")
+        if report is None:
+            raise SystemExit(f"no AZ_SELFTEST_REPORT line: see {out / 'logcat.txt'}")
+        (out / "report-rows.json").write_text(json.dumps(report, indent=1), encoding="utf-8")
+        print("\n".join(table(report)))
+        return 1 if failures(report) else 0
 
     print("\n== 1/2: the probes that need no person (the phone's screen shows the list while it runs; touch nothing) ==")
     phone.sh("setprop debug.az.selftest 1")
