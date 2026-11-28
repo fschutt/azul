@@ -380,7 +380,7 @@ fn the_presenter_and_the_picture_in_picture_have_their_slots_and_nothing_is_in_t
 fn the_settings_page_has_the_dictation_section_and_room_for_the_others() {
     let s = reviewing("/work/proj");
     let sections = settings_sections(&s, &RefAny::new(0u8));
-    assert_eq!(sections.len(), 2, "the dictation's and the whiteboard's; the agents', recorder's and speech panels come after them");
+    assert_eq!(sections.len(), 3, "the dictation's, the whiteboard's and the phone companion's; the agents', recorder's and speech panels come after them");
 }
 
 // ---- a page of long lines, a file of many pages ----
@@ -515,4 +515,38 @@ fn a_column_nothing_is_put_in_is_built_as_it_always_was() {
     let b = page_code_column_marked(1, &lines, &[], &[], &plain);
     assert_eq!(texts(&a), texts(&b));
     assert_eq!(nodes(&a).len(), nodes(&b).len());
+}
+
+// ---- the pages the strip builds, at a zoom
+
+#[test]
+fn at_a_zoom_of_one_the_strip_builds_the_pages_it_always_built() {
+    let stride = page_stride();
+    // the old arithmetic, spelled out: one page before the first in view, as many as the window holds and two more
+    for (scroll, width, total) in [(0.0, 1100.0, 10), (stride * 3.4, 1100.0, 10), (stride * 9.0, 900.0, 10), (-30.0, 1100.0, 10), (stride * 2.0, 2500.0, 4)] {
+        let got = strip_window(scroll, width, 1.0, total);
+        let first = ((scroll.max(0.0) / stride) as usize).saturating_sub(1);
+        let count = (((width / stride).ceil() as usize) + 2).max(2).min(total.saturating_sub(first));
+        assert_eq!((got.first, got.count, got.leftmost), (first, count, page_at(scroll, total)), "scroll {scroll} width {width}");
+    }
+}
+
+#[test]
+fn zoomed_in_a_page_is_that_much_longer_on_the_screen_and_fewer_pages_are_built() {
+    let stride = page_stride();
+    let near = strip_window(stride * 2.0 * 2.0, 1100.0, 2.0, 10);
+    assert_eq!(near.leftmost, 2, "two pages along at a zoom of two is 4 strides of the screen");
+    assert_eq!(near.first, 1);
+    let one = strip_window(stride * 2.0, 1100.0, 1.0, 10);
+    assert!(near.count <= one.count, "the window holds fewer pages when they are larger: {near:?} {one:?}");
+}
+
+#[test]
+fn a_zoom_that_is_no_number_is_the_pages_as_they_have_always_been_and_the_strip_never_builds_nothing() {
+    for bad in [0.0, -1.0, f32::NAN, f32::INFINITY] {
+        assert_eq!(strip_window(500.0, 1100.0, bad, 5), strip_window(500.0, 1100.0, 1.0, 5), "{bad}");
+    }
+    let none = strip_window(0.0, 0.0, 1.0, 1);
+    assert!(none.count >= 1 && none.first == 0, "{none:?}");
+    assert_eq!(strip_window(1.0e9, 1100.0, 1.0, 3).leftmost, 2, "past the last page: the last");
 }

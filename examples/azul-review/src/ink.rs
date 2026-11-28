@@ -62,6 +62,18 @@ pub fn raster_scale(device_pixel_ratio: f32) -> f32 {
     }
 }
 
+/// The zoom the pages are drawn at, from the width the layer was laid out at (the page's width at zoom 1): what a page of 1000 px laid out
+/// 1500 px wide is drawn at. One that is no number, or no sensible one, is 1.
+#[must_use]
+pub fn page_zoom_of(layer_width: f32) -> f32 {
+    let zoom = layer_width / crate::ui::PAGE_W;
+    if zoom.is_finite() && (crate::page_view::Z_MIN * 0.9..=crate::page_view::Z_MAX * 1.1).contains(&zoom) {
+        zoom
+    } else {
+        1.0
+    }
+}
+
 /// A layer's frame size in px: its `logical` size (px at 1x) at `scale`, whole px, at least one each way.
 #[must_use]
 pub fn raster_size(logical: (f32, f32), scale: f32) -> (u32, u32) {
@@ -490,7 +502,10 @@ pub extern "C" fn render_ink(mut data: RefAny, mut info: RenderImageCallbackInfo
     let logical = bounds.get_logical_size();
     let scale = raster_scale(bounds.get_hidpi_factor().inner.get());
     let (w, h) = raster_size((logical.width, logical.height), scale);
-    draw_frame(&mut data, &mut info, w, h, scale).unwrap_or_else(|| {
+    // The pages drawn at a zoom are laid out that much larger (the layer's logical size is the page's times it): the strokes are
+    // the page's own px, so they are drawn at the zoom as well, and the frame is as sharp as the zoomed page.
+    let zoom = page_zoom_of(logical.width);
+    draw_frame(&mut data, &mut info, w, h, scale * zoom).unwrap_or_else(|| {
         ImageRef::null_image(
             w as usize,
             h as usize,

@@ -249,8 +249,11 @@ class E2eVariantTest(unittest.TestCase):
         self.assertEqual(demo_apps.staged_name(w, "android-x86_64", e2e=True), "AzWidgets-e2e-android-x86_64.apk")
         self.assertEqual(demo_apps.staged_name(w, "ios-sim", e2e=True), "AzWidgets-e2e-ios-sim.app.zip")
         self.assertEqual(demo_apps.staged_name(w, "android-x86_64"), "AzWidgets-android-x86_64.apk")
-        with self.assertRaises(ValueError):
-            demo_apps.staged_name(w, "linux", e2e=True)
+        # the desktop QA builds: the same rule, the platform suffix of the shipped file after it
+        self.assertEqual(demo_apps.staged_name(w, "linux", e2e=True), "AzWidgets-e2e-linux")
+        self.assertEqual(demo_apps.staged_name(w, "macos-arm64", e2e=True), "AzWidgets-e2e-macos")
+        self.assertEqual(demo_apps.staged_name(w, "windows", e2e=True), "AzWidgets-e2e-windows.exe")
+        self.assertEqual(demo_apps.staged_name(w, "linux"), "AzWidgets-linux")
 
     def test_without_the_input_a_run_plans_nothing_of_it(self):
         plan = demo_apps.plan(self.m)
@@ -325,17 +328,40 @@ class E2eVariantTest(unittest.TestCase):
         errors = demo_apps.check(self.m)
         self.assertTrue(any("artifact_only" in e and "AzMaps" in e for e in errors), errors)
 
-    def test_the_qa_lib_must_carry_the_debug_server_and_only_phone_columns(self):
-        self.m["lib"]["mobile-e2e"]["features"] = "std,logging,link-static"
-        self.assertTrue(any("debug-server" in e for e in demo_apps.check(self.m)))
+    def test_the_qa_lib_must_carry_the_debug_server_and_the_columns_of_one_family(self):
+        for variant in ("mobile-e2e", "desktop-e2e"):
+            m = demo_apps.load()
+            m["lib"][variant]["features"] = "std,logging,link-static"
+            self.assertTrue(any(variant in e and "debug-server" in e for e in demo_apps.check(m)), variant)
+            # phone and desktop columns in one library: its features belong to one kind of build only
+            m = demo_apps.load()
+            m["lib"][variant]["targets"] = ["linux", "android-x86_64"]
+            self.assertTrue(any(variant in e and "targets" in e and "not a mix" in e for e in demo_apps.check(m)), variant)
+            m = demo_apps.load()
+            m["lib"][variant]["targets"] = []
+            self.assertTrue(any(variant in e and "targets" in e for e in demo_apps.check(m)), variant)
+        # a column that is none of the built ones is refused as well
         m = demo_apps.load()
-        m["lib"]["mobile-e2e"]["targets"] = ["linux"]
-        self.assertTrue(any("mobile-e2e" in e and "targets" in e for e in demo_apps.check(m)))
+        m["lib"]["desktop-e2e"]["targets"] = ["linux", "freebsd"]
+        self.assertTrue(any("desktop-e2e" in e and "targets" in e for e in demo_apps.check(m)))
 
     def test_an_e2e_app_needs_a_column_the_qa_lib_builds(self):
         self.m["lib"]["mobile-e2e"]["targets"] = ["ios-sim"]
+        self.m["lib"]["desktop-e2e"]["targets"] = ["macos-arm64"]
         self.app("AzWidgets")["platforms"] = ["linux"]
         self.assertTrue(any("AzWidgets" in e and "e2e" in e for e in demo_apps.check(self.m)), demo_apps.check(self.m))
+
+    def test_a_qa_lib_of_the_other_family_is_no_qa_lib_of_the_app(self):
+        # e2e_lib is the library of the PHONE columns of an app, e2e_desktop_lib the one of its desktop columns
+        self.app("AzWidgets")["e2e_lib"] = "desktop-e2e"
+        self.assertTrue(any("AzWidgets" in e and "e2e_lib" in e and "phone" in e for e in demo_apps.check(self.m)), demo_apps.check(self.m))
+        m = demo_apps.load()
+        next(a for a in m["app"] if a["package"] == "AzWidgets")["e2e_desktop_lib"] = "mobile-e2e"
+        self.assertTrue(any("AzWidgets" in e and "e2e_desktop_lib" in e and "desktop" in e for e in demo_apps.check(m)), demo_apps.check(m))
+        # and never a lib that ships: the debug server would go to the users
+        m = demo_apps.load()
+        next(a for a in m["app"] if a["package"] == "AzWidgets")["e2e_desktop_lib"] = "desktop"
+        self.assertTrue(any("AzWidgets" in e and "e2e_desktop_lib" in e for e in demo_apps.check(m)), demo_apps.check(m))
 
     def test_the_real_manifest_passes_its_own_check_with_the_variant_in_it(self):
         self.assertTrue(self.m["lib"]["mobile-e2e"]["artifact_only"])
@@ -400,6 +426,189 @@ class E2eVariantTest(unittest.TestCase):
 
 def tomllib_loads(text):
     return demo_apps.tomllib.loads(text)
+
+
+class DesktopE2eTest(unittest.TestCase):
+    """The QA builds of the DESKTOP apps for the E2E runs of the desktop column: the artifact-only `[lib.desktop-e2e]` (the shipped dist
+    features plus the engine's debug server, E2E scripting and test hooks: an app cannot get them from its own dependency on azul-dll,
+    `azul = link-dynamic` leaves the Az* symbols to the library) and the apps that say `e2e = true` linked against it as
+    <Name>-e2e-<platform>, in artifacts named demoe2e-*. Like the phone QA variant: built only when a run asks, never published."""
+
+    def setUp(self):
+        self.m = demo_apps.load()
+
+    def test_the_qa_lib_is_the_shipped_one_plus_the_three_qa_features_and_is_never_shipped(self):
+        shipped, qa = self.m["lib"]["desktop"], self.m["lib"]["desktop-e2e"]
+        self.assertTrue(qa["artifact_only"])
+        self.assertFalse(shipped.get("artifact_only"))
+        self.assertEqual(qa["profile"], shipped["profile"])
+        self.assertEqual(sorted(set(qa["features"].split(",")) - set(shipped["features"].split(","))),
+                         ["debug-server", "e2e-scripting", "test-hooks"])
+        self.assertLessEqual(set(shipped["features"].split(",")), set(qa["features"].split(",")))
+        self.assertEqual(demo_apps.lib_family(qa), "desktop")
+        self.assertEqual(demo_apps.lib_family(self.m["lib"]["mobile-e2e"]), "phone")
+        self.assertLessEqual(set(qa["targets"]), set(shipped["targets"]))
+        self.assertEqual([e for e in demo_apps.check(self.m) if "e2e" in e], [])
+        # the shipped library of the leg is the one without the features: no app's lib may be the QA one
+        self.assertEqual(sorted(demo_apps.artifact_only_libs(self.m, "desktop")), ["desktop-e2e"])
+        self.assertEqual(sorted(demo_apps.artifact_only_libs(self.m, "phone")), ["mobile-e2e", "mobile-e2e-iroh"])
+
+    def test_without_the_input_a_run_plans_no_desktop_qa_build(self):
+        plan = demo_apps.plan(self.m)
+        for key in ("libs_linux", "libs_macos", "libs_windows", "apps_linux", "apps_macos", "apps_windows"):
+            for e in plan[key]:
+                self.assertNotEqual(e["variant"], "desktop-e2e", key)
+                self.assertFalse(e["artifact"].startswith("demoe2e-"), key)
+        # the shipped app entries say so: the workflow passes `--variant "$DEMO_VARIANT"` to every desktop app job
+        for key in ("apps_linux", "apps_macos", "apps_windows"):
+            self.assertTrue(plan[key])
+            self.assertTrue(all(e["variant"] == "" for e in plan[key]), key)
+
+    def test_with_the_input_the_lib_and_the_apps_of_each_qa_leg_are_planned(self):
+        plan = demo_apps.plan(self.m, e2e=True)
+        libs = {e["leg"]: e for k in ("libs_linux", "libs_macos", "libs_windows") for e in plan[k] if e["variant"] == "desktop-e2e"}
+        self.assertEqual(sorted(libs), ["linux", "macos-arm64"])
+        shipped = {e["leg"]: e for k in ("libs_linux", "libs_macos", "libs_windows") for e in plan[k] if e["variant"] == "desktop"}
+        for leg, e in libs.items():
+            self.assertEqual(e["features"], self.m["lib"]["desktop-e2e"]["features"])
+            self.assertEqual((e["kind"], e["id"], e["artifact"]), ("desktop", f"lib-{leg}-desktop-e2e", f"demolib-{leg}-desktop-e2e"))
+            # the runner, the target and the deployment target of the shipped library of the leg
+            for key in ("os", "target", "codegen_os", "profile", "deployment_target"):
+                self.assertEqual(e.get(key), shipped[leg].get(key), (leg, key))
+        qa = {e["leg"]: e for k in ("apps_linux", "apps_macos", "apps_windows") for e in plan[k] if e["variant"] == "desktop-e2e"}
+        self.assertEqual(sorted(qa), sorted(libs))
+        for leg, e in qa.items():
+            want = sorted(a["package"] for a in self.m["app"] if a.get("e2e") and leg in a["platforms"])
+            self.assertTrue(want, leg)
+            self.assertEqual(sorted(e["apps"].split()), want)
+            self.assertEqual((e["lib_artifact"], e["artifact"], e["results_artifact"]),
+                             (f"demolib-{leg}-desktop-e2e", f"demoe2e-{leg}", f"demoresults-{leg}-e2e"))
+            self.assertEqual(e["lib_file"], "libazul.a")
+        # two uploads of one artifact name fail a run: every artifact and every id of the plan is unique
+        names = [e[k] for key, entries in plan.items() if key.startswith(("libs_", "apps_")) for e in entries
+                 for k in ("artifact", "results_artifact") if k in e]
+        self.assertEqual(sorted(n for n in set(names) if names.count(n) > 1), [])
+        ids = [e["id"] for key, entries in plan.items() if key.startswith("libs_") for e in entries]
+        self.assertEqual(sorted(i for i in set(ids) if ids.count(i) > 1), [])
+
+    def test_the_shipped_builds_of_the_same_legs_are_unchanged_by_the_qa_ones(self):
+        before = demo_apps.plan(self.m)
+        after = demo_apps.plan(self.m, e2e=True)
+        for key in ("libs_linux", "libs_macos", "libs_windows", "apps_linux", "apps_macos", "apps_windows"):
+            self.assertEqual([e for e in after[key] if e["variant"] in ("", "desktop")], before[key], key)
+
+    def test_the_features_command_prints_the_features_of_the_qa_lib_of_each_leg(self):
+        for leg in ("linux", "macos-arm64"):
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                self.assertEqual(demo_apps.main(["features", leg, "desktop-e2e"]), 0)
+            self.assertEqual(buf.getvalue().strip(), "dist,debug-server,e2e-scripting,test-hooks")
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            self.assertEqual(demo_apps.main(["features", "linux", "desktop"]), 0)           # the shipped library: no QA feature in it
+        self.assertEqual(buf.getvalue().strip(), self.m["lib"]["desktop"]["features"])
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(demo_apps.main(["features", "windows", "desktop-e2e"]), 1)    # no QA build of that leg
+
+    def test_a_qa_file_of_a_desktop_leg_never_becomes_a_release_asset(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = pathlib.Path(d)
+            (root / "demoe2e-linux").mkdir()
+            (root / "demoe2e-linux" / "AzWidgets-e2e-linux").write_bytes(b"an app with the debug server")
+            (root / "demoapps-linux-0").mkdir()
+            (root / "demoapps-linux-0" / "AzWidgets-linux").write_bytes(b"the shipped app")
+            listing = demo_publish.assemble(root, root / "release", "0.2.0", "abc")
+        self.assertEqual([x["name"] for x in listing], ["AzWidgets-linux.tar.gz"])
+        for app in self.m["app"]:
+            for col in demo_apps.columns_of(app):
+                self.assertNotIn("-e2e", demo_apps.release_name(app, col))
+
+    def test_the_status_keeps_a_desktop_qa_build_apart_from_the_shipped_cell(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = pathlib.Path(d)
+            (root / "AzWidgets.linux.result.json").write_text(json.dumps({
+                "app": "AzWidgets", "column": "linux", "status": "built", "size": 4096, "shipped_size": 4096, "seconds": 90,
+                "engine_crates": [], "artifact": "AzWidgets-linux"}))
+            (root / "AzWidgets.linux-e2e.result.json").write_text(json.dumps({
+                "app": "AzWidgets", "column": "linux", "variant": "desktop-e2e", "status": "built", "size": 5000, "shipped_size": 5000,
+                "seconds": 80, "engine_crates": [], "artifact": "AzWidgets-e2e-linux"}))
+            data, md = demo_apps.status([root], m=self.m)
+        cell = next(r for r in data["apps"] if r["app"] == "AzWidgets")["cells"]["linux"]
+        self.assertEqual(cell["size"], 4096)
+        self.assertEqual([(q["app"], q["column"], q["artifact"]) for q in data["summary"]["qa_builds"]],
+                         [("AzWidgets", "linux", "AzWidgets-e2e-linux")])
+        self.assertIn("never published", md)
+
+    def test_the_driver_stages_a_qa_build_under_its_own_name_and_result_file(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = pathlib.Path(d)
+            lib = root / "libazul.a"
+            lib.write_bytes(b"!<arch>\n")
+            exe = root / "built-AzWidgets"
+            exe.write_bytes(b"\x7fELF an app")
+            args = argparse.Namespace(out=str(root / "out"), results=str(root / "res"), leg="linux", lib=str(lib), apps="AzWidgets",
+                                      target="", deployment_target="", run_check=False, variant="")
+            job = demo_build.Job(args)
+            envs = []
+
+            def fake_cargo(cmd, env, tag):
+                envs.append(dict(env))
+                jpath, epath = job.logs / f"{tag}.json", job.logs / f"{tag}.stderr.txt"
+                jpath.write_text(cargo_json((APP, [], "bin", str(exe))))
+                epath.write_text("")
+                return 0, jpath, epath
+
+            with mock.patch.object(job, "run_cargo", fake_cargo), mock.patch.object(demo_build, "strip_binary"):
+                demo_build.desktop(args, job)                                  # the shipped build of the leg ...
+                args.variant = "desktop-e2e"
+                demo_build.desktop(args, job)                                  # ... and the QA build of it, in the same directories
+            staged = sorted(p.name for p in (root / "out").iterdir() if p.is_file())
+            names = sorted(p.name for p in (root / "res").iterdir())
+            qa = json.loads((root / "res" / "AzWidgets.linux-e2e.result.json").read_text())
+            shipped = json.loads((root / "res" / "AzWidgets.linux.result.json").read_text())
+        self.assertEqual(staged, ["AzWidgets-e2e-linux", "AzWidgets-linux"])
+        self.assertEqual(names, ["AzWidgets.linux-e2e.result.json", "AzWidgets.linux.result.json"])
+        self.assertEqual((qa["variant"], qa["status"], qa["artifact"]), ("desktop-e2e", "built", "AzWidgets-e2e-linux"))
+        self.assertEqual((shipped["status"], shipped["artifact"]), ("built", "AzWidgets-linux"))
+        self.assertNotIn("variant", shipped)
+        self.assertEqual([e["AZ_LINK_PATH"] for e in envs], [str(lib.resolve())] * 2)     # the library the app is linked against
+
+    def test_the_driver_takes_a_desktop_qa_variant_only_for_an_app_that_asks_for_it(self):
+        with tempfile.TemporaryDirectory() as d:
+            argv = ["desktop", "--leg", "linux", "--lib", str(pathlib.Path(d) / "libazul.a"), "--out", str(pathlib.Path(d) / "o"),
+                    "--results", str(pathlib.Path(d) / "r")]
+            with self.assertRaises(SystemExit):
+                demo_build.main(argv + ["--apps", "AzWidgets", "--variant", "desktop"])          # a shipped lib is no QA variant
+            with self.assertRaises(SystemExit):
+                demo_build.main(argv + ["--apps", "AzWidgets", "--variant", "mobile-e2e"])       # the phone QA lib is not the desktop one
+            no_e2e = next(a["package"] for a in self.m["app"] if not a.get("e2e") and "linux" in a["platforms"])
+            with self.assertRaises(SystemExit):
+                demo_build.main(argv + ["--apps", no_e2e, "--variant", "desktop-e2e"])           # an app that did not ask for it
+
+    def test_the_build_script_builds_the_lib_and_the_apps_the_plan_names_and_deletes_nothing_of_the_checkout(self):
+        path = HERE / "ci" / "desktop_e2e_build.sh"
+        text = path.read_text(encoding="utf-8")
+        self.assertEqual(subprocess.run(["bash", "-n", str(path)]).returncode, 0)
+        for needle in ("demo_apps.py plan --e2e", "demo_apps.py features", "demo_lib.sh desktop", "demo_build.py", "--variant",
+                       "demo-out/apps", "demo-out/results"):
+            self.assertIn(needle, text)
+        # the lib and the apps come from the plan: no hand-written feature list and no hard-coded app list
+        code = "\n".join(l for l in text.splitlines() if not l.lstrip().startswith("#"))
+        self.assertNotIn("debug-server", code)
+        self.assertNotRegex(code, r"Az[A-Z]\w+")
+        # the only removal is the runner cleanup (GitHub Actions only), of directories nobody needs
+        removals = [l.strip() for l in code.splitlines() if re.search(r"\brm\b", l)]
+        self.assertEqual(len(removals), 1)
+        self.assertIn("/usr/share/dotnet", removals[0])
+
+    def test_the_workflow_hands_the_variant_to_every_desktop_app_job(self):
+        text = (demo_apps.ROOT / ".github" / "workflows" / "demos.yml").read_text(encoding="utf-8")
+        body = text[text.index("\njobs:\n"):]
+        parts = re.split(r"(?m)^  ([A-Za-z_][\w-]*):[ \t]*$", body)
+        jobs = {parts[i]: parts[i + 1] for i in range(1, len(parts) - 1, 2)}
+        for job in ("apps_linux", "apps_macos", "apps_windows"):
+            self.assertIn("DEMO_VARIANT: ${{ matrix.variant }}", jobs[job], job)
+            self.assertIn('--variant "$DEMO_VARIANT"', jobs[job], job)
 
 
 class WorkflowContractTest(unittest.TestCase):
