@@ -455,6 +455,9 @@ struct DragState {
     step: f32,
     /// When the last of them came, ms on the press's clock: a pointer that rested before it was lifted does not fling.
     last_ms: u64,
+    /// The sheet's root node, found at the press (the event hits the grip or the content, not always the root, and a window-level
+    /// event hits whatever is under the pointer): where the moves and the release write the height.
+    root: Option<DomNodeId>,
     /// The clock's zero (the first press); the pure rules below only see milliseconds.
     origin: Option<azul_core::task::Instant>,
 }
@@ -601,6 +604,26 @@ fn window_y(info: &CallbackInfo) -> Option<f32> {
         .filter(|y| y.is_finite())
 }
 
+/// The sheet's root, from `start` (a node of the sheet: where an event hit, or the root remembered) up: an event hits the deepest node
+/// under the pointer - the grip, the content - and the handlers sit on the root.
+fn sheet_root(info: &CallbackInfo, start: DomNodeId) -> Option<DomNodeId> {
+    let mut current = Some(start);
+    for _ in 0..16 {
+        let node = current?;
+        if super::roving::has_class(info, node, BOTTOM_SHEET_CLASS) {
+            return Some(node);
+        }
+        current = info.get_parent(node);
+    }
+    None
+}
+
+/// The root remembered at the press, if it is still the sheet's (a rebuild may have moved the node: the drag is then over).
+fn remembered_root(info: &CallbackInfo, st: &DragState) -> Option<DomNodeId> {
+    let root = st.root?;
+    super::roving::has_class(info, root, BOTTOM_SHEET_CLASS).then_some(root)
+}
+
 /// Milliseconds on the sheet's clock (zero at its first press): the engine's clock, which a scenario's `tick_ms` advances.
 fn millis(info: &CallbackInfo, st: &mut DragState) -> u64 {
     let now = info.get_current_time();
@@ -622,15 +645,20 @@ extern "C" fn on_press(mut data: RefAny, info: CallbackInfo) -> Update {
     let Some(y) = window_y(&info) else {
         return Update::DoNothing;
     };
-    let Some(rect) = info.get_hit_node_rect() else {
+    let Some(root) = sheet_root(&info, info.get_hit_node()) else {
+        return Update::DoNothing;
+    };
+    let Some(rect) = info.get_node_rect(root) else {
         return Update::DoNothing;
     };
     let Some(mut st) = data.downcast_mut::<DragState>() else {
         return Update::DoNothing;
     };
-    let container = measured_container(&info, info.get_hit_node(), st.container);
+    let container = measured_container(&info, root, st.container);
     let now = millis(&info, &mut st);
-    st.press(y, rect.origin.y, rect.size.height, container, now);
+    if st.press(y, rect.origin.y, rect.size.height, container, now) {
+        st.root = Some(root);
+    }
     Update::DoNothing
 }
 
@@ -644,13 +672,18 @@ extern "C" fn on_move(mut data: RefAny, mut info: CallbackInfo) -> Update {
     let Some(y) = window_y(&info) else {
         return Update::DoNothing;
     };
+    let Some(root) = remembered_root(&info, &st) else {
+        // The sheet is not where the press found it: the drag is over.
+        st.armed = false;
+        st.dragging = false;
+        return Update::DoNothing;
+    };
     let now = millis(&info, &mut st);
     let Some(step) = st.drag_to(y, now) else {
         return Update::DoNothing;
     };
     // A press that began on the sheet is followed wherever the pointer goes (the moves and the release are window-level events, see
     // `build`): a finger or a mouse that outruns the sheet's top edge does not lose the drag.
-    let root = info.get_hit_node();
     follow_pointer(&mut info, root, step.height);
     report(&mut st, info, BottomSheetEventKind::Dragged)
 }
@@ -662,8 +695,10 @@ fn finish(st: &mut DragState, mut info: CallbackInfo, leaving: bool) -> Update {
     let Some(detent) = st.lift(leaving, now) else {
         return Update::DoNothing;
     };
+    let Some(root) = remembered_root(&info, st) else {
+        return Update::DoNothing;
+    };
     let px = st.rest(detent);
-    let root = info.get_hit_node();
     rest_at(&mut info, root, px);
     report(st, info, BottomSheetEventKind::Settled)
 }
@@ -709,9 +744,8 @@ extern "C" fn on_grip_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
         return Update::DoNothing;
     };
     info.prevent_default();
-    // The grip's parent is the sheet; the keys come to the grip, the height goes to the sheet.
-    let grip = info.get_hit_node();
-    let Some(root) = info.get_parent(grip) else {
+    // The keys come to the grip, the height goes to the sheet: the grip's parent.
+    let Some(root) = sheet_root(&info, info.get_hit_node()) else {
         return Update::DoNothing;
     };
     st.container = measured_container(&info, root, st.container);
@@ -740,6 +774,7 @@ pub extern "C" fn merge_sheet_state(mut new_data: RefAny, mut old_data: RefAny) 
                 new_g.last_y = old_g.last_y;
                 new_g.step = old_g.step;
                 new_g.last_ms = old_g.last_ms;
+                new_g.root = old_g.root;
                 new_g.origin.clone_from(&old_g.origin);
                 if old_g.dragging {
                     new_g.height = old_g.height;
@@ -851,6 +886,7 @@ fn build(sheet: BottomSheet) -> Dom {
         last_y: 0.0,
         step: 0.0,
         last_ms: 0,
+        root: None,
         origin: None,
     });
 

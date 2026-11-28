@@ -1,5 +1,5 @@
 //! Pointer capture in the headless runner, through the real dispatcher: a node that calls `capture_pointer` in its press handler gets
-//! the mouse's moves and its release wherever the mouse goes, and the release ends the capture - what the shells do right after
+//! the mouse's moves (`MouseMove`) and its release wherever the mouse goes, and the release ends the capture - what the shells do right after
 //! the determination of a pass (`apply_pointer_capture`). The runner stored the capture and never applied it: a drag of a widget
 //! that captures (a slider's thumb, a colour plane, a sheet's grip) stopped at the edge of its box in a scenario.
 
@@ -47,7 +47,7 @@ fn page(heard: &RefAny, captures: bool) -> StyledDom {
         thumb = thumb.with_callback(EventFilter::Hover(HoverEventFilter::MouseDown), RefAny::new(()), on_down as usize);
     }
     let thumb = thumb
-        .with_callback(EventFilter::Hover(HoverEventFilter::MouseOver), heard.clone(), on_over as usize)
+        .with_callback(EventFilter::Hover(HoverEventFilter::MouseMove), heard.clone(), on_over as usize)
         .with_callback(EventFilter::Hover(HoverEventFilter::MouseUp), heard.clone(), on_up as usize);
     let mut dom = Dom::create_body().with_child(thumb);
     let (css, _) = azul_css::parser2::new_from_str("* { margin: 0; padding: 0; } body { width: 400px; height: 400px; }");
@@ -91,9 +91,10 @@ fn a_node_that_captures_the_pointer_hears_the_moves_and_the_release_outside_its_
 }
 
 #[test]
-fn without_the_capture_the_moves_and_the_release_outside_the_box_are_not_the_nodes() {
+fn without_the_capture_the_moves_outside_the_box_are_not_the_nodes() {
     let (result, moves, releases) = run(false);
     assert!(result.status == "pass" && result.steps_failed == 0, "{result:?}");
     assert!(moves.iter().all(|y| *y < 101.0), "only moves over the box: {moves:?}");
-    assert_eq!(releases, 0, "the release lay outside the box");
+    // (the release still reaches the node a button was pressed on: the press-target capture, a mechanism of its own)
+    assert_eq!(releases, 1);
 }

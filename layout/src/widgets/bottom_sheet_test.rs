@@ -53,6 +53,7 @@ fn state(detent: SheetDetent, height: f32) -> DragState {
         last_y: 0.0,
         step: 0.0,
         last_ms: 0,
+        root: None,
         origin: None,
     }
 }
