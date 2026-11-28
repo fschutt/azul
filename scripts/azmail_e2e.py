@@ -379,6 +379,15 @@ class Run:
             raise Failure(finding)
         log(f'the lines {[p.strip() for p in prefixes]} stack')
 
+    def open_file(self, window=None):
+        """File's pages: the File tab shows the location, and the `...` beside it opens them."""
+        self.click_exact('File', window)
+        self.until('the location of the File tab',
+                   lambda: self.has_class('__azul-native-location-more', window), limit=20)
+        self.settle(window)
+        self.must('click', window, selector='.__azul-native-location-more')
+        self.frame(window)
+
     def click_exact(self, text, window=None, within=None):
         found = self.until(f'a node reading exactly "{text}"',
                            lambda: self.node_with_text(text, window, within), limit=20)
@@ -466,8 +475,10 @@ class Run:
     def check_empty_main_window(self):
         """With an empty data folder AzMail opens on its real window - the ribbon, the folder
         pane, the message list saying "No account yet" - with no wizard in front of it."""
-        for dom_id in (PREFIX + 'ribbon', PREFIX + 'folder_pane', PREFIX + 'no_account'):
+        for dom_id in (PREFIX + 'ribbon', PREFIX + 'no_account'):
             self.until(f'#{dom_id} in the first window', lambda d=dom_id: self.has_id(d), limit=40)
+        # the folder pane is azul's Sidebar now (no id of its own: its class)
+        self.until('the sidebar in the first window', lambda: self.has_class('__azul-native-sidebar'), limit=40)
         if self.has_id(PREFIX + 'acct_email'):
             raise Failure('the Add Account wizard stands in front of the window')
         for text in ('Home', 'Send / Receive', 'Folder', 'View', 'No account yet', 'Calendar'):
@@ -998,7 +1009,7 @@ class SampleRun(Run):
         """File > Print with the newsletter open: azul's PDF writer makes the PDF, its first page
         comes back as the preview picture, Print writes it to exports/ in the AzMail folder."""
         try:
-            self.click_exact('File')
+            self.open_file()
             self.until('File > Info', lambda: self.has_id(PREFIX + 'page_info'), limit=20)
             self.click_exact('Print')
             self.until('the PDF of the open message', lambda: self.printed('AZMAIL_PRINT_PDF'),
@@ -1101,7 +1112,7 @@ class EmptyRun(Run):
         self.start_app()
         self.check_empty_main_window()
         # File: the tab row stays on top, Info says there is no account and offers Add Account.
-        self.click_exact('File')
+        self.open_file()
         self.until('File > Info', lambda: self.has_id(PREFIX + 'page_info'), limit=20)
         if not self.has_id(PREFIX + 'ribbon') or not self.shows('Home'):
             raise Failure("File hid the ribbon's tab row")
@@ -1124,7 +1135,7 @@ class EmptyRun(Run):
         self.until('the mail window after Home', lambda: not self.in_file() and self.has_id(
             PREFIX + 'no_account'), limit=20)
         # File > Info > Add Account: the wizard; its Cancel returns to File > Info.
-        self.click_exact('File')
+        self.open_file()
         self.until('File > Info', lambda: self.has_id(PREFIX + 'page_info'), limit=20)
         self.click_id(PREFIX + 'add_account')
         self.until('the wizard', lambda: self.has_id(PREFIX + 'acct_email'), limit=20)
@@ -1359,7 +1370,7 @@ class LocalRun(Run):
     def more_ways_to_write(self):
         """File > Info's New E-mail and Ctrl/Cmd+N: message windows too, the From line
         remembered."""
-        self.click_exact('File')
+        self.open_file()
         self.until('File > Info', lambda: self.has_id(PREFIX + 'page_info'), limit=20)
         self.click_id(PREFIX + 'info_new_mail')
         window = self.opened_new(2)
@@ -1375,7 +1386,7 @@ class LocalRun(Run):
 
     def options_window(self):
         """File > Options: a window of its own over File; Cancel closes it, File stays."""
-        self.click_exact('File')
+        self.open_file()
         self.until('File > Info', lambda: self.has_id(PREFIX + 'page_info'), limit=20)
         self.click_exact('Options')
         opened = self.until('the Options window', lambda: self.printed('AZMAIL_SETTINGS_OPEN'),

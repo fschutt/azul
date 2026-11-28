@@ -264,6 +264,7 @@ pub(crate) struct MailApp {
     pub(crate) about_open: bool,
 
     // -- the ribbon and the backstage --
+    /// The ribbon's tab: 0 File (the location), 1 Home, 2 Send / Receive, 3 Folder, 4 View.
     pub(crate) ribbon_tab: usize,
     /// The backstage page shown (`ui_backstage::PAGE_*`); `None` is the mail view.
     pub(crate) backstage: Option<usize>,
@@ -505,7 +506,8 @@ impl MailApp {
             about_open: false,
             plain_text: false,
             zoom: 100.0,
-            ribbon_tab: 0,
+            // Home: the commands are the mail view's first need (tab 0 is File, the location)
+            ribbon_tab: 1,
             backstage: None,
             print: None,
             editor: None,
