@@ -13,6 +13,7 @@
 #              result is api.json (upload it) and api.diff (what it changed); then a SECOND round that must change nothing
 #   doc_check  azul-doc check (the double-drop invariant, the guide links) and azul-doc check layout
 #   dll_check  codegen of the bindings from the api.json as it stands, cargo check of azul-dll, the srcgate tests
+#   jni_check  every framework call of the Android Rust code exists in the SDK's android.jar with that descriptor (javap -s)
 #   selftest_check  AzSelfTest against the bindings of this api.json: cargo check (its lib, binary and tests)
 #   contracts  the dll/tests source contracts of the work (they read the Java and Rust sources as text; cargo builds the crate first)
 #   python     scripts/test_documents_manifest.py (the filters and the plist generated from the app declarations) and the demo manifest checks
@@ -175,6 +176,18 @@ dll_check() {
   return "$code"
 }
 run dll_check dll_check
+
+jni_check() {
+  # every framework call the Android Rust code makes exists in the SDK with that descriptor (a typo compiles and fails on a phone)
+  export ANDROID_HOME="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
+  yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null 2>&1 || true
+  "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install "platforms;android-34" >/dev/null || return 1
+  python3 -I scripts/ci/test_jni_signature_check.py || return 1
+  python3 scripts/ci/jni_signature_check.py "$ANDROID_HOME/platforms/android-34/android.jar" \
+    dll/src/desktop/extra/share/android.rs dll/src/desktop/extra/open_files/android.rs \
+    dll/src/desktop/extra/documents/android.rs dll/src/desktop/extra/file_picker/android.rs
+}
+run jni_check jni_check
 
 selftest_check() {
   # the self-test app (its files.* rows) against the bindings generated from THIS api.json: its host tests, and its code as it compiles
