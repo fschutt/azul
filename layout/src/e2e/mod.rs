@@ -96,6 +96,11 @@ mod key_names_tests;
 #[cfg(test)]
 mod app_commands_tests;
 
+// The system-sound ops: a callback asks for sounds, the window's SoundManager records them, `assert_sound`
+// and `assert_no_sound` read the recording (run through the real dispatcher on a headless window).
+#[cfg(test)]
+mod sound_tests;
+
 // The DOM-mutation ops and `mouse_move` name their target by CSS selector, or
 // refuse loudly when it names none or several nodes.
 #[cfg(test)]
