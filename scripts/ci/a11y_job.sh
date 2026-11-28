@@ -3,7 +3,7 @@
 # against it, built from the tree the job runs in: a SHA or a branch), then (1) the `a11y` session of the QA script (scripts/ci/android_qa.sh /
 # ios_qa.sh): the "Display settings" scenario (examples/azul-widgets/e2e/a11y_display_settings_system.json) once per REAL system setting (Android:
 # adb settings put; iOS: simctl ui) with the engine's frames, and a live sequence on the running app with the device's own pictures; (2) the
-# override scenario (a11y_display_settings.json: set_system_accessibility says each option, the ones no switch of the emulator or the Simulator can
+# override scenario (the a11y_*.json files: set_system_accessibility says each option, the ones no switch of the emulator or the Simulator can
 # set: bold text, reduced transparency, differentiate without colour) in the matrix session.
 #   scripts/remote.sh run <full sha> ubuntu-22.04 'bash scripts/ci/a11y_job.sh android' --codegen --artifacts 'demo-out/qa-a11y/**
 #   demo-out/results/*'
@@ -36,7 +36,7 @@ case "$platform" in
     apk="$(ls demo-out/apps/$app-e2e-$col.apk 2>/dev/null | head -n 1)"
     [ -n "$apk" ] || { echo "no e2e APK of $app"; exit 3; }
     timeout 3000 bash scripts/ci/android_qa.sh demo-out/qa-a11y "$apk" swiftshader_indirect "$app a11y" a11y
-    AZ_QA_MATRIX_ONLY="a11y_display_settings.json" timeout 1800 bash scripts/ci/android_qa.sh demo-out/qa-a11y-override "$apk" swiftshader_indirect "$app a11y override" matrix ;;
+    AZ_QA_MATRIX_ONLY="a11y_" timeout 1800 bash scripts/ci/android_qa.sh demo-out/qa-a11y-override "$apk" swiftshader_indirect "$app a11y override" matrix ;;
   ios)
     target=aarch64-apple-ios-sim
     rustup target add "$target"
@@ -48,7 +48,7 @@ case "$platform" in
     zip="$(ls demo-out/apps/$app-e2e-ios-sim*.zip 2>/dev/null | head -n 1)"
     [ -n "$zip" ] || { echo "no e2e Simulator app of $app"; exit 3; }
     AZ_QA_MATRIX_APPS="$zip" bash scripts/ci/ios_qa.sh demo-out/qa-a11y "$zip" "$app a11y" a11y
-    AZ_QA_MATRIX_ONLY="a11y_display_settings.json" AZ_QA_MATRIX_APPS="$zip" bash scripts/ci/ios_qa.sh demo-out/qa-a11y-override "$zip" "$app a11y override" matrix ;;
+    AZ_QA_MATRIX_ONLY="a11y_" AZ_QA_MATRIX_APPS="$zip" bash scripts/ci/ios_qa.sh demo-out/qa-a11y-override "$zip" "$app a11y override" matrix ;;
   *) echo "usage: a11y_job.sh android|ios [<App>]"; exit 2 ;;
 esac
 echo "SESSION a11y $platform: exit $?"
