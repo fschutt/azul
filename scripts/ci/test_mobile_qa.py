@@ -158,6 +158,33 @@ class RunRecordTests(unittest.TestCase):
             self.assertTrue(run.steps[0].ok)
 
 
+class StartupMetricNoteTests(unittest.TestCase):
+    """WP-S's startup fix moves the system's launch metric (Displayed, TotalTime) from the blank window to the first Azul picture: the QA says so
+    under every table that shows it and keeps both metrics in the table, so that old and new runs stay comparable."""
+
+    def test_the_note_stands_under_the_render_table_and_both_metrics_stay_in_it(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            run = q.Run(d, "android", {"label": "t"})
+            run.render_table = [{"requested": "cpu", "ran": "cpu", "device": "software", "displayed": 1304, "first": 1.5,
+                                 "median": "n/a", "p95": "n/a", "n": "n/a"}]
+            run.write()
+            text = (Path(d) / "qa.md").read_text()
+        self.assertIn("| Displayed ms | first frame seen s |", text)
+        self.assertIn(q.STARTUP_METRIC_NOTE, text)
+
+    def test_the_note_names_the_metric_the_jump_and_what_to_compare_instead(self):
+        for words in ("TotalTime", "Displayed", "first Azul picture", "blank window", "jumps by the first-layout time", "not a regression",
+                      "first_present", "black frames after the starting window", "both metrics stay in the table"):
+            self.assertIn(words, q.STARTUP_METRIC_NOTE)
+
+    def test_the_cold_start_series_has_its_own_section_for_it(self):
+        src = Path(q.__file__).read_text(encoding="utf-8")
+        self.assertIn('"## How to read the startup numbers", "", STARTUP_METRIC_NOTE', src)
+        self.assertIn("system Displayed", src)          # the series keeps the system's number next to the engine's first present
+        self.assertIn("first full present of the engine", src)
+
+
 def bmp_v5(w, h, rgba_rows_top_down, top_down=True):
     """The BMP `sips -s format bmp` writes: 32 bit, BITMAPV5HEADER, BI_BITFIELDS with B,G,R,A byte order, top-down."""
     body = bytearray()
