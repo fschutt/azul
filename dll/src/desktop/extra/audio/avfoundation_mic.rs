@@ -94,11 +94,27 @@ unsafe fn read_asbd(sample_buffer: &CMSampleBuffer) -> Option<Asbd> {
     }
 }
 
-/// iOS: no `libloading` in the dependency graph — keep the documented
-/// Float32-interleaved HAL assumption (pass-through path below).
+/// iOS: CoreMedia is LINKED (the app's link list has it: the capture classes live in the same frameworks), so the
+/// getter is called directly. It used to answer `None` here and the converter assumed Float32 interleaved, which is
+/// what the macOS HAL delivers; an iPhone's `AVCaptureAudioDataOutput` delivers 16-bit signed integer PCM unless a
+/// format is asked for, so every sample was read as the wrong type: noise.
 #[cfg(not(target_os = "macos"))]
-unsafe fn read_asbd(_sample_buffer: &CMSampleBuffer) -> Option<Asbd> {
-    None
+unsafe fn read_asbd(sample_buffer: &CMSampleBuffer) -> Option<Asbd> {
+    #[link(name = "CoreMedia", kind = "framework")]
+    extern "C" {
+        fn CMAudioFormatDescriptionGetStreamBasicDescription(
+            description: *const core::ffi::c_void,
+        ) -> *const Asbd;
+    }
+    let fd = unsafe { sample_buffer.format_description() }?;
+    let fd_ptr: *const objc2_core_media::CMFormatDescription = &*fd;
+    // SAFETY: the description is alive (`fd` holds it) for the call; the answer points into it and is copied out.
+    let p = unsafe { CMAudioFormatDescriptionGetStreamBasicDescription(fd_ptr.cast()) };
+    if p.is_null() {
+        None
+    } else {
+        Some(unsafe { *p })
+    }
 }
 
 /// Convert the block-buffer `bytes` (format per `asbd`, or Float32 interleaved

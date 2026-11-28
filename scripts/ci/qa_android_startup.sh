@@ -11,4 +11,4 @@ export AZ_QA_SERIES=10
 export AZ_FLOOR=1
 export AZ_QA_STARTUP=1
 export AZ_QA_ONLY=03d
-bash "$(dirname "$0")/android_qa.sh" demo-out/qa "$apk" swiftshader_indirect AzWidgets qa
+bash "$(dirname "$0")/android_qa.sh" "${AZ_QA_OUT:-demo-out/qa}" "$apk" swiftshader_indirect AzWidgets qa
