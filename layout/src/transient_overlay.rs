@@ -72,7 +72,11 @@ const MAX_DEPTH: usize = 512;
 
 /// The layer style of every overlay: over the page, taken out of the flow, as big as the box the
 /// manager gave it (the solver reads both insets of an axis from it) and scrolling what does not fit.
-const LAYER_STYLE: &str = "position: fixed; box-sizing: border-box;";
+///
+/// The cursor is what makes the layer a TARGET of the pointer: a node nobody listens to and that has
+/// no cursor is not hit-tested, so a press on the scrim of a modal - or on the padding of a popover -
+/// would reach the page under it. The OS window this layer stands in for took every press on it.
+const LAYER_STYLE: &str = "position: fixed; box-sizing: border-box; cursor: default;";
 
 /// The scrim of a modal: the dimmed top layer the card sits on, the whole window. A column, the
 /// card at the bottom (a phone's sheet) and, from 600 px of width, centred (a card).

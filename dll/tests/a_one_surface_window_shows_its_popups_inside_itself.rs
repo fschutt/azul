@@ -122,6 +122,9 @@ extern "C" fn picker_layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom 
         .with_child(popup);
     // The page's own button, well away from the popup.
     let button = Dom::create_div()
+        .with_ids_and_classes(
+            vec![azul_core::dom::IdOrClass::Class("page-button".into())].into(),
+        )
         .with_css("width: 120px; height: 40px; margin-left: 100px; margin-top: 300px; background: #3366cc;".into())
         .with_callback(
             EventFilter::Hover(azul_core::events::HoverEventFilter::MouseUp),
@@ -204,21 +207,34 @@ fn open_windows(window: &HeadlessWindow) -> usize {
         .len()
 }
 
-fn panel_rect(window: &HeadlessWindow) -> Option<azul_core::geom::LogicalRect> {
+fn rect_of_class(window: &HeadlessWindow, class: &str) -> Option<azul_core::geom::LogicalRect> {
     let lw = window.get_layout_window().unwrap();
     let nodes = lw.layout_results[&DomId::ROOT_ID].styled_dom.node_data.as_container();
-    let panel = (0..nodes.len())
+    let node = (0..nodes.len())
         .map(azul_core::id::NodeId::new)
         .find(|n| {
             nodes[*n]
                 .get_ids_and_classes()
                 .iter()
-                .any(|c| matches!(c.as_class(), Some("panel")))
+                .any(|c| c.as_class() == Some(class))
         })?;
     lw.get_node_rect_in_viewport(DomNodeId {
         dom: DomId::ROOT_ID,
-        node: azul_core::styled_dom::NodeHierarchyItemId::from_crate_internal(Some(panel)),
+        node: azul_core::styled_dom::NodeHierarchyItemId::from_crate_internal(Some(node)),
     })
+}
+
+fn panel_rect(window: &HeadlessWindow) -> Option<azul_core::geom::LogicalRect> {
+    rect_of_class(window, "panel")
+}
+
+/// The middle of the page's own button, where a finger would land.
+fn page_button_centre(window: &HeadlessWindow) -> LogicalPosition {
+    let rect = rect_of_class(window, "page-button").expect("the page's button is laid out");
+    LogicalPosition::new(
+        rect.origin.x + rect.size.width / 2.0,
+        rect.origin.y + rect.size.height / 2.0,
+    )
 }
 
 fn press_at(window: &mut HeadlessWindow, x: f32, y: f32) {
@@ -362,8 +378,9 @@ fn the_page_under_a_phones_modal_dialog_is_inert() {
     assert!(window.pending_window_creates.is_empty(), "no second window");
     assert_eq!(open_windows(&window), 1);
 
-    // The button is at (100, 48 + 40 + 24 + 40 + 300) = (100.., 452..492): click its middle.
-    click_at(&mut window, LogicalPosition::new(160.0, 470.0));
+    // Click the middle of the page's button: under the scrim, the press lands on the scrim.
+    let button = page_button_centre(&window);
+    click_at(&mut window, button);
     assert_eq!(presses(&window), 0, "the page heard nothing: the scrim took the press");
     assert_eq!(open_windows(&window), 1, "and a modal is not light-dismissed");
 
@@ -373,7 +390,8 @@ fn the_page_under_a_phones_modal_dialog_is_inert() {
     }
     window.request_regeneration(RelayoutReason::RefreshDom);
     window.regenerate_layout().expect("layout: closed");
-    click_at(&mut window, LogicalPosition::new(160.0, 470.0));
+    let button = page_button_centre(&window);
+    click_at(&mut window, button);
     assert_eq!(presses(&window), 1, "the button is the page's again");
 }
 

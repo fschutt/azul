@@ -84,6 +84,20 @@ fn a_popup_of_a_one_surface_window_is_a_fixed_layer_over_the_page() {
     assert!(has_inline(node, |p| matches!(p, CssProperty::OverflowY(_))), "scrolls what does not fit");
 }
 
+/// The layer takes the pointer: a node without a handler or a cursor is not hit-tested, and a press on
+/// the scrim of a modal would then reach the page under it.
+#[test]
+fn every_layer_is_a_target_of_the_pointer() {
+    for anchor in [TransientAnchor::Bottom, TransientAnchor::Dialog] {
+        let mut page = page_with(popup(anchor, Some("Delete?"), vec![named("panel")]));
+        present_transient_windows(&mut page, WindowPresentation::OneSurface);
+        assert!(
+            has_inline(popup_of(&page), |p| matches!(p, CssProperty::Cursor(_))),
+            "{anchor:?}: the layer declares a cursor, so it is hit-tested"
+        );
+    }
+}
+
 /// A popover is what its panel says: no chrome of the engine's.
 #[test]
 fn an_anchored_popup_gets_no_sheet() {
