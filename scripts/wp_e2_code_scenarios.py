@@ -78,6 +78,16 @@ def chord(key, primary, shift=False):
     return [op("key_down", key=key, modifiers=mods), op("key_up", key=key, modifiers={})] + frames(2)
 
 
+def layout_is(selector, **expected):
+    """The node's box (x, y, width, height in window px) is where the layout puts it."""
+    return [op("assert_layout", selector=selector, property=prop, expected=float(value), tolerance=1.5) for prop, value in expected.items()]
+
+
+# phone_model.rs: the top bar's and the status bar's heights, the sheet's top margin (a finger tall and the hairline), px
+TOP_BAR = 49.0
+STATUS_BAR = 49.0
+
+
 def press(key):
     return [op("key_down", key=key), op("key_up", key=key)] + frames(2)
 
@@ -154,12 +164,19 @@ def desktop_files():
 
 # ---- the phone ----
 
-def phone_steps(first_start, width=None, height=None):
+def phone_steps(first_start, width=None, height=None, bars=None):
     """first_start: the device's first look is src/main.rs (the phone opened the sample workspace and its first file itself); a host
-    window has the welcome page and opens the sample and the file through the UI."""
+    window has the welcome page and opens the sample and the file through the UI. bars: (top, bottom, left, right) px the display
+    preset keeps for the status bar, the home indicator and the cutout of a window `width` x `height`: the engine insets the ROOT by
+    them, so the top bar starts under the status bar, the status bar ends over the home indicator, and the sheet drawn up
+    reaches its top margin under the root's top and no further."""
     s = [op("set_mode", mode="dark")]
     s += exists("#__azcode_top-bar", "#__azcode_drawer-button", "#__azcode_palette-button", "#__azcode_status-bar")
     s += missing("#__azcode_drawer", "#__azcode_panel", "#__azcode_key-row", "#__azcode_activity-explorer")
+    if bars:
+        top, bottom, left, right = bars
+        s += layout_is("#__azcode_top-bar", x=left, y=top, width=width - left - right, height=TOP_BAR)
+        s += layout_is("#__azcode_status-bar", y=height - bottom - STATUS_BAR, height=STATUS_BAR)
     if first_start:
         s += rest(4500) + exists("#__azcode_tab-0", "#__azcode_editor")
         s += shot()                                                    # 1 first look: the sample's main.rs, the editor is the screen
@@ -186,6 +203,10 @@ def phone_steps(first_start, width=None, height=None):
     s += click("#__azcode_status-problems") + exists("#__azcode_sheet", "#__azcode_panel-tab-problems")
     s += shot()                                                        # 5 the panel as a sheet, at its detent
     s += grip_keys("Up") + shot()                                      # 6 the sheet drawn up
+    if bars:
+        # drawn up, the sheet stops under the top bar: its top is the root's top and the top bar's height under the window's top, its
+        # foot the root's foot
+        s += layout_is("#__azcode_sheet", y=top + TOP_BAR, height=height - top - bottom - TOP_BAR)
     s += grip_keys("Down", "Down") + shot()                            # 7 and pushed down to its grip
     # its header is out of reach at the grip: raised first, and let to settle (a click in the middle of the animation lands where the
     # button was)
@@ -207,17 +228,19 @@ def phone_steps(first_start, width=None, height=None):
 def phone_files():
     names = ("1 first look, 2 the drawer (explorer), 3 the file in the editor, 4 the key row, 5 the panel's sheet, 6 drawn up, 7 pushed "
              "down, 8 source control, 9 run, 10 light (the phone itself has a picture of the braces typed by the key row after the 4th)")
-    sizes = [("pixel8", 411, 914, "pixel8"), ("iphone", 402, 874, "iphone_island"), ("small", 360, 640, "off"),
-             ("landscape", 914, 411, "pixel8")]
+    # what the display preset keeps (core/src/display_features.rs: the status bar, the navigation bar, the cutout at the left in
+    # landscape): top, bottom, left, right
+    sizes = [("pixel8", 411, 914, "pixel8", (48.0, 24.0, 0.0, 0.0)), ("iphone", 402, 874, "iphone_island", (59.0, 34.0, 0.0, 0.0)),
+             ("small", 360, 640, "off", (0.0, 0.0, 0.0, 0.0)), ("landscape", 914, 411, "pixel8", (24.0, 24.0, 36.0, 0.0))]
     out = {}
-    for tag, w, h, preset in sizes:
+    for tag, w, h, preset, bars in sizes:
         out[f"code_phone_{tag}.json"] = [{
             "name": f"azul_code_phone_{tag}_drawer_sheet_keys_host",
             "description": f"AzCode in a {w} x {h} window ({preset}), as a phone shows it: the editor is the screen, the explorer a drawer "
                            f"over a scrim, the panel a sheet from the bottom, a key row over the keyboard's place, one status bar "
                            f"line. Pictures, in order: {names}.",
             "only_on": ["linux", "macos", "windows"],
-            "steps": window(w, h, preset) + phone_steps(False, w, h),
+            "steps": window(w, h, preset) + phone_steps(False, w, h, bars),
         }]
     # The system's insets arrive after the first frame (a display preset stands for them): the top bar moves under the status bar.
     out["code_phone_insets.json"] = [{

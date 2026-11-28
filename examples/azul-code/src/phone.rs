@@ -28,17 +28,17 @@ use crate::{
 const RECESSED: &str = "rgba(128, 128, 128, 0.10)";
 
 /// The phone's window: the top bar, the editor, the key row or the status bar, and over them the
-/// drawer (with its scrim), the panel's sheet and the palette.
+/// drawer (with its scrim), the panel's sheet and the palette. The engine insets the window's root by the status bar, the cutout
+/// and the home indicator, so none of them is kept clear of here: the keyboard (`lift`), which overlays the window from its
+/// bottom edge, is the one room of the system's that is left.
 #[must_use]
 pub fn window(app: &RefAny, st: &AppState) -> Dom {
-    let insets = st.insets;
-    let lift = insets.lift();
+    let lift = st.insets.lift();
     let has_file = st.tabs.active().is_some();
     let mut root = Dom::create_div()
         .with_css(format!(
             "display: flex; flex-direction: column; flex-grow: 1; min-height: 0px; min-width: 0px; position: relative; \
-             box-sizing: border-box; padding: 0px {}px {}px {}px;",
-            insets.right, lift, insets.left
+             box-sizing: border-box; padding-bottom: {lift}px;"
         ))
         .with_child(top_bar(app, st))
         .with_child(editor_area(app, st));
@@ -90,7 +90,6 @@ fn editor_area(app: &RefAny, st: &AppState) -> Dom {
 
 /// The top bar: the drawer's button, the file tabs (they scroll sideways), the command palette.
 fn top_bar(app: &RefAny, st: &AppState) -> Dom {
-    let top = st.insets.top;
     let mut tabs = Dom::create_div().with_id(ids::TABS).with_css(
         "display: flex; flex-direction: row; align-items: stretch; flex-grow: 1; flex-shrink: 1; min-width: 0px; \
          height: 100%; overflow-x: auto; overflow-y: hidden; scrollbar-width: none;",
@@ -101,9 +100,8 @@ fn top_bar(app: &RefAny, st: &AppState) -> Dom {
     Dom::create_div()
         .with_id(ids::TOP_BAR)
         .with_css(format!(
-            "display: flex; flex-direction: row; align-items: center; flex-shrink: 0; height: {}px; padding-top: {top}px; \
-             box-sizing: border-box; border-bottom: 1px solid {RULE};",
-            TOP_BAR + top
+            "display: flex; flex-direction: row; align-items: center; flex-shrink: 0; height: {TOP_BAR}px; \
+             box-sizing: border-box; border-bottom: 1px solid {RULE};"
         ))
         .with_child(icon_button_sized(
             ids::DRAWER_BUTTON,
@@ -212,7 +210,6 @@ extern "C" fn on_scrim(mut data: RefAny, mut info: CallbackInfo) -> Update {
 
 /// The drawer: the four views' icons in a row (a finger each), Settings, and the view in front.
 fn drawer(app: &RefAny, st: &AppState) -> Dom {
-    let insets = st.insets;
     let side = match st.side {
         Side::Explorer => explorer::explorer(app, st),
         Side::Search => find_in_files::search_panel(app, st),
@@ -224,12 +221,9 @@ fn drawer(app: &RefAny, st: &AppState) -> Dom {
         .with_accessibility_info(AccessibilityInfo::named(l10n::label("azcode-drawer"), AccessibilityRole::Pane))
         .with_css(format!(
             "position: absolute; left: 0px; top: 0px; bottom: 0px; width: {}px; display: flex; flex-direction: column; \
-             box-sizing: border-box; padding: {}px 0px {}px {}px; background: system:window-background; color: system:text; \
+             box-sizing: border-box; background: system:window-background; color: system:text; \
              box-shadow: 2px 0px 12px rgba(0, 0, 0, 0.4);",
-            drawer_width(st.window.0),
-            insets.top,
-            insets.bottom,
-            insets.left
+            drawer_width(st.window.0)
         ))
         .with_child(activity_row(app, st))
         .with_child(
@@ -339,9 +333,10 @@ fn sheet(app: &RefAny, st: &AppState) -> Dom {
         .with_detent(sheet_detent(st.phone.sheet))
         .with_lowest(SheetDetent::Collapsed)
         .with_highest(SheetDetent::Full)
+        // the root's height (the window less the bars): the sheet lies on its lower edge, and drawn up it stops under its top
         .with_container_height(st.window.1)
         .with_collapsed_height(SHEET_COLLAPSED)
-        .with_top_margin(SHEET_TOP_MARGIN + insets.top)
+        .with_top_margin(SHEET_TOP_MARGIN)
         .with_bottom_inset(insets.lift())
         .with_safe_bottom(insets.bottom_clear())
         // The grip and the tabs under it take the drag.
@@ -444,15 +439,13 @@ fn segment(app: &RefAny, id: AzString, icon: &str, text: &str, name: &str, callb
     dom
 }
 
-/// The status bar, one line a finger tall (more under the home indicator): the branch, the panel's three
+/// The status bar, one line a finger tall (the root ends over the home indicator): the branch, the panel's three
 /// views, the caret (a tap goes to a line), the language.
 fn status_bar(app: &RefAny, st: &AppState) -> Dom {
-    let clear = st.insets.bottom_clear();
     let mut bar = Dom::create_div().with_id(ids::STATUS_BAR).with_css(format!(
-        "display: flex; flex-direction: row; align-items: center; flex-shrink: 0; height: {}px; padding-bottom: {clear}px; \
+        "display: flex; flex-direction: row; align-items: center; flex-shrink: 0; height: {STATUS_BAR}px; \
          box-sizing: border-box; overflow-x: auto; overflow-y: hidden; scrollbar-width: none; border-top: 1px solid {RULE}; \
-         background: {RECESSED};",
-        STATUS_BAR + clear
+         background: {RECESSED};"
     ));
     if let Some(branch) = st.branch.as_deref() {
         bar.add_child(segment(app, ids::STATUS_BRANCH, "call_split", branch, branch, None));

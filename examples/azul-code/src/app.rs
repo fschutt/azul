@@ -510,7 +510,8 @@ pub struct AppState {
     pub saving: Vec<PendingSave>,
     /// The sample's files are being written.
     pub writing_sample: bool,
-    /// The window's size (the CodeView's viewport hint).
+    /// The size of the window's ROOT (the window less the bars and the cutout the engine keeps it out of): what every size
+    /// of the layout is taken from, the CodeView's viewport hint among them.
     pub window: (f32, f32),
     /// The side bar shows (Mod+B; a click on the active activity icon hides
     /// it).
@@ -541,7 +542,8 @@ pub struct AppState {
     pub diag: Diagnostics,
     /// The phone's window: the drawer, the sheet, the key row.
     pub phone: crate::phone::PhoneState,
-    /// The room the system keeps for itself (set by the layout: zero on a desktop).
+    /// What the system keeps of the root: the keyboard, less the bar under the root (`Insets::inside_root`; set by the layout,
+    /// zero on a desktop and while no keyboard is up).
     pub insets: azul_appkit::insets::Insets,
     next_id: u64,
 }

@@ -210,9 +210,10 @@ pub fn editor_size(st: &AppState) -> (f32, f32) {
     let (width, height) = st.window;
     if phone::is_compact(width, height) {
         // The top bar, the status bar (or the key row over the keyboard), the find and go-to bars; the
-        // sheet lies over the editor and is not taken off.
+        // sheet lies over the editor and is not taken off. The root is the window less the bars: nothing
+        // of them to take off here, the keyboard (`lift`) is what is left of the system's room.
         let insets = st.insets;
-        let mut chrome = phone::TOP_BAR + insets.top + phone::STATUS_BAR + insets.bottom_clear();
+        let mut chrome = phone::TOP_BAR + phone::STATUS_BAR;
         if phone::key_row_visible(true, st.tabs.active().is_some(), st.phone.editing, insets.lift()) {
             chrome += phone::KEY_ROW;
         }
@@ -222,10 +223,7 @@ pub fn editor_size(st: &AppState) -> (f32, f32) {
         if st.goto.is_some() {
             chrome += 40.0;
         }
-        return (
-            (width - insets.left - insets.right).max(200.0),
-            (height - insets.lift() - chrome).max(120.0),
-        );
+        return (width.max(200.0), (height - insets.lift() - chrome).max(120.0));
     }
     let rest = (width - ACTIVITY_WIDTH).max(0.0);
     let side = if st.side_visible {

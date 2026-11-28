@@ -272,11 +272,13 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
     let _mode = info.get_mode();
     let _theme = info.get_theme();
     azul_appkit::l10n::begin_layout(&info);
-    let size = (info.get_window_width(), info.get_window_height());
     // The room the system keeps (status bar, cutout, home indicator, keyboard): read here, so a change
     // of it rebuilds the window. The engine insets the ROOT of this window by the bars and the cutout (it does not
-    // draw under them), so what is left to the layout is the keyboard, less the bar under the root.
-    let insets = azul_appkit::insets::Insets::of(&info).inside_root();
+    // draw under them): the root is what this layout lays out in (its size is the window less the bars, and every
+    // size below is that one), and what is left of the system's room is the keyboard, less the bar under the root.
+    let raw = azul_appkit::insets::Insets::of(&info);
+    let size = raw.root_size((info.get_window_width(), info.get_window_height()));
+    let insets = raw.inside_root();
     if let Some(mut st) = data.downcast_mut::<AppState>() {
         st.window = size;
         st.insets = insets;
@@ -288,17 +290,8 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
     };
     let st = &*guard;
     let content = if kit::settings_open(&st.kit) {
-        let page = ui::column(vec![kit::title_row(&st.title()), kit::settings_page(&st.kit, Vec::new())]);
-        if phone::is_compact(st.window.0, st.window.1) {
-            // The page starts under the status bar and the cutout, and ends over the home indicator.
-            let i = st.insets;
-            ui::column(vec![page]).with_css(format!(
-                "display: flex; flex-direction: column; flex-grow: 1; min-height: 0px; box-sizing: border-box; padding: {}px {}px {}px {}px;",
-                i.top, i.right, i.bottom_clear(), i.left
-            ))
-        } else {
-            page
-        }
+        // The root starts under the status bar and the cutout and ends over the home indicator: nothing to keep clear of.
+        ui::column(vec![kit::title_row(&st.title()), kit::settings_page(&st.kit, Vec::new())])
     } else {
         ui::window(&app, st)
     };

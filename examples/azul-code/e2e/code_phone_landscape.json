@@ -66,6 +66,48 @@
         "selector": "#__azcode_activity-explorer"
       },
       {
+        "op": "assert_layout",
+        "selector": "#__azcode_top-bar",
+        "property": "x",
+        "expected": 36.0,
+        "tolerance": 1.5
+      },
+      {
+        "op": "assert_layout",
+        "selector": "#__azcode_top-bar",
+        "property": "y",
+        "expected": 24.0,
+        "tolerance": 1.5
+      },
+      {
+        "op": "assert_layout",
+        "selector": "#__azcode_top-bar",
+        "property": "width",
+        "expected": 878.0,
+        "tolerance": 1.5
+      },
+      {
+        "op": "assert_layout",
+        "selector": "#__azcode_top-bar",
+        "property": "height",
+        "expected": 49.0,
+        "tolerance": 1.5
+      },
+      {
+        "op": "assert_layout",
+        "selector": "#__azcode_status-bar",
+        "property": "y",
+        "expected": 338.0,
+        "tolerance": 1.5
+      },
+      {
+        "op": "assert_layout",
+        "selector": "#__azcode_status-bar",
+        "property": "height",
+        "expected": 49.0,
+        "tolerance": 1.5
+      },
+      {
         "op": "assert_exists",
         "selector": "#__azcode_welcome"
       },
@@ -331,6 +373,20 @@
       },
       {
         "op": "take_screenshot"
+      },
+      {
+        "op": "assert_layout",
+        "selector": "#__azcode_sheet",
+        "property": "y",
+        "expected": 73.0,
+        "tolerance": 1.5
+      },
+      {
+        "op": "assert_layout",
+        "selector": "#__azcode_sheet",
+        "property": "height",
+        "expected": 314.0,
+        "tolerance": 1.5
       },
       {
         "op": "focus_node",
