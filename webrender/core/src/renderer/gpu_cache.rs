@@ -213,6 +213,11 @@ impl GpuCacheTexture {
         }
     }
 
+    /// EXPERIMENT (the Android GPU root-cause hunt, never for master): the texture, when there is one.
+    pub fn debug_texture(&self) -> Option<&Texture> {
+        self.texture.as_ref()
+    }
+
     pub fn get_height(&self) -> i32 {
         self.texture
             .as_ref()

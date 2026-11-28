@@ -1098,6 +1098,46 @@ impl Renderer {
         )
     }
 
+    /// EXPERIMENT (the Android GPU root-cause hunt, never for master): what the GPU cache texture holds, as one line: its size, how many
+    /// of its texels are not all zero, the rows that hold any, and the first texels that are not zero.
+    pub fn debug_gpu_cache_probe(&mut self) -> String {
+        let _ = self.device.begin_frame();
+        let result = match self.gpu_cache_texture.debug_texture() {
+            None => "no GPU cache texture".to_owned(),
+            Some(texture) => {
+                let size = texture.get_dimensions();
+                let width = size.width.max(1) as usize;
+                let values = self.device.debug_read_texture_rgbaf32(texture);
+                let mut non_zero = 0_usize;
+                let mut rows_with_data = Vec::new();
+                let mut first = Vec::new();
+                for (index, texel) in values.chunks_exact(4).enumerate() {
+                    if texel.iter().any(|v| *v != 0.0) {
+                        non_zero += 1;
+                        let row = index / width;
+                        if rows_with_data.last() != Some(&row) && rows_with_data.len() < 40 {
+                            rows_with_data.push(row);
+                        }
+                        if first.len() < 6 {
+                            first.push(format!("({},{}) = {:?}", index % width, row, texel));
+                        }
+                    }
+                }
+                format!(
+                    "GPU cache texture {}x{}: {} of {} texels not zero; rows with data (up to 40): {:?}; first: {}",
+                    size.width,
+                    size.height,
+                    non_zero,
+                    values.len() / 4,
+                    rows_with_data,
+                    first.join(" ")
+                )
+            }
+        };
+        self.device.end_frame();
+        result
+    }
+
     /// EXPERIMENT: switches the device's per-draw read-back on or off.
     pub fn debug_set_draw_probe(&mut self, on: bool) {
         self.device.set_draw_probe(on);

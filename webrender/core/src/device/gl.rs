@@ -3446,6 +3446,27 @@ impl Device {
         pixels
     }
 
+    /// EXPERIMENT (the Android GPU root-cause hunt, never for master): all texels of an RGBAF32 texture, through a framebuffer that is made
+    /// for the read and deleted again.
+    pub fn debug_read_texture_rgbaf32(&mut self, texture: &Texture) -> Vec<f32> {
+        let size = texture.get_dimensions();
+        let fbo = self.create_fbo_for_external_texture(texture.id);
+        self.bind_read_target_impl(fbo, DeviceIntPoint::zero());
+        let rect = FramebufferIntRect::from_origin_and_size(
+            FramebufferIntPoint::new(0, 0),
+            FramebufferIntSize::new(size.width, size.height),
+        );
+        let count = (size.width.max(0) * size.height.max(0) * 4) as usize;
+        let mut bytes = vec![0_u8; count * 4];
+        self.read_pixels_into(rect, ImageFormat::RGBAF32, &mut bytes);
+        self.reset_read_target();
+        self.delete_fbo(fbo);
+        bytes
+            .chunks_exact(4)
+            .map(|c| f32::from_ne_bytes([c[0], c[1], c[2], c[3]]))
+            .collect()
+    }
+
     /// Get texels of a texture into the specified output slice.
     pub fn get_tex_image_into(
         &mut self,

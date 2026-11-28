@@ -994,6 +994,11 @@ impl GlesGpu {
                 }
             }
         }
+        if self.presents == 0 && pictures_requested() {
+            if let Some(renderer) = ctx.common.renderer.as_mut() {
+                log_info!(LogCategory::Rendering, "[render] {}", renderer.debug_gpu_cache_probe());
+            }
+        }
         if self.presents == 0 && composite_probe_requested() {
             if let Some(renderer) = ctx.common.renderer.as_mut() {
                 log_info!(LogCategory::Rendering, "[render] {}", renderer.debug_composite_probe());
