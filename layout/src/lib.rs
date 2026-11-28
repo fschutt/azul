@@ -398,6 +398,9 @@ pub mod documents;
 /// App's own registry instead of in process-wide statics.
 #[cfg(feature = "text_layout")]
 pub mod request_registry;
+/// The folders a person granted that the app keeps itself, as bookmarks (iOS): a small file of its own, written whole and renamed over.
+#[cfg(feature = "text_layout")]
+pub mod places_store;
 /// What Android's storage framework says, in the engine's words: a provider's rows, flags and exceptions as `Documents` entries and
 /// errors (the pure half of the phone's backend, which `azul-dll` completes with the JNI calls).
 #[cfg(feature = "text_layout")]
