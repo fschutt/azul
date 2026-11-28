@@ -3307,6 +3307,8 @@ pub fn slider(slider: crate::widgets::slider::Slider) -> Dom {
     // rail and thumb).
     let mut thumb_children = Vec::new();
     if !track_is_callers {
+        // The design width is a default below the app's own css (`Slider::dom` attaches it).
+        track_style = crate::widgets::slider::without_design_width(track_style);
         track_style.push(super::decl::px_height(20.0));
         track_style.extend(super::decl::radius(2));
         track_style.push(CssPropertyWithConditions::simple(CssProperty::const_overflow_x(

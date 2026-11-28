@@ -1649,6 +1649,8 @@ pub fn slider(slider: crate::widgets::slider::Slider) -> Dom {
     // accent - in the desktop's own accent. Only on the widget's own parts:
     // a style the caller set is the caller's (the status bar's zoom slider).
     if !track_is_callers {
+        // The design width is a default below the app's own css (`Slider::dom` attaches it).
+        track_style = crate::widgets::slider::without_design_width(track_style);
         track_style.push(system_palette::DARK_CONTROL_BACKGROUND);
     }
     if !thumb_is_callers {

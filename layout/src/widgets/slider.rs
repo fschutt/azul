@@ -21,7 +21,7 @@ use azul_css::{
         CssPropertyWithConditions, CssPropertyWithConditionsVec, OptionCssPropertyWithConditionsVec,
     },
     props::{
-        basic::{color::ColorU, length::FloatValue, *},
+        basic::{color::ColorU, length::FloatValue, pixel::PixelValue},
         layout::{
             LayoutAlignItems, LayoutAlignSelf, LayoutBoxSizing, LayoutDisplay, LayoutFlexDirection,
             LayoutFlexGrow, LayoutFlexShrink, LayoutHeight, LayoutMarginLeft, LayoutPaddingRight,
@@ -209,6 +209,56 @@ static SLIDER_TRACK_STYLE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_cursor(StyleCursor::Pointer)),
     CssPropertyWithConditions::simple(CssProperty::const_background_content(RAIL_BG)),
 ];
+
+/// The class of the track, the root of the widget.
+const TRACK_CLASS_NAME: &str = "__azul-native-slider";
+
+/// The design width of the track as a DEFAULT: `.__azul-native-slider { width: 200px }` at
+/// `rule_priority::UA`, below every style the app gives the track, the way a browser's own sheet
+/// gives an `<input type=range>` its width.
+///
+/// It cannot be an inline declaration of the track: a node's inline style beats every
+/// selector-matched rule, `Dom::with_css`'s included, so a track that an app made as wide as its
+/// row (`.dom().with_css("width: 100%")`: the scrubber of a book under a phone's page) kept its
+/// 200 px whatever the app said. `text_input::field_font_default` is the same answer for the
+/// font size of a field.
+fn track_width_default() -> azul_css::css::Css {
+    use azul_css::css::{
+        rule_priority, Css, CssDeclaration, CssPath, CssPathSelector, CssRuleBlock,
+    };
+    Css {
+        rules: alloc::vec![CssRuleBlock {
+            path: CssPath {
+                selectors: alloc::vec![CssPathSelector::Class(AzString::from_const_str(
+                    TRACK_CLASS_NAME,
+                ))]
+                .into(),
+            },
+            declarations: alloc::vec![CssDeclaration::Static(CssProperty::const_width(
+                LayoutWidth::const_px(TRACK_WIDTH),
+            ))]
+            .into(),
+            conditions: Vec::new().into(),
+            priority: rule_priority::UA,
+        }]
+        .into(),
+        ..Css::default()
+    }
+}
+
+/// `style` (the track style of a slider whose track the app did not style) without its design
+/// width: the track gets that from [`track_width_default`], a rule the app's own css can beat.
+/// The theme builders call it on the widget's own track only; a track style the app wrote is the
+/// app's, width and all.
+#[must_use]
+pub(crate) fn without_design_width(
+    style: Vec<CssPropertyWithConditions>,
+) -> Vec<CssPropertyWithConditions> {
+    style
+        .into_iter()
+        .filter(|p| !matches!(p.property, CssProperty::Width(_)))
+        .collect()
+}
 
 /// Maps a value to a `[0, 1]` fraction along the track.
 fn value_to_fraction(value: f32, min: f32, max: f32) -> f32 {
@@ -414,11 +464,18 @@ impl Slider {
     #[must_use]
     pub fn dom(self) -> Dom {
         use crate::widgets::themes::{flat, flora, theme_blocks, UiTheme};
-        match self.theme.into_option() {
+        // A track the app styled keeps the width the app wrote (inline). The widget's own track
+        // has its design width as a default (`track_width_default`): the app's css beats it.
+        let own_track = self.track_style.is_none();
+        let mut dom = match self.theme.into_option() {
             Some(UiTheme::Flat) => flat::slider(self),
             Some(UiTheme::Flora) => flora::slider(self),
             None => theme_blocks::follow_app_theme(self, flat::slider, flora::slider),
+        };
+        if own_track {
+            dom.add_component_css(track_width_default());
         }
+        dom
     }
 }
 
@@ -1701,10 +1758,13 @@ mod autotest_generated {
                 s.slider_state.inner.value, v,
                 "{v} did not survive set_value"
             );
-            assert_eq!(
+            // A percentage of the room the thumb has (what the design track makes of it in px:
+            // the fraction of `TRAVEL`), no longer rounded to a whole pixel.
+            assert!(
+                (thumb_margin(&s) - v / 100.0 * TRAVEL).abs() < 0.01,
+                "{v} landed on {} px, not {}",
                 thumb_margin(&s),
-                (v / 100.0 * TRAVEL).round(),
-                "{v} landed on the wrong pixel",
+                v / 100.0 * TRAVEL,
             );
         }
     }
@@ -1808,7 +1868,7 @@ mod autotest_generated {
             .with_value(90.0)
             .with_value(45.0);
         assert_eq!(s.slider_state.inner.value, 45.0);
-        assert_eq!(thumb_margin(&s), (0.45 * TRAVEL).round());
+        assert!((thumb_margin(&s) - 0.45 * TRAVEL).abs() < 0.01);
     }
 
     // ==================================================================

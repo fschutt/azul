@@ -5,12 +5,23 @@
 //! row it is in: AzReader) had the thumb at that fraction of 200 px, so the thumb stopped at two thirds of the
 //! rail of a 300 px track until the first touch moved it. The thumb's `margin-left` is a percentage of the room it
 //! has (the track's width less the thumb's) now, so it is at the right place at any width.
+//!
+//! The track's 200 px is a default, not an inline declaration: `.dom().with_css("width: 100%")` of the
+//! app makes the track as wide as its row (a node's inline style beats every selector-matched rule,
+//! `Dom::with_css`'s too, so the width could not be the widget's own inline declaration). A track the
+//! app styled itself keeps the width the app wrote.
 
 use azul_core::{
     dom::{Dom, DomId, NodeId},
     geom::LogicalSize,
     resources::RendererResources,
     styled_dom::StyledDom,
+};
+use azul_css::{
+    dynamic_selector::{
+        CssPropertyWithConditions, CssPropertyWithConditionsVec, OptionCssPropertyWithConditionsVec,
+    },
+    props::{layout::LayoutWidth, property::CssProperty},
 };
 use azul_layout::{
     callbacks::ExternalSystemCallbacks,
@@ -26,11 +37,16 @@ const THUMB_SIZE: f32 = 16.0;
 
 /// `body > div(column, 300px) > slider`, the slider's own root given `track_css`, laid out at 640 x 480.
 fn laid_out(theme: UiTheme, value: f32, track_css: &str) -> LayoutWindow {
+    laid_out_slider(theme, Slider::create(value, 0.0, 100.0), track_css)
+}
+
+/// [`laid_out`] for a slider the test built.
+fn laid_out_slider(theme: UiTheme, slider: Slider, track_css: &str) -> LayoutWindow {
     let mut lw = LayoutWindow::new(FcFontCache::default()).expect("a layout window");
     let mut window_state = FullWindowState::default();
     window_state.size.dimensions = LogicalSize::new(640.0, 480.0);
     lw.current_window_state = window_state.clone();
-    let slider = Slider::create(value, 0.0, 100.0).with_theme(theme).dom().with_css(track_css);
+    let slider = slider.with_theme(theme).dom().with_css(track_css);
     let mut dom = Dom::create_body().with_child(
         Dom::create_div()
             .with_css("display: flex; flex-direction: column; width: 300px;")
@@ -120,5 +136,32 @@ fn the_thumb_is_not_squeezed_at_the_right_end() {
         let lw = laid_out(theme, 100.0, "width: 100%;");
         let (offset, travel) = thumb_offset_and_travel(&lw);
         assert!((offset - travel).abs() < 0.6, "{theme:?}: the thumb is at {offset}, the end is {travel}");
+    }
+}
+
+#[test]
+fn a_track_the_app_styled_keeps_the_width_the_app_wrote() {
+    // The documented way to restyle a part: the widget's own style (`resolved_track_style`) and the
+    // app's declarations after it, the later one winning.
+    for theme in THEMES {
+        let mut slider = Slider::create(50.0, 0.0, 100.0);
+        let mut style = slider.resolved_track_style().as_slice().to_vec();
+        style.push(CssPropertyWithConditions::simple(CssProperty::const_width(LayoutWidth::const_px(120))));
+        slider.track_style =
+            OptionCssPropertyWithConditionsVec::Some(CssPropertyWithConditionsVec::from_vec(style));
+        let lw = laid_out_slider(theme, slider, "");
+        let (_, width) = x_and_width(&lw, TRACK);
+        assert!((width - 120.0).abs() < 0.01, "{theme:?}: the track the app gave 120 px is {width} px");
+    }
+}
+
+#[test]
+fn the_apps_own_css_beats_the_design_width_whichever_way_it_asks() {
+    for theme in THEMES {
+        for (css, expected) in [("width: 100%;", 300.0), ("width: 150px;", 150.0), ("width: 50%;", 150.0)] {
+            let lw = laid_out(theme, 40.0, css);
+            let (_, width) = x_and_width(&lw, TRACK);
+            assert!((width - expected).abs() < 0.01, "{theme:?} `{css}`: the track is {width} px, not {expected}");
+        }
     }
 }
