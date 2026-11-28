@@ -22,14 +22,14 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use azul::iroh::{IrohConfig, IrohEndpoint, IrohEvent, IrohEventKind, IrohNearbyPeer, IrohPeerStats, IrohRelayMode};
 use azul::vec::U8Vec;
 
-use crate::discovery::{Discovery, Nearby, NearbyEvent};
+use crate::discovery::{addresses_of, push_news, Discovery, Nearby, NearbyEvent};
 use crate::limits::{ALPN, MAX_FRAME_BYTES};
 use crate::link::{Delivery, Link, LinkEvent, LinkStats, Millis, PeerHandle, PERMISSION_PREFIX};
 
 /// The most events one poll takes.
 pub const MAX_EVENTS_PER_POLL: usize = 512;
 /// The most announcements of the local network kept for [`IrohDiscovery::poll`] (the oldest give way).
-pub const MAX_NEWS: usize = 256;
+pub use crate::discovery::MAX_NEWS;
 
 /// How an endpoint is bound.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -253,21 +253,10 @@ impl Link for IrohLink {
             };
             match event.kind {
                 IrohEventKind::NearbyAppeared | IrohEventKind::NearbyGone => {
-                    let id = event.text.as_str();
-                    let addresses = self
-                        .endpoint
-                        .nearby_peers()
-                        .as_slice()
-                        .iter()
-                        .find(|peer| peer.endpoint_id.as_str() == id)
-                        .map(|peer| neighbour(peer).addresses)
-                        .unwrap_or_default();
+                    let listed: Vec<Nearby> = self.endpoint.nearby_peers().as_slice().iter().map(neighbour).collect();
+                    let addresses = addresses_of(&listed, event.text.as_str());
                     if let Some(news) = nearby_event(&event, addresses) {
-                        let mut kept = lock(&self.news);
-                        if kept.len() >= MAX_NEWS {
-                            kept.remove(0);
-                        }
-                        kept.push(news);
+                        push_news(&mut lock(&self.news), news);
                     }
                 }
                 _ => out.extend(link_event(&event)),

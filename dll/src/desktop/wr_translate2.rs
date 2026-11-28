@@ -152,27 +152,63 @@ impl WrRenderNotifier for Notifier {
 pub fn create_program_cache(
     gl: &Rc<azul_core::gl::GenericGlContext>,
 ) -> Option<Rc<webrender::ProgramCache>> {
-    use crate::desktop::shader_cache::ShaderDiskCache;
+    create_program_cache_in(gl, None)
+}
 
+/// [`create_program_cache`] in `base_dir` (the app's private cache directory on a phone, where the platform default is
+/// none) when one is given.
+pub fn create_program_cache_in(
+    gl: &Rc<azul_core::gl::GenericGlContext>,
+    base_dir: Option<&std::path::Path>,
+) -> Option<Rc<webrender::ProgramCache>> {
+    create_program_cache_with_status(gl, base_dir).0
+}
+
+/// [`create_program_cache_in`] and what it did: the directory, how many programs were read from it (0 is a cold
+/// start, the shaders compile; more is a warm one), and why there is no cache.
+pub fn create_program_cache_with_status(
+    gl: &Rc<azul_core::gl::GenericGlContext>,
+    base_dir: Option<&std::path::Path>,
+) -> (
+    Option<Rc<webrender::ProgramCache>>,
+    crate::desktop::shader_cache::ProgramCacheStatus,
+) {
+    use crate::desktop::shader_cache::{ProgramCacheStatus, ShaderDiskCache};
+
+    let mut status = ProgramCacheStatus::default();
     let renderer_name = gl.get_string(azul_core::gl::RENDERER);
     let version_string = gl.get_string(azul_core::gl::VERSION);
 
     if renderer_name.is_empty() || version_string.is_empty() {
-        return None;
+        status.problem = Some("the driver gave no renderer or version string".to_owned());
+        return (None, status);
     }
 
-    let disk_cache = ShaderDiskCache::new(&renderer_name, &version_string)?;
+    let disk_cache = match ShaderDiskCache::open(base_dir, &renderer_name, &version_string) {
+        Ok(cache) => cache,
+        Err(problem) => {
+            // A cache that cannot be had is a diagnostic: the programs compile at every start.
+            log_info!(LogCategory::Rendering, "[Shader Cache] none: {}", problem);
+            status.problem = Some(problem);
+            return (None, status);
+        }
+    };
+    status.dir = Some(disk_cache.dir().to_path_buf());
 
     // Create a second ShaderDiskCache pointing at the same directory
     // so we can pre-load cached binaries before the observer is moved
     // into the ProgramCache (which takes ownership).
-    let loader = ShaderDiskCache::new(&renderer_name, &version_string)?;
+    let Ok(loader) = ShaderDiskCache::open(base_dir, &renderer_name, &version_string) else {
+        status.problem = Some("the cache directory cannot be opened twice".to_owned());
+        return (None, status);
+    };
 
     // Create ProgramCache with the disk observer
     let program_cache = webrender::ProgramCache::new(Some(Box::new(disk_cache)));
 
     // Pre-load any existing cached binaries from disk
     let count = loader.load_all_from_disk(&program_cache);
+    status.loaded = count;
     if count > 0 {
         log_info!(
             LogCategory::Rendering,
@@ -181,7 +217,7 @@ pub fn create_program_cache(
         );
     }
 
-    Some(program_cache)
+    (Some(program_cache), status)
 }
 
 /// Shared cell that receives WebRender's buffer-age-widened TOTAL damage
@@ -309,6 +345,20 @@ pub fn default_renderer_options(
     cached_programs: Option<Rc<webrender::ProgramCache>>,
     partial_present: Option<PartialPresentDamage>,
 ) -> WrRendererOptions {
+    default_renderer_options_with_text(options, cached_programs, partial_present, true, true)
+}
+
+/// [`default_renderer_options`] with the text antialiasing the window asks for (`AppConfig::text_antialiasing`, resolved by
+/// `gpu_renderer::webrender_text_aa`): `enable_aa` off draws aliased text, `enable_subpixel_aa` off draws grayscale text where
+/// the renderer would draw LCD text (it does so wherever the device has dual-source blending, a phone's GPU included). The
+/// desktop shells keep calling [`default_renderer_options`], which is LCD text as it always was.
+pub fn default_renderer_options_with_text(
+    options: &azul_layout::window_state::WindowCreateOptions,
+    cached_programs: Option<Rc<webrender::ProgramCache>>,
+    partial_present: Option<PartialPresentDamage>,
+    enable_aa: bool,
+    enable_subpixel_aa: bool,
+) -> WrRendererOptions {
     use azul_core::window::WindowBackgroundMaterial;
     use webrender::ShaderPrecacheFlags;
 
@@ -333,8 +383,8 @@ pub fn default_renderer_options(
     WrRendererOptions {
         resource_override_path: None,
         use_optimized_shaders: true,
-        enable_aa: true,
-        enable_subpixel_aa: true,
+        enable_aa,
+        enable_subpixel_aa,
         clear_color: wr_translate_color_f(CssColorF::from(bg)),
         enable_multithreading: false,
         // AZ_OVERLAY is merged in, so the webrender verbs (overdraw, profiler,

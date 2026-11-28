@@ -55,11 +55,14 @@ features = "std,logging,link-static,a11y,map-tiles,pdf"
 targets = ["android-arm64", "android-x86_64", "ios-device", "ios-sim"]
 
 [lib.mobile-iroh]
-# AzCompanion's transport: azul.iroh (QUIC on the local network). It brings ring and tokio onto a phone, so
-# it is a variant of its own and only the apps that ask for it link it; the other apps never carry it.
+# azul.iroh (QUIC, direct on the local network or through a relay) for the phone apps that use it: AzCompanion (AzReview talks to it
+# over the local network) and AzMeet (the people of a meeting reach each other directly). It brings ring and tokio onto a phone, so
+# it is a variant of its own and only the apps that use iroh link it; the other apps never carry it. An app that uses iroh and
+# links the lean `mobile` library cannot bind its endpoint on a phone (bind_failure): `demo_apps.py check` reads the sources of every
+# phone app (and of the crates it depends on by path) and fails the preflight for an app that names no library with `iroh` here.
 features = "std,logging,link-static,a11y,map-tiles,pdf,iroh"
 targets = ["android-arm64", "android-x86_64", "ios-device", "ios-sim"]
-reason = "azul.iroh for the phone companion (AzReview talks to it over the local network)"
+reason = "azul.iroh for the phone apps that use it (AzCompanion: AzReview over the local network; AzMeet: the direct path of a meeting)"
 
 [lib.mobile-e2e]
 # A QA variant, ARTIFACT ONLY: the phone libazul plus the engine's debug server, E2E scripting and test hooks. AZ_DEBUG=<port>
@@ -76,6 +79,14 @@ features = "std,logging,link-static,a11y,map-tiles,pdf,debug-server,e2e-scriptin
 targets = ["android-x86_64", "ios-sim"]
 artifact_only = true
 reason = "the engine's debug server for the E2E and lifecycle tests of the phone shells (never shipped)"
+
+[lib.mobile-e2e-iroh]
+# The QA twin of mobile-iroh: mobile-e2e (the debug server, E2E scripting and test hooks) plus iroh, for the QA builds (`e2e = true`) of
+# the apps that use iroh (`e2e_lib = "mobile-e2e-iroh"`: AzMeet, AzCompanion). Artifact only, as mobile-e2e is, and for the same reasons.
+features = "std,logging,link-static,a11y,map-tiles,pdf,debug-server,e2e-scripting,test-hooks,iroh"
+targets = ["android-x86_64", "ios-sim"]
+artifact_only = true
+reason = "the engine's debug server for the QA builds of the apps that use iroh (never shipped)"
 
 # ---------------------------------------------------------------------------------------------------
 # The apps. `weight` (1 light .. 3 heavy) is what the plan job balances the build groups by: the guess
@@ -124,11 +135,21 @@ description = "screenshare, video and audio capture and playback"
 platforms = ["linux", "macos-arm64", "macos-intel", "windows", "android", "ios"]
 weight = 2
 docker = true
-mobile_lib = "mobile"
+# AzMeet's endpoint is azul.iroh (IrohEndpoint::bind): the lean `mobile` library has no iroh, so on a phone it cannot bind (bind_failure)
+mobile_lib = "mobile-iroh"
 e2e = true   # the QA variant too: the layout audit and the scripted checks of the phone apps (an artifact, never shipped)
+e2e_lib = "mobile-e2e-iroh"
 needs = ["a meeting server (the `meet` worker) to start or join a meeting"]
 [app.android]
-permissions = ["android.permission.CAMERA", "android.permission.RECORD_AUDIO"]
+# The camera and the microphone, and what iroh's local discovery needs beside the multicast permission the Android template declares for
+# every app (CHANGE_WIFI_MULTICAST_STATE: the engine takes a WifiManager.MulticastLock): the same as AzCompanion lists.
+permissions = ["android.permission.CAMERA", "android.permission.RECORD_AUDIO", "android.permission.ACCESS_WIFI_STATE"]
+[app.ios]
+# build-ios.sh writes NSLocalNetworkUsageDescription and NSBonjourServices = [_irohv1._udp] from this text: without them iOS silently drops
+# the local-network traffic of the app and the call goes through the relay only (the Simulator does not show the prompt: TN3179).
+local_network = "AzMeet finds the other people of a meeting on your Wi-Fi to connect to them directly."
+[app.ios.strings.de]
+NSLocalNetworkUsageDescription = "AzMeet findet die anderen Teilnehmer eines Meetings in deinem WLAN, um dich direkt mit ihnen zu verbinden."
 [app.ios.usage]
 # iOS refuses the camera and the microphone without the text that says why (the engine refuses to start them and names the key):
 # these texts are the ones of the Android permissions above, in the words of the prompt. build-ios.sh writes them (AZ_IOS_USAGE).
@@ -155,6 +176,11 @@ platforms = ["android", "ios"]
 weight = 1
 bundle_id = "com.azul.azreview_companion"
 mobile_lib = "mobile-iroh"
+# azul.iroh through the link crate (examples/azul-review-link, feature `azul`), not in the app's own sources: the check reads only those,
+# so the app says it (an app that uses the iroh API in its own sources needs no such line)
+iroh = true
+e2e = true   # the QA variant too (with the debug server the press of its keys can be scripted): the iroh twin of the QA library
+e2e_lib = "mobile-e2e-iroh"
 needs = ["AzReview on a Mac in the same network (the first build has a demo mode without one)"]
 # Installed from AzReview over a cable, re-signed there: the device .app is UNSIGNED on purpose.
 [app.android]
@@ -277,11 +303,18 @@ description = "a mail client: IMAP sync to plain files, folders and messages"
 platforms = ["linux", "macos-arm64", "macos-intel", "windows"]
 weight = 3
 needs = ["an IMAP account"]
-# The one engine crate an app compiles: azul-mail-core's connection policy is azul-core's own type (`azul_core::tls::MailTls`),
-# shared with the Azlin Bridge, which runs without libazul. The type belongs in the facade or in a crate of its own: ledger row.
-[app.engine_ok]
-azul-core = "azul-mail-core uses azul_core::tls::MailTls (the connection policy of every mail client of the tree)"
-azul-css = "azul-core's own dependency"
+# AzMail compiles azul-core: azul-mail-core uses `azul_core::tls::MailTls` (the connection policy of every mail client of the tree,
+# shared with the Azlin Bridge, which runs without libazul), azul-icons-haiku depends on azul-core unconditionally and azul-appkit with
+# its `trust` feature. azul-core defines the C ABI functions of libazul (`#[no_mangle] AzApp_*`), so an app that compiles it and links
+# the prebuilt libazul has each of them twice: the link of the first Linux leg (2026-11-28) stopped in rust-lld with 12 duplicate symbols,
+# and the engine gate would refuse the build even where a linker lets it pass (two copies of the engine's statics). The old exception
+# ("the one engine crate an app may compile") is gone for that reason. The type belongs in the facade or in a crate of its own, and the
+# icons crate must not depend on azul-core: ledger row. Until then the page says it, and the build is still tried on every run.
+[app.known_failing]
+linux = "AzMail compiles azul-core (the mail connection policy type), whose C ABI symbols are also in the prebuilt libazul: the link fails with duplicate symbols"
+macos-arm64 = "AzMail compiles azul-core (the mail connection policy type), whose C ABI symbols are also in the prebuilt libazul: the link fails with duplicate symbols"
+macos-intel = "AzMail compiles azul-core (the mail connection policy type), whose C ABI symbols are also in the prebuilt libazul: the link fails with duplicate symbols"
+windows = "AzMail compiles azul-core (the mail connection policy type), whose C ABI symbols are also in the prebuilt libazul: the link fails with duplicate symbols"
 
 [[app]]
 package = "AzMonitor"

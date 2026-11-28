@@ -84,6 +84,20 @@ def tail(path, lines=60):
     return "\n".join(text.splitlines()[-lines:])
 
 
+def link_error(text):
+    """A linker's complaint in one line, from the text cargo printed, or None: duplicate symbols (the app compiles an engine crate whose
+    C ABI symbols libazul has too) and undefined ones (a library the link line lacks)."""
+    duplicates = sorted(set(re.findall(r"duplicate symbol: (\S+)", text)))
+    if duplicates:
+        return (f"engine crate compiled into the app: the link has {len(duplicates)} duplicate C ABI symbols ({duplicates[0]}, ...): "
+                f"a dependency of the app depends on azul-core, whose symbols are also in libazul")[:300]
+    undefined = sorted(set(re.findall(r"(?:undefined symbol: |undefined reference to [`'])([^\s'`]+)", text)))
+    if undefined:
+        more = f" and {len(undefined) - 1} more" if len(undefined) > 1 else ""
+        return f"link failed: undefined symbol {undefined[0]}{more}"[:300]
+    return None
+
+
 def first_error(json_log, stderr_log):
     """The first thing cargo said was wrong, in one line: a compiler error with its place, else the first
     `error` line of what it printed (a failed build script, a missing package)."""
@@ -101,9 +115,11 @@ def first_error(json_log, stderr_log):
             return f"{pkg}: {text}{where}"[:300]
     except OSError:
         pass
-    for line in tail(stderr_log, 400).splitlines():
+    text = tail(stderr_log, 2000)
+    for line in text.splitlines():
         if line.startswith("error"):
-            return line.strip()[:300]
+            message = line.strip()[:300]
+            return (link_error(text) or message) if "linking with" in message else message
     last = [l for l in tail(stderr_log, 5).splitlines() if l.strip()]
     return (last[-1].strip()[:300]) if last else "no output"
 
@@ -497,6 +513,9 @@ def main(argv):
     if variant and variant not in demo_apps.artifact_only_libs(job.manifest):
         sys.exit(f"demo_build: --variant {variant!r} is no artifact_only lib of scripts/demo_apps.toml "
                  f"({sorted(demo_apps.artifact_only_libs(job.manifest))}): a shipped build takes the lib its app names")
+    for name in args.apps.split():
+        if variant and job.apps[name]["e2e_lib"] != variant:
+            sys.exit(f"demo_build: the QA build of {name} links {job.apps[name]['e2e_lib']!r} (e2e_lib in scripts/demo_apps.toml), not {variant!r}")
     if args.kind == "desktop":
         desktop(args, job)
     else:

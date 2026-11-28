@@ -240,6 +240,17 @@ def backend_ran(text):
     return found or ("unknown", None, None)
 
 
+ENGINE_LINE_KEYS = ("[render]", "panicked", "FATAL", "libEGL", "EGL_", "WebRender", "webrender", "GLES", "RustStdoutStderr", "AndroidRuntime",
+                    "DEBUG", "tombstone", "signal ")
+
+
+def engine_lines(text, limit=400):
+    """The lines of a `logcat -v threadtime` dump that tell what the engine's renderer did (its `[render]` lines, the driver's, WebRender's, a
+    panic, a native crash): the last `limit` of them, each cut at 300 characters, to keep beside the verdict of the step."""
+    keep = [line[:300] for line in text.splitlines() if any(key in line for key in ENGINE_LINE_KEYS)]
+    return "\n".join(keep[-limit:]) + "\n"
+
+
 # The one diagnostic of a request for the GPU that fell back (the engine writes it BEFORE the contract line, once):
 #     [render] gpu unavailable at <stage>: <cause>; drawing on the CPU
 FALLBACK_LINE = re.compile(r"\[render\] gpu unavailable at (\w+): (.*?); drawing on the CPU")
@@ -264,6 +275,25 @@ def gpu_fallbacks(text):
         if m:
             found.append((m.group(1), m.group(2).strip()))
     return found
+
+
+def parse_meminfo(text):
+    """`dumpsys meminfo <pid>` -> {"pss_kb", "rss_kb", "graphics_kb"}: the TOTAL PSS / TOTAL RSS of the process and its
+    Graphics row (GPU memory the process holds: the buffers and textures of its GL context). None for what the dump lacks."""
+    def first(pattern):
+        m = re.search(pattern, text, re.M)
+        return int(m.group(1)) if m else None
+    return {"pss_kb": first(r"TOTAL PSS:\s+(\d+)"), "rss_kb": first(r"TOTAL RSS:\s+(\d+)"),
+            "graphics_kb": first(r"^\s*Graphics:?\s+(\d+)")}
+
+
+def render_env(extra=""):
+    """The value of the system property the engine reads its AZ_* knobs from (`debug.az.env`: KEY=VALUE;KEY=VALUE, ONE property
+    that setprop replaces whole): the log level and the present dump every step wants, and `extra` (`AZ_BACKEND=gpu`)."""
+    extra = extra.strip().strip(";").strip()
+    # AZ_QA_ENGINE_ENV: more KEY=VALUE pairs for the engine of EVERY start of the run (a diagnostic switch, e.g. AZ_LOG=debug)
+    more = os.environ.get("AZ_QA_ENGINE_ENV", "").strip().strip(";").strip()
+    return "AZ_LOG=info;AZ_DUMP_PRESENT=1" + (";" + more if more else "") + (";" + extra if extra else "")
 
 
 def gpu_fail_stage(spec):
@@ -565,6 +595,7 @@ class Run:
         self.platform, self.meta, self.steps = platform, dict(meta), []
         self.t0 = time.time()
         self.recover = None
+        self.after = None            # called after a step that needs the app, with the step: checks that hold for EVERY such step
         self.extra_md = []           # further sections of qa.md (the startup timeline), lines
         self.render_table = []       # rows of the "Render backends" section of qa.md (filled by report_modes)
         self.render_diff = None
@@ -590,6 +621,8 @@ class Run:
             if needs_app and self.recover is not None:
                 self.recover(s)
             fn(s)
+            if needs_app and self.after is not None:
+                self.after(s)
         except Exception as e:  # noqa: BLE001
             s.error = f"{type(e).__name__}: {e}"
             print(f"    EXCEPTION {s.error}", flush=True)
@@ -819,6 +852,9 @@ def report_modes(run, step, results, expect_gpu, platform, hardware=False):
         f = r.get("frames")
         if f:
             bits.append(f"scroll frame time median {f['median']:.1f} / p95 {f['p95']:.1f} ms (n={f['n']})")
+        mem = r.get("mem") or {}
+        if mem.get("pss_kb"):
+            bits.append(f"PSS {mem['pss_kb'] / 1024:.0f} MB" + (f", graphics {mem['graphics_kb'] / 1024:.0f} MB" if mem.get("graphics_kb") else ""))
         summary.append(f"{mode}: " + ", ".join(bits))
         step.note(f"AZ_BACKEND={mode}: " + ", ".join(bits))
         software = (not hardware) or device_is_software(r.get("device"))
@@ -1103,6 +1139,8 @@ def android_scenarios(args):
     run = Run(args.out, "android", {"label": args.label, "package": args.package, "gpu": args.gpu, "apk": os.path.basename(args.apk or "")})
     run.only = set(args.only.split(",")) if args.only else None
     dev = Android(run, args.package, args.activity, args.serial)
+    if args.backend == "gpu":
+        args.first_frame_timeout = max(args.first_frame_timeout, GPU_FIRST_FRAME_SECONDS)
     pts = json.loads(args.points) if args.points else {}
     P = {  # fractions of the screen, from the Widget Showcase in portrait (AzWidgets)
         "dark": (0.511, 0.113), "system": (0.234, 0.113), "text_input": (0.50, 0.332), "switch": (0.15, 0.68),
@@ -1111,6 +1149,7 @@ def android_scenarios(args):
     P.update({k: tuple(v) for k, v in pts.items()})
     size = {"w": 1080, "h": 2400}
     state = {"portrait": None}
+    base_backend = f"AZ_BACKEND={args.backend}" if args.backend else ""
 
     def at(key):
         fx, fy = P[key]
@@ -1177,7 +1216,8 @@ def android_scenarios(args):
         dev.adb("logcat", "-c")
         # the engine reads debug.az.env (KEY=VALUE;KEY=VALUE) at its start: AZ_LOG=info for its own lines, AZ_DUMP_PRESENT=1
         # for one line per presented frame ("[Android] present partial - N of M rows")
-        dev.sh("setprop debug.az.env 'AZ_LOG=info;AZ_DUMP_PRESENT=1'")
+        # --backend cpu|gpu|auto: every step of this run starts the app with that renderer (the lifecycle of each backend)
+        dev.sh(f"setprop debug.az.env '{render_env(base_backend)}'")
         dev.sh(f"pm grant {args.package} android.permission.POST_NOTIFICATIONS")  # harmless when not requested
         info = dev.sh(f"dumpsys package {args.package} | grep -E 'versionName|versionCode|targetSdk|requested permissions' -A0")
         dev.save_log("package.txt", dev.sh(f"dumpsys package {args.package}"))
@@ -1222,9 +1262,15 @@ def android_scenarios(args):
         times of a 3 s scroll (SurfaceFlinger), the picture; then the cpu and gpu pictures compared pixel by pixel."""
         results = {}
         for mode in ("cpu", "gpu", "auto"):
-            dev.sh(f"setprop debug.az.env 'AZ_LOG=info;AZ_DUMP_PRESENT=1;AZ_BACKEND={mode}'")
+            dev.sh(f"setprop debug.az.env '{render_env(f'AZ_BACKEND={mode}')}'")
             dev.adb("logcat", "-c")
             dev.launch(cold=True)
+            if mode == "gpu":
+                # the window while WebRender compiles its programs (the engine shows the window's own colour then) and after its first
+                # frame: pictures without a verdict, to see what the window holds at each point of the GPU start
+                for waited, label in ((3.0, "3s"), (5.0, "8s"), (5.0, "13s")):
+                    time.sleep(waited)
+                    s.shots.append(dev.capture(f"AZ_BACKEND-gpu-early-{label}")[3])
             t = dev.wait_for_front(timeout=first_frame_timeout_for(mode, args.first_frame_timeout))
             if mode == "gpu" and t is not None:
                 g = wait_for_gpu_frame(lambda: dev.adb("logcat", "-d", "-v", "threadtime", timeout=120), first_frame_timeout_for(mode, args.first_frame_timeout))
@@ -1234,16 +1280,21 @@ def android_scenarios(args):
             sig = dev.look(s, f"AZ_BACKEND-{mode}")
             rgba, dims = dev.last_rgba, dev.dims
             text = dev.adb("logcat", "-d", "-v", "threadtime", timeout=120)
+            dev.save_log(f"engine-AZ_BACKEND-{mode}.txt", engine_lines(text))
             ran, requested, device = backend_ran(text)
             if ran == "unknown" and any("[Android] present" in l for l in text.splitlines()):
                 ran, device = "cpu", "inferred: the CPU present path (ANativeWindow_lock) logged its frames"
             s.check(f"AZ_BACKEND={mode}: the app draws", t is not None and not is_flat(sig), f"first frame after {t:.1f} s" if t is not None else "no frame")
+            # a request for the GPU that fell back says so (the one diagnostic line): the QA keeps it with the verdict
+            for stage, cause in gpu_fallbacks(text):
+                s.note(f"AZ_BACKEND={mode}: the engine fell back at {stage}: {cause}")
             frames = dev.scroll_frame_stats(3.0)
+            mem = parse_meminfo(dev.sh(f"dumpsys meminfo {dev.pid() or '0'}", timeout=60))
             dev.settle(1.0)
             results[mode] = {"ran": ran, "requested": requested, "device": device, "rgba": rgba, "dims": dims, "first_frame_s": t,
-                             "displayed_ms": displayed_ms(text, args.package), "frames": frames}
+                             "displayed_ms": displayed_ms(text, args.package), "frames": frames, "mem": mem}
         report_modes(run, s, results, args.expect_gpu, "android", hardware=args.hardware)
-        dev.sh("setprop debug.az.env 'AZ_LOG=info;AZ_DUMP_PRESENT=1'")
+        dev.sh(f"setprop debug.az.env '{render_env(base_backend)}'")
         dev.launch(cold=True)       # the default start again: what the later steps compare with
         dev.wait_for_front(timeout=args.first_frame_timeout)
         dev.settle(2.5)
@@ -1251,6 +1302,58 @@ def android_scenarios(args):
 
     run.step("03b-render-modes", "AZ_BACKEND=cpu, gpu, auto: which renderer ran, first frame, scroll frame times, cpu against gpu pixel by pixel", s_modes, needs_app=True)
 
+    # ---- 3c. the GPU path's fallbacks, made to happen. AZ_GPU_FAIL=<stage> exists only in a libazul built with the cargo feature
+    # `test-hooks` (the mobile-e2e variant): with `--expect-hooks` a request that does not fall back is a failure, without it
+    # the step says "hook not built in" and fails nothing.
+    GPU_FAIL_STAGES = ("library", "context", "surface", "make_current", "functions", "probe", "renderer", "document", "shaders",
+                       "frame", "lost:2")
+
+    def s_gpu_fail(s):
+        for spec in GPU_FAIL_STAGES:
+            want = gpu_fail_stage(spec)
+            dev.sh(f"setprop debug.az.env '{render_env(f'AZ_BACKEND=gpu;AZ_GPU_FAIL={spec}')}'")
+            dev.adb("logcat", "-c")
+            mark = dev.now_mark()
+            dev.launch(cold=True)
+            t = dev.wait_for_front(timeout=args.first_frame_timeout)
+            dev.settle(2.5)
+            sig = dev.look(s, f"AZ_GPU_FAIL-{spec.replace(':', '-')}")
+            text = dev.adb("logcat", "-d", "-v", "threadtime", timeout=120)
+            ran, requested, device = backend_ran(text)
+            falls = gpu_fallbacks(text)
+            s.check(f"AZ_GPU_FAIL={spec}: the app draws (a fallback is never a blank window)", t is not None and not is_flat(sig),
+                    f"first frame after {t:.1f} s" if t is not None else "no frame")
+            dev.no_crash_since(s, mark)
+            if ran == "gpu" and not falls:
+                s.note(f"AZ_GPU_FAIL={spec}: the engine ran the GPU path to the end: this libazul has no failure hook (hook not built in)")
+                s.check(f"AZ_GPU_FAIL={spec}: the failure was injected", False, "hook not built in", required=args.expect_hooks)
+                continue
+            stage_ok = bool(falls) and falls[-1][0] == want
+            s.check(f"AZ_GPU_FAIL={spec}: the fallback names the stage {want}", stage_ok,
+                    f"fallback lines: {falls or 'none'}", required=args.expect_hooks)
+            s.check(f"AZ_GPU_FAIL={spec}: the CPU renderer runs after it", ran == "cpu", f"the engine's last [render] line says {ran} on {device}",
+                    required=args.expect_hooks)
+        dev.sh(f"setprop debug.az.env '{render_env(base_backend)}'")
+        dev.launch(cold=True)
+        dev.wait_for_front(timeout=args.first_frame_timeout)
+        dev.settle(2.5)
+        state["portrait"] = dev.look(s, "default-again-after-fail")
+
+    run.step("03c-gpu-failure-injection", "AZ_BACKEND=gpu with AZ_GPU_FAIL=<stage> for every stage: the app still draws, on the CPU, and the log names the stage",
+             s_gpu_fail, needs_app=True)
+
+    def backend_still(s):
+        """Run with --backend gpu: after every step that needs the app, the engine's LAST `[render]` line still says gpu. A surface
+        that was lost and made again, a context that was rebuilt, must not have put the window on the CPU renderer without a word."""
+        if args.backend != "gpu":
+            return
+        text = dev.adb("logcat", "-d", "-v", "threadtime", timeout=120)
+        dev.save_log(f"engine-{s.name}.txt", engine_lines(text))
+        ran, requested, device = backend_ran(text)
+        s.check("the renderer after this step is still the GPU one", ran == "gpu", f"the engine's last [render] line says {ran} ({requested})",
+                required=args.expect_gpu)
+
+    run.after = backend_still
     def startup_section(s, texts):
         """The engine's own startup timeline (`setprop debug.az.startup 1`, master from d35a2a4b6f on): the logcat of the whole series in one
         file, the `[startup]` table of the start whose first present is the median, scripts/ci/startup_measure.py on the logcat when it
@@ -2451,6 +2554,10 @@ def main(argv):
     a.add_argument("--only", default="", help="comma list of step numbers to run besides 00-02, e.g. 03,08,09,12 (a first look at another app)")
     a.add_argument("--series", type=int, default=0, help="N cold starts to measure (0: none)")
     a.add_argument("--expect-gpu", action="store_true", help="the build has a GPU renderer: a gpu request that ran the CPU one FAILS")
+    a.add_argument("--backend", default="", choices=["", "cpu", "gpu", "auto"],
+                   help="AZ_BACKEND for every step of the run (the lifecycle of each renderer); with gpu every needs-app step also checks the engine still says gpu")
+    a.add_argument("--expect-hooks", action="store_true",
+                   help="the libazul has the failure hook (the mobile-e2e variant: cargo feature test-hooks): step 03c's AZ_GPU_FAIL runs MUST fall back")
     a.add_argument("--hardware", action="store_true", help="the device has a real GPU (a phone, not a CI emulator): `auto` must then run the GL renderer")
     a.add_argument("--floor-apk", default="", help="the floor APK (an empty Java Activity) measured the same way")
     a.add_argument("--startup", action="store_true", help="with --series: the engine's own startup timeline (debug.az.startup 1) of every start, the median start's table, one start with the layout profile")

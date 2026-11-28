@@ -202,7 +202,7 @@ class PlanTest(unittest.TestCase):
             for e in self.plan[k]:
                 self.assertEqual("iroh" in e["features"].split(","), e["variant"] == "mobile-iroh", e["id"])
         wanting = [a["package"] for a in self.m["app"] if a.get("mobile_lib") == "mobile-iroh"]
-        self.assertEqual(wanting, ["AzCompanion"])
+        self.assertEqual(wanting, ["AzMeet", "AzCompanion"])
 
     def test_one_library_per_desktop_leg_and_the_windows_one_is_azul_lib(self):
         legs = [e["leg"] for k in ("libs_linux", "libs_macos", "libs_windows") for e in self.plan[k]]
@@ -257,27 +257,37 @@ class E2eVariantTest(unittest.TestCase):
         for key, entries in plan.items():
             if key.startswith(("libs_", "apps_")):
                 for e in entries:
-                    self.assertNotEqual(e.get("variant"), "mobile-e2e", key)
+                    self.assertFalse(str(e.get("variant")).startswith("mobile-e2e"), key)
                     self.assertFalse(e["artifact"].startswith("demoe2e-"), key)
 
-    def test_with_the_input_the_lib_of_the_listed_columns_and_the_app_that_asks_are_planned(self):
+    def test_with_the_input_the_libs_of_the_listed_columns_and_the_apps_that_ask_are_planned(self):
         plan = demo_apps.plan(self.m, e2e=True)
-        libs = {e["leg"]: e for k in ("libs_android", "libs_ios") for e in plan[k] if e["variant"] == "mobile-e2e"}
-        self.assertEqual(sorted(libs), ["android-x86_64", "ios-sim"])
-        for leg, e in libs.items():
+        libs = {(e["leg"], e["variant"]): e for k in ("libs_android", "libs_ios") for e in plan[k] if e["variant"].startswith("mobile-e2e")}
+        self.assertEqual(sorted(libs), [("android-x86_64", "mobile-e2e"), ("android-x86_64", "mobile-e2e-iroh"),
+                                        ("ios-sim", "mobile-e2e"), ("ios-sim", "mobile-e2e-iroh")])
+        for (leg, variant), e in libs.items():
             feats = e["features"].split(",")
             self.assertIn("debug-server", feats)
             self.assertIn("e2e-scripting", feats)
             self.assertIn("test-hooks", feats)   # the failure-injection hooks of the QA matrix (AZ_GPU_FAIL, ...), read only when asked
+            self.assertEqual("iroh" in feats, variant == "mobile-e2e-iroh")
             self.assertEqual("android-activity" in feats, leg.startswith("android"))
-            self.assertEqual(e["artifact"], f"demolib-{leg}-mobile-e2e")
-        entries = {e["leg"]: e for k in ("apps_android", "apps_ios") for e in plan[k] if e.get("variant") == "mobile-e2e"}
-        self.assertEqual(sorted(entries), ["android-x86_64", "ios-sim"])
-        for leg, e in entries.items():
-            self.assertEqual(sorted(e["apps"].split()), sorted(a["package"] for a in self.m["app"] if a.get("e2e")))
-            self.assertEqual(e["lib_artifacts"], f"demolib-{leg}-mobile-e2e")
+            self.assertEqual(e["artifact"], f"demolib-{leg}-{variant}")
+        entries = {(e["leg"], e["variant"]): e for k in ("apps_android", "apps_ios") for e in plan[k]
+                   if e.get("variant", "").startswith("mobile-e2e")}
+        self.assertEqual(sorted(entries), sorted(libs))
+        for (leg, variant), e in entries.items():
+            want = sorted(a["package"] for a in self.m["app"] if a.get("e2e") and a["e2e_lib"] == variant and leg in demo_apps.columns_of(a))
+            self.assertEqual(sorted(e["apps"].split()), want)
+            self.assertEqual(e["lib_artifacts"], f"demolib-{leg}-{variant}")
             self.assertTrue(e["artifact"].startswith("demoe2e-"), e["artifact"])   # a name the shipped-files patterns never match
             self.assertTrue(e["results_artifact"].startswith("demoresults-"))
+        # the apps that use iroh build against the iroh twin, the others against the plain QA library
+        self.assertEqual(sorted(entries[("android-x86_64", "mobile-e2e-iroh")]["apps"].split()), ["AzCompanion", "AzMeet"])
+        self.assertNotIn("AzMeet", entries[("android-x86_64", "mobile-e2e")]["apps"].split())
+        # two uploads of one artifact name fail a run: every artifact of every entry has a name of its own
+        names = [e["artifact"] for e in entries.values()] + [e["results_artifact"] for e in entries.values()]
+        self.assertEqual(len(names), len(set(names)))
         # the shipped builds of the same columns are still there, against the plain lib
         shipped = [e for k in ("apps_android", "apps_ios") for e in plan[k] if e.get("variant") == ""]
         self.assertTrue(shipped)
@@ -330,7 +340,9 @@ class E2eVariantTest(unittest.TestCase):
     def test_the_real_manifest_passes_its_own_check_with_the_variant_in_it(self):
         self.assertTrue(self.m["lib"]["mobile-e2e"]["artifact_only"])
         # the phone apps whose QA variant the layout audit and the scripted checks of the phone QA drive
-        self.assertEqual([a["package"] for a in self.m["app"] if a.get("e2e")], ["AzWidgets", "AzMaps", "AzPaint", "AzMeet", "AzWriter"])
+        self.assertEqual([a["package"] for a in self.m["app"] if a.get("e2e")],
+                         ["AzWidgets", "AzMaps", "AzPaint", "AzMeet", "AzWriter", "AzCompanion"])
+        self.assertTrue(self.m["lib"]["mobile-e2e-iroh"]["artifact_only"])
         self.assertEqual([e for e in demo_apps.check(self.m) if "e2e" in e], [])
 
     def test_a_qa_file_never_becomes_a_release_asset_or_a_page_link(self):
@@ -479,7 +491,7 @@ class WorkflowContractTest(unittest.TestCase):
         self.assertIn("pattern: demoapps-*", jobs["publish"])
         self.assertNotIn("demoe2e", jobs["publish"])
         for entry in self.plan["apps_android"] + self.plan["apps_ios"]:
-            self.assertEqual(entry["artifact"].startswith("demoe2e-"), entry["variant"] == "mobile-e2e")
+            self.assertEqual(entry["artifact"].startswith("demoe2e-"), entry["variant"].startswith("mobile-e2e"))
 
     def test_the_boot_tests_read_only_the_shipped_apps(self):
         jobs = self.jobs()
@@ -538,6 +550,35 @@ class BuildTest(unittest.TestCase):
             e = pathlib.Path(d) / "b.err"
             e.write_text("   Compiling x\nerror: failed to run custom build command for `ring`\nmore\n")
             self.assertEqual(demo_build.first_error(j, e), "error: failed to run custom build command for `ring`")
+
+    def first_error_of(self, text):
+        with tempfile.TemporaryDirectory() as d:
+            j = pathlib.Path(d) / "b.json"
+            j.write_text("")
+            e = pathlib.Path(d) / "b.err"
+            e.write_text(text)
+            return demo_build.first_error(j, e)
+
+    def test_a_link_with_duplicate_c_abi_symbols_says_that_an_engine_crate_was_compiled_into_the_app(self):
+        # AzMail on Linux, 2026-11-28: azul-mail-core, azul-appkit and azul-icons-haiku depend on azul-core, whose #[no_mangle] C ABI
+        # functions (AzApp_*) are also in the prebuilt libazul.a: rust-lld stops at the first duplicate
+        text = ("   Compiling AzMail v0.1.0\nerror: linking with `cc` failed: exit status: 1\n  = note: \"cc\" \"-m64\" ...\n"
+                "  = note: rust-lld: error: duplicate symbol: AzApp_getInvocationCtx\n"
+                "          >>> defined at host_invoker.rs:547 (core/src/host_invoker.rs:547)\n"
+                "          rust-lld: error: duplicate symbol: AzApp_setGenericInvoker\n"
+                "          rust-lld: error: duplicate symbol: AzApp_getInvocationCtx\n")
+        got = self.first_error_of(text)
+        self.assertTrue(got.startswith("engine crate compiled into the app: the link has 2 duplicate C ABI symbols (AzApp_getInvocationCtx, ...)"), got)
+        self.assertIn("azul-core", got)
+        self.assertLessEqual(len(got), 300)
+
+    def test_a_link_with_undefined_symbols_names_the_first_and_counts_the_rest(self):
+        text = ("error: linking with `link.exe` failed: exit code: 1181\n  = note: azul.lib(x.o) : error LNK2019: unresolved\n"
+                "  = note: /usr/bin/ld: x.o: undefined reference to `XOpenDisplay'\n  = note: /usr/bin/ld: y.o: undefined reference to `glXSwapBuffers'\n")
+        self.assertEqual(self.first_error_of(text), "link failed: undefined symbol XOpenDisplay and 1 more")
+        self.assertEqual(self.first_error_of("error: linking with `cc` failed: exit status: 1\n  = note: something else\n"),
+                         "error: linking with `cc` failed: exit status: 1")     # a link error the reader knows nothing about stays as it is
+        self.assertEqual(self.first_error_of("error[E0063]: missing fields `concealed`\n"), "error[E0063]: missing fields `concealed`")
 
     def test_the_executable_is_the_one_cargo_reports_for_the_package(self):
         with tempfile.TemporaryDirectory() as d:
@@ -659,6 +700,172 @@ class PurposeStringsTest(unittest.TestCase):
 
     def test_the_builder_names_the_file_the_symbol_gate_writes_its_numbers_to(self):
         self.assertIn("AZ_IOS_SYMBOL_JSON", (HERE / "demo_build.py").read_text(encoding="utf-8"))
+
+
+class IrohLibraryTest(unittest.TestCase):
+    """A phone app that uses azul.iroh must link a libazul that has it: with the lean `mobile` library (no ring, no tokio) its endpoint cannot
+    bind on a phone (bind_failure), which is how AzMeet shipped. `demo_apps.py check` reads the sources of every phone app and fails the preflight
+    for an app that uses the engine's iroh API and names no iroh library, for its release build and for its QA build."""
+
+    def setUp(self):
+        self.m = demo_apps.load()
+
+    def app(self, name):
+        return next(a for a in self.m["app"] if a["package"] == name)
+
+    def errors(self, *words):
+        return [e for e in demo_apps.check(self.m) if all(w in e for w in words)]
+
+    def test_the_real_manifest_names_an_iroh_library_for_every_app_that_uses_iroh_and_a_lean_one_for_the_rest(self):
+        self.assertEqual([e for e in demo_apps.check(self.m) if "iroh" in e], [])
+        for name in ("AzMeet", "AzCompanion"):
+            self.assertEqual(self.app(name)["mobile_lib"], "mobile-iroh", name)
+            self.assertEqual(self.app(name)["e2e_lib"], "mobile-e2e-iroh", name)
+            self.assertTrue(self.app(name)["e2e"], name)
+        for name in ("AzWidgets", "AzMaps", "AzPaint", "AzWriter"):
+            self.assertEqual(self.app(name)["mobile_lib"], "mobile", name)     # no ring and no tokio on the phone for what does not use them
+            self.assertEqual(self.app(name)["e2e_lib"], "mobile-e2e", name)
+
+    def test_the_sources_of_azmeet_use_the_iroh_api_and_those_of_the_lean_apps_do_not(self):
+        self.assertIn("examples/azul-meet/src/", demo_apps.iroh_use(self.app("AzMeet")))
+        for name in ("AzWidgets", "AzMaps", "AzPaint", "AzWriter"):
+            self.assertIsNone(demo_apps.iroh_use(self.app(name)), name)
+        # AzCompanion reaches iroh through the link crate, not in its own sources: it says so
+        self.assertIsNone(demo_apps.iroh_use_in("examples/azul-companion"))
+        self.assertEqual(demo_apps.iroh_use(self.app("AzCompanion")), "scripts/demo_apps.toml (iroh = true)")
+
+    def test_an_app_that_uses_iroh_and_links_the_lean_library_fails_the_check_and_names_the_file(self):
+        self.app("AzMeet")["mobile_lib"] = "mobile"
+        errors = self.errors("AzMeet", "iroh", "mobile_lib")
+        self.assertEqual(len(errors), 1, errors)
+        self.assertIn("examples/azul-meet/src/", errors[0])
+        self.assertIn("bind_failure", errors[0])
+        self.assertIn("mobile-iroh", errors[0])
+
+    def test_the_qa_build_of_such_an_app_needs_the_iroh_twin_of_the_qa_library(self):
+        self.app("AzMeet")["e2e_lib"] = "mobile-e2e"
+        errors = self.errors("AzMeet", "QA lib")
+        self.assertEqual(len(errors), 1, errors)
+        self.assertIn("mobile-e2e-iroh", errors[0])
+        # without e2e the QA library does not matter
+        self.app("AzMeet")["e2e"] = False
+        self.assertEqual(self.errors("AzMeet", "QA lib"), [])
+
+    def test_an_app_that_declares_iroh_is_held_to_the_same_rule(self):
+        self.app("AzWidgets")["iroh"] = True
+        errors = self.errors("AzWidgets", "iroh")
+        self.assertTrue(any("mobile_lib" in e for e in errors) and any("QA lib" in e for e in errors), errors)
+        self.assertTrue(all("scripts/demo_apps.toml (iroh = true)" in e for e in errors if "mobile_lib" in e))
+
+    def test_an_app_that_uses_iroh_on_ios_says_why_it_wants_the_local_network(self):
+        del self.app("AzMeet")["ios"]["local_network"]
+        errors = self.errors("AzMeet", "local_network")
+        self.assertEqual(len(errors), 1, errors)
+        self.assertIn("NSBonjourServices", errors[0])
+        self.app("AzMeet")["platforms"] = ["linux", "android"]        # no iOS build: nothing to say to iOS
+        self.assertEqual(self.errors("AzMeet", "local_network"), [])
+
+    def test_an_app_that_only_a_desktop_builds_is_not_held_to_a_phone_library(self):
+        self.app("AzMeet")["platforms"] = ["linux", "windows"]
+        self.assertEqual(self.errors("AzMeet", "iroh API"), [])
+
+    def test_the_comments_and_the_tests_of_an_app_do_not_count_as_a_use_of_iroh(self):
+        with tempfile.TemporaryDirectory() as d:
+            crate = pathlib.Path(d) / "examples" / "azul-x-comments"
+            (crate / "src").mkdir(parents=True)
+            (crate / "Cargo.toml").write_text('[package]\nname = "AzX"\n')
+            (crate / "src" / "lib.rs").write_text("// IrohEndpoint::bind(config) is what the old version did\nfn f() { let x = 1; }\n")
+            (crate / "src" / "a_test.rs").write_text("fn t() { IrohEndpoint::bind(c) }\n")
+            (crate / "src" / "tests").mkdir()
+            (crate / "src" / "tests" / "b.rs").write_text("fn t() { IrohConfig::create() }\n")
+            with mock.patch.object(demo_apps, "ROOT", pathlib.Path(d)):
+                self.assertIsNone(demo_apps.iroh_use_in("examples/azul-x-comments"))
+                (crate / "src" / "lib.rs").write_text("fn f() { let e = IrohEndpoint::bind(config); }\n")
+                demo_apps.iroh_use_in.cache_clear()
+                self.assertEqual(demo_apps.iroh_use_in("examples/azul-x-comments"), "examples/azul-x-comments/src/lib.rs")
+            demo_apps.iroh_use_in.cache_clear()
+
+    def test_the_twins_are_their_plain_libraries_with_iroh_and_nothing_else(self):
+        libs = self.m["lib"]
+        self.assertEqual(set(libs["mobile-iroh"]["features"].split(",")), set(libs["mobile"]["features"].split(",")) | {"iroh"})
+        self.assertEqual(set(libs["mobile-e2e-iroh"]["features"].split(",")), set(libs["mobile-e2e"]["features"].split(",")) | {"iroh"})
+        self.assertTrue(libs["mobile-e2e-iroh"]["artifact_only"])
+        self.assertEqual(libs["mobile-e2e-iroh"]["targets"], libs["mobile-e2e"]["targets"])
+
+    def test_an_e2e_lib_that_is_no_qa_library_is_an_error(self):
+        self.app("AzMeet")["e2e_lib"] = "mobile-iroh"
+        self.assertTrue(self.errors("AzMeet", "e2e_lib", "artifact_only"))
+        self.app("AzMeet")["e2e_lib"] = "no-such-lib"
+        self.assertTrue(self.errors("AzMeet", "e2e_lib"))
+
+    def test_a_qa_build_names_its_own_library_and_the_driver_refuses_another(self):
+        with tempfile.TemporaryDirectory() as d:
+            argv = ["android", "--target", "x86_64-linux-android", "--libs", d, "--out", str(pathlib.Path(d) / "o"),
+                    "--results", str(pathlib.Path(d) / "r")]
+            with self.assertRaises(SystemExit) as caught:
+                demo_build.main(argv + ["--apps", "AzMeet", "--variant", "mobile-e2e"])
+            self.assertIn("mobile-e2e-iroh", str(caught.exception))
+            with self.assertRaises(SystemExit):
+                demo_build.main(argv + ["--apps", "AzWidgets", "--variant", "mobile-e2e-iroh"])
+
+    def test_the_multicast_permission_of_the_engines_lock_comes_with_every_app_and_the_two_iroh_apps_list_the_wifi_state(self):
+        template = (demo_apps.ROOT / "scripts" / "android" / "AndroidManifest.xml").read_text(encoding="utf-8")
+        self.assertIn("android.permission.CHANGE_WIFI_MULTICAST_STATE", template)   # the lock of dll/src/desktop/extra/iroh/multicast_lock.rs
+        for name in ("AzMeet", "AzCompanion"):
+            self.assertIn("android.permission.ACCESS_WIFI_STATE", self.app(name)["android"]["permissions"], name)
+
+    def test_azmeet_asks_ios_for_the_local_network_and_the_bonjour_service_of_iroh_in_two_languages(self):
+        ios = self.app("AzMeet")["ios"]
+        self.assertIn("Wi-Fi", ios["local_network"])
+        self.assertIn("NSLocalNetworkUsageDescription", ios["strings"]["de"])
+        self.assertIn("WLAN", ios["strings"]["de"]["NSLocalNetworkUsageDescription"])
+
+
+class LibraryDeltaTest(unittest.TestCase):
+    """What the iroh libraries add to the plain ones (ring and tokio) is a table of the status: the size and the build seconds of the
+    library job, against the closest smaller library of the same target."""
+
+    ANDROID_PLAIN = {"kind": "android", "target": "x86_64-linux-android", "seconds": 384, "size": 51713400,
+                     "features": "std,logging,link-static,a11y,map-tiles,pdf,android-activity"}
+    ANDROID_IROH = dict(ANDROID_PLAIN, seconds=639, size=61162072, features=ANDROID_PLAIN["features"] + ",iroh")
+
+    def test_the_measured_android_pair_gives_nine_mib_and_four_minutes_more(self):
+        # the first emulator runs of 2026-11-26 (run 45773860433: the plain library, run 45773884468: the one with iroh)
+        deltas = demo_apps.lib_deltas([self.ANDROID_PLAIN, self.ANDROID_IROH])
+        self.assertEqual(len(deltas), 1)
+        self.assertEqual((deltas[0]["added"], deltas[0]["size"], deltas[0]["seconds"]), (["iroh"], 9448672, 255))
+
+    def test_a_library_with_no_smaller_sibling_has_no_delta_and_other_targets_do_not_mix(self):
+        other = dict(self.ANDROID_IROH, target="aarch64-linux-android")
+        self.assertEqual(demo_apps.lib_deltas([self.ANDROID_PLAIN, other]), [])
+        self.assertEqual(demo_apps.lib_deltas([self.ANDROID_PLAIN]), [])
+        self.assertEqual(demo_apps.lib_deltas([]), [])
+
+    def test_the_closest_smaller_library_is_the_base(self):
+        qa = dict(self.ANDROID_PLAIN, seconds=481, size=57808488, features=self.ANDROID_PLAIN["features"] + ",debug-server,e2e-scripting,test-hooks")
+        qa_iroh = dict(qa, seconds=700, size=67000000, features=qa["features"] + ",iroh")
+        deltas = demo_apps.lib_deltas([self.ANDROID_PLAIN, self.ANDROID_IROH, qa, qa_iroh])
+        got = sorted((tuple(d["added"]), d["size"]) for d in deltas)
+        # the plain library with iroh against the plain one; the QA library against the plain one; the QA library with iroh against the QA
+        # library (it contains the features of the QA library, which are more than the plain one with iroh has): the same "iroh", two sizes
+        self.assertEqual(got, [(("debug-server", "e2e-scripting", "test-hooks"), 57808488 - 51713400), (("iroh",), 67000000 - 57808488),
+                               (("iroh",), 61162072 - 51713400)])
+
+    def test_the_status_prints_the_delta_with_its_percent_and_keeps_it_in_the_summary(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = pathlib.Path(d)
+            for i, lib in enumerate((self.ANDROID_PLAIN, self.ANDROID_IROH)):
+                (root / f"l{i}").mkdir()
+                (root / f"l{i}" / "libazul.info.json").write_text(json.dumps(lib))
+            data, md = demo_apps.status([root], m=demo_apps.load())
+        self.assertEqual(data["summary"]["lib_deltas"][0]["added"], ["iroh"])
+        self.assertIn("What a library adds to the one without it", md)
+        self.assertIn("| x86_64-linux-android (android) | iroh | +9.0 MB (+18 %) | +255 s (+66 %) |", md)
+
+    def test_no_pair_no_table(self):
+        data, md = demo_apps.status([], m=demo_apps.load())
+        self.assertEqual(data["summary"]["lib_deltas"], [])
+        self.assertNotIn("What a library adds", md)
 
 
 class PublishListTest(unittest.TestCase):
@@ -949,6 +1156,12 @@ class IosBuildQaScriptTest(unittest.TestCase):
         self.assertRegex(self.text, r'mobile-e2e\)[^\n]*session=both')
         self.assertIn("session=qa", self.text)
 
+    def test_the_libraries_are_those_of_the_app_it_is_given_and_not_of_the_word(self):
+        # AzMeet and AzCompanion link the iroh libraries, the lean apps the plain ones: the script asks the manifest
+        self.assertIn('python3 scripts/demo_apps.py mobile-lib "$app"', self.text)
+        self.assertIn('python3 scripts/demo_apps.py e2e-lib "$app"', self.text)
+        self.assertIn('demo-out/libs/demolib-$col-$lib', self.text)
+
     def test_the_script_deletes_nothing(self):
         code = "\n".join(l for l in self.text.splitlines() if not l.lstrip().startswith("#"))
         self.assertNotRegex(code, r"\brm\b")
@@ -988,10 +1201,28 @@ class MobileLibCommandTest(unittest.TestCase):
         self.assertEqual(self.mobile_lib("AzWidgets"), (0, "mobile"))
         self.assertEqual(self.mobile_lib("AzCompanion"), (0, "mobile-iroh"))
 
+    def test_the_apps_that_use_iroh_name_the_iroh_libraries(self):
+        self.assertEqual(self.mobile_lib("AzMeet"), (0, "mobile-iroh"))
+        self.assertEqual(self.mobile_lib("AzCompanion"), (0, "mobile-iroh"))
+        self.assertEqual(self.mobile_lib("AzWriter"), (0, "mobile"))
+
     def test_an_app_that_has_no_phone_build_or_is_unknown_is_an_error(self):
         self.assertEqual(self.mobile_lib("AzMail")[0], 1)
         self.assertEqual(self.mobile_lib("AzNoSuchApp")[0], 1)
         self.assertEqual(self.mobile_lib()[0], 2)
+
+    def e2e_lib(self, *argv):
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf), contextlib.redirect_stderr(io.StringIO()):
+            code = demo_apps.main(["e2e-lib", *argv])
+        return code, buf.getvalue().strip()
+
+    def test_the_qa_library_of_an_app_is_its_e2e_lib(self):
+        self.assertEqual(self.e2e_lib("AzWidgets"), (0, "mobile-e2e"))
+        self.assertEqual(self.e2e_lib("AzMeet"), (0, "mobile-e2e-iroh"))
+        self.assertEqual(self.e2e_lib("AzCompanion"), (0, "mobile-e2e-iroh"))
+        self.assertEqual(self.e2e_lib("AzMail")[0], 1)           # no QA build
+        self.assertEqual(self.e2e_lib()[0], 2)
 
 
 class AndroidBuildSmokeScriptTest(unittest.TestCase):
@@ -1023,23 +1254,27 @@ class AndroidBuildAllScriptTest(unittest.TestCase):
         self.path = HERE / "ci" / "android_build_all.sh"
         self.text = self.path.read_text(encoding="utf-8")
 
-    def test_the_script_parses_and_builds_the_three_libraries_then_every_app_then_the_qa_build(self):
+    def test_the_script_parses_and_builds_the_libraries_of_the_plan_then_every_build_of_the_plan_then_checks_the_pages(self):
         self.assertEqual(subprocess.run(["bash", "-n", str(self.path)]).returncode, 0)
-        order = [self.text.index(n) for n in ("for variant in mobile mobile-iroh mobile-e2e", "demo_build.py android --target",
-                                              "--variant mobile-e2e", "android_elf_check.py demo-out/apps")]
+        order = [self.text.index(n) for n in ('[ "$kind" = lib ] || continue', 'bash scripts/demo_lib.sh android',
+                                              '[ "$kind" = apps ] || continue', "python3 scripts/demo_build.py android --target",
+                                              "android_elf_check.py demo-out/apps")]
         self.assertEqual(order, sorted(order))
         self.assertIn("demo_apps.py features", self.text)
 
-    def test_the_apps_it_builds_are_the_ones_of_the_plan_and_the_qa_one_is_the_e2e_app_of_the_manifest(self):
-        m = demo_apps.load()
-        plan = demo_apps.plan(m, e2e=True)
-        shipped = next(e["apps"] for e in plan["apps_android"] if e["leg"] == "android-x86_64" and e["variant"] == "")
-        self.assertEqual(sorted(shipped.split()), ["AzCompanion", "AzMaps", "AzMeet", "AzPaint", "AzWidgets", "AzWriter"])
-        qa = next(e["apps"] for e in plan["apps_android"] if e["leg"] == "android-x86_64" and e["variant"] == "mobile-e2e")
-        self.assertEqual(sorted(qa.split()), sorted(a["package"] for a in m["app"] if a.get("e2e")))
-        # the script asks the plan which apps the QA variant has, it does not name them
-        self.assertIn('--apps "$e2e_apps"', self.text.split("--variant mobile-e2e")[0].rsplit("demo_build.py", 1)[1])
-        self.assertIn('e["variant"] == "mobile-e2e"', self.text)
+    def test_what_it_builds_is_the_plan_of_its_column_the_shipped_apps_and_the_qa_builds_of_every_qa_library(self):
+        # the script reads the plan (`plan --e2e`): the libraries and the builds with their variants, none is named in the script, so the
+        # QA twin of the iroh library and the QA builds of the apps that use iroh come with it
+        plan = demo_apps.plan(demo_apps.load(), e2e=True)
+        libs = sorted(e["variant"] for e in plan["libs_android"] if e["leg"] == "android-x86_64")
+        self.assertEqual(libs, ["mobile", "mobile-e2e", "mobile-e2e-iroh", "mobile-iroh"])
+        builds = {e["variant"]: sorted(e["apps"].split()) for e in plan["apps_android"] if e["leg"] == "android-x86_64"}
+        self.assertEqual(builds[""], ["AzCompanion", "AzMaps", "AzMeet", "AzPaint", "AzWidgets", "AzWriter"])
+        self.assertEqual(builds["mobile-e2e"], ["AzMaps", "AzPaint", "AzWidgets", "AzWriter"])
+        self.assertEqual(builds["mobile-e2e-iroh"], ["AzCompanion", "AzMeet"])
+        self.assertIn("plan --e2e", self.text)
+        for name in ("mobile-e2e", "mobile-iroh"):
+            self.assertNotIn(name, "\n".join(l for l in self.text.splitlines() if not l.lstrip().startswith("#")))
 
     def test_it_deletes_only_on_a_runner(self):
         lines = self.text.splitlines()
@@ -1083,7 +1318,11 @@ class IosPlistTest(unittest.TestCase):
         plist, app = self.render("AzMeet")
         for key, text in app["ios"]["usage"].items():
             self.assertEqual(plist[key], text)
-        self.assertEqual(sorted(k for k in plist if k.endswith("UsageDescription")), ["NSCameraUsageDescription", "NSMicrophoneUsageDescription"])
+        self.assertEqual(sorted(k for k in plist if k.endswith("UsageDescription")),
+                         ["NSCameraUsageDescription", "NSLocalNetworkUsageDescription", "NSMicrophoneUsageDescription"])
+        # AzMeet uses iroh: its direct path on the local network needs the prompt and the Bonjour service, as the companion's does
+        self.assertEqual(plist["NSLocalNetworkUsageDescription"], app["ios"]["local_network"])
+        self.assertEqual(plist["NSBonjourServices"], ["_irohv1._udp"])
 
     def test_every_phone_app_renders_a_plist_with_its_identity_and_the_oldest_ios(self):
         for app in demo_apps.load()["app"]:

@@ -135,6 +135,16 @@ fn an_app_can_extend_the_config_and_bind_it() {
 }
 
 #[test]
+fn the_config_carries_the_discovery_switch_and_the_advertised_text_to_the_engine() {
+    let silent = IrohLink::config(&IrohOptions { local_discovery: false, advertised: None, ..IrohOptions::default() });
+    assert!(!silent.local_discovery, "switched off stays off");
+    assert_eq!(silent.advertised.as_str(), "", "nothing is announced beyond the key and the addresses");
+    let loud = IrohLink::config(&IrohOptions { local_discovery: true, advertised: Some(advert_text()), ..IrohOptions::default() });
+    assert!(loud.local_discovery);
+    assert_eq!(loud.advertised.as_str(), advert_text().as_str());
+}
+
+#[test]
 fn the_relay_is_off_unless_asked_for() {
     assert_eq!(relay_mode(false), IrohRelayMode::Disabled);
     assert_eq!(relay_mode(true), IrohRelayMode::Default);
