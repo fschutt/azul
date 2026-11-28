@@ -126,7 +126,7 @@ Other short system sounds that are not ids of this table: the lock and unlock so
 
 ## Notifications
 
-A sound that belongs to a notification is the notification's, not the app's: `Notification::with_sound` and `NotificationSound`.
+A sound that belongs to a notification is the notification's, not the app's: `Notification::with_sound` and `NotificationSound`. Do not ask for `SystemSound::Notification` as well when you post one: the post plays its own sound, and the system sound is for the in-app event that no notification shows.
 
 - Android posts on a channel. The default channel has the importance "default" (sound, status bar, no heads-up) and the sound the user chose for notifications; a notification with `NotificationSound::Silent` goes to a second channel of low importance, because the sound of a channel cannot change after it was created. `NotificationSound::Named` has no meaning on Android and plays the channel's sound.
 - iOS sets `UNNotificationSound.default` on the content unless the notification is silent, and asks for the sound authorization with the others; a notification that arrives while the app is in front is shown as a banner with its sound.

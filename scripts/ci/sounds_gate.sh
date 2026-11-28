@@ -7,7 +7,7 @@
 # The steps to run are named in scripts/ci/sounds_gate.steps (one per line, # comments): the command string stays the
 # same from run to run, so the runner's build cache is reused. No such file, or an empty one: every step runs.
 #   COMPILE gate (before a push):  java_compile core_tests layout_check dll_check android_check ios_cross_check apps_check autofix doc_check
-#   TEST gate (on the pushed sha): workspace_tests clippy_default clippy_features dll_default_tests srcgate
+#   TEST gate (on the pushed sha): layout_sound_tests dll_sound_tests clippy_features clippy_default workspace_tests dll_default_tests srcgate
 # A step that fails does not stop the ones after it, so one run says everything that is wrong; the last lines are one
 # `STEP <name> <exit>` each, and the exit code of the script is 0 only when every step passed.
 set -uo pipefail
@@ -97,7 +97,10 @@ run autofix autofix
 run doc_check cargo run -r -p azul-doc -- check
 run doc_check_layout cargo run -r -p azul-doc -- check layout
 
-# 7. the TEST gate, on the pushed sha: the CI's own commands
+# 7. the TEST gate, on the pushed sha: the tests of the sound work by name (cheap: they compile what the CI's commands
+#    compile and run only these), then the CI's own commands
+run layout_sound_tests cargo test -p azul-layout --lib --features "$features" -- sound_tests
+run dll_sound_tests bash -c 'cd dll && cargo test --lib -- shell_settings system_sounds sound_invariants && cargo test --test headless_system_sounds --test android_sounds_java_glue_contract'
 workspace_tests() {
   sudo apt-get update -qq || true
   sudo apt-get install -y fonts-liberation fonts-dejavu-core || true
