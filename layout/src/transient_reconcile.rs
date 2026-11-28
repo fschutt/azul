@@ -272,7 +272,7 @@ impl LayoutWindow {
                 {
                     overlay_room(bounds)
                 } else {
-                    let screens = screens.get_or_insert_with(|| screens_of());
+                    let screens = screens.get_or_insert_with(&mut *screens_of);
                     popup_room(window, screens, placement.anchor_rect)
                 };
                 // A window with a title bar has that much less room for its content. (An overlay

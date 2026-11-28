@@ -9743,7 +9743,7 @@ impl LayoutWindow {
     /// `WindowFlags::display_preset` puts the window on a phone - every preset is one. THE one
     /// place the engine asks whether a window can open another; no widget looks at the platform.
     #[must_use]
-    pub fn effective_presentation(
+    pub const fn effective_presentation(
         &self,
         window_state: &FullWindowState,
     ) -> crate::transient::WindowPresentation {

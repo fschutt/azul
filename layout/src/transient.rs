@@ -665,7 +665,7 @@ impl Default for ReconcileEnv {
 /// back into `env.bounds`, and a surface longer than the bounds is shortened to them (its
 /// content scrolls).
 #[must_use]
-pub fn overlay_box_for(
+pub const fn overlay_box_for(
     placement: &TransientPlacement,
     size: LogicalSize,
     env: &ReconcileEnv,
