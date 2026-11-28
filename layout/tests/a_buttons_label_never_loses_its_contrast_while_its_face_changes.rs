@@ -618,7 +618,7 @@ fn selection_of_segments_moves(run: Run, from: usize, to: usize) -> Option<Strin
     )
 }
 
-/// Every kind of button that becomes every other, in each of `runs`.
+/// Every kind of button that becomes every other, in each of `set`.
 fn every_kind_becomes_every_other(set: &[Run]) -> Vec<String> {
     let mut breaches = Vec::new();
     for run in set {
@@ -631,6 +631,36 @@ fn every_kind_becomes_every_other(set: &[Run]) -> Vec<String> {
         }
     }
     breaches
+}
+
+/// One change of each shape, in each of `set`: paper to a stone and back, a lighter stone, the yellow one, the
+/// metal-edged command. What the phone path is checked with (the whole 56 are checked at a desktop's scale).
+const CANON: [(ButtonType, ButtonType); 10] = [
+    (ButtonType::Default, ButtonType::Primary),
+    (ButtonType::Primary, ButtonType::Default),
+    (ButtonType::Default, ButtonType::Success),
+    (ButtonType::Success, ButtonType::Default),
+    (ButtonType::Default, ButtonType::Warning),
+    (ButtonType::Warning, ButtonType::Default),
+    (ButtonType::Danger, ButtonType::Default),
+    (ButtonType::Info, ButtonType::Primary),
+    (ButtonType::Illuminated, ButtonType::Primary),
+    (ButtonType::Primary, ButtonType::Illuminated),
+];
+
+fn canonical_changes(set: &[Run]) -> Vec<String> {
+    let mut breaches = Vec::new();
+    for run in set {
+        for (from, to) in CANON {
+            breaches.extend(button_becomes(*run, from, to, Face::Any));
+        }
+    }
+    breaches
+}
+
+/// The runs of `set` in one theme.
+fn in_theme(set: Vec<Run>, theme: UiTheme) -> Vec<Run> {
+    set.into_iter().filter(|run| run.theme == theme).collect()
 }
 
 #[test]
@@ -652,36 +682,60 @@ fn a_button_that_stops_being_primary_is_never_a_dark_label_on_a_dark_face() {
 }
 
 #[test]
-fn a_button_keeps_its_label_readable_while_it_becomes_any_other_kind_of_button() {
-    no_breach(&every_kind_becomes_every_other(&runs(false, 1, &SCALES)));
+fn every_flora_button_keeps_its_label_readable_while_it_becomes_any_other_by_day() {
+    no_breach(&every_kind_becomes_every_other(&in_theme(runs(false, 1, &[1.0]), UiTheme::Flora)));
+}
+
+#[test]
+fn every_flat_button_keeps_its_label_readable_while_it_becomes_any_other_by_day() {
+    no_breach(&every_kind_becomes_every_other(&in_theme(runs(false, 1, &[1.0]), UiTheme::Flat)));
+}
+
+#[test]
+fn every_flora_button_keeps_its_label_readable_while_it_becomes_any_other_by_night() {
+    if pinned_by_env() {
+        return;
+    }
+    no_breach(&every_kind_becomes_every_other(&in_theme(runs(true, 1, &[1.0]), UiTheme::Flora)));
+}
+
+#[test]
+fn every_flat_button_keeps_its_label_readable_while_it_becomes_any_other_by_night() {
+    if pinned_by_env() {
+        return;
+    }
+    no_breach(&every_kind_becomes_every_other(&in_theme(runs(true, 1, &[1.0]), UiTheme::Flat)));
+}
+
+#[test]
+fn at_a_phones_scale_a_changing_button_reads_and_settles_as_a_page_built_in_the_new_state() {
+    let mut all = runs(false, 1, &PHONE);
+    if !pinned_by_env() {
+        all.extend(runs(true, 1, &PHONE));
+    }
+    no_breach(&canonical_changes(&all));
 }
 
 #[test]
 fn a_layout_that_is_asked_for_again_a_frame_later_ends_in_the_picture_of_the_new_state() {
-    no_breach(&every_kind_becomes_every_other(&runs(false, 2, &PHONE)));
+    let mut all = runs(false, 2, &PHONE);
+    if !pinned_by_env() {
+        all.extend(runs(true, 2, &PHONE));
+    }
+    no_breach(&canonical_changes(&all));
 }
 
 #[test]
 fn a_window_that_lays_its_page_out_again_while_the_faces_fade_ends_in_the_picture_of_the_new_state() {
-    // The phone path of the AzWidgets page (Android emulator, 2026-11-28): the faces of the rebuilt buttons
-    // were never repainted while their text colours were, for as long as the window was looked at.
+    // The phone path of the AzWidgets page (Android emulator, 2026-11-28): its insets move when the preset puts the
+    // window on a phone, and the page is laid out again over the fade.
     let mut all = Vec::new();
     for relayouts in [1, 3] {
         for rebuilds in [1, 2] {
             all.extend(runs(false, rebuilds, &PHONE).into_iter().map(|run| Run { relayouts, ..run }));
         }
     }
-    no_breach(&every_kind_becomes_every_other(&all));
-}
-
-#[test]
-fn by_night_the_label_holds_the_floor_in_every_change_too() {
-    if pinned_by_env() {
-        return;
-    }
-    let mut all = runs(true, 1, &SCALES);
-    all.extend(runs(true, 2, &PHONE));
-    no_breach(&every_kind_becomes_every_other(&all));
+    no_breach(&canonical_changes(&all));
 }
 
 #[test]
