@@ -434,3 +434,7 @@ pub fn screen(app: &RefAny, st: &AppState) -> Dom {
         .with_child(toolbar::reader(app, st))
         .with_child(body)
 }
+
+#[cfg(test)]
+#[path = "ui_reader_test.rs"]
+mod ui_reader_test;
