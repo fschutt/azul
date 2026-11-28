@@ -1,0 +1,195 @@
+[
+  {
+    "name": "azmail_phone_the_rail_stands_under_the_tab_row_and_the_drawer_pushes_the_view",
+    "description": "AzMail with the phone's layout (AZMAIL_FORM=phone, 411 x 760): the tab row is the full width with icon squares, the 18 px rail stands below it, the Preview is a bottom pane. The toggle opens the sidebar as a drawer that pushes the whole view aside; choosing a folder closes it.",
+    "only_on": [
+      "linux",
+      "macos",
+      "windows"
+    ],
+    "steps": [
+      {
+        "op": "resize",
+        "width": 411,
+        "height": 760
+      },
+      {
+        "op": "set_mode",
+        "mode": "light"
+      },
+      {
+        "op": "set_theme",
+        "theme": "flora"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "assert_exists",
+        "selector": ".__azul-native-app-frame-phone"
+      },
+      {
+        "op": "assert_exists",
+        "selector": ".__azul-native-app-frame-rail"
+      },
+      {
+        "op": "assert_exists",
+        "selector": ".__azul-native-sidebar-rail"
+      },
+      {
+        "op": "assert_layout",
+        "selector": ".__azul-native-sidebar-rail",
+        "property": "width",
+        "expected": 18,
+        "tolerance": 0.6
+      },
+      {
+        "op": "assert_exists",
+        "selector": ".__azul-native-preview-bottom"
+      },
+      {
+        "op": "assert_not_exists",
+        "selector": ".__azul-native-preview-right"
+      },
+      {
+        "op": "assert_not_exists",
+        "selector": ".__azul-native-app-frame-catcher"
+      },
+      {
+        "op": "take_screenshot"
+      },
+      {
+        "op": "click",
+        "selector": ".__azul-native-sidebar-toggle"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "assert_exists",
+        "selector": ".__azul-native-sidebar-expanded"
+      },
+      {
+        "op": "assert_exists",
+        "selector": ".__azul-native-app-frame-catcher"
+      },
+      {
+        "op": "take_screenshot"
+      },
+      {
+        "op": "click",
+        "text": "Sent Items"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "assert_exists",
+        "selector": ".__azul-native-sidebar-rail"
+      },
+      {
+        "op": "assert_not_exists",
+        "selector": ".__azul-native-app-frame-catcher"
+      },
+      {
+        "op": "find_node_by_text",
+        "text": "Items: 1"
+      },
+      {
+        "op": "assert_response",
+        "contains": "\"found\":true"
+      }
+    ]
+  },
+  {
+    "name": "azmail_phone_the_bottom_pane_has_the_message_and_a_row_opens_the_sheet",
+    "description": "On the phone the message is the Preview's bottom pane (a grip bar with the subject and a (?)); a tap on a row selects it and shows it; opening a row (a double tap, Enter) shows the message's quick-action sheet: Reply, Reply all, Forward, Follow up, Unread / Read, Move, Archive and, in red and last, Delete; the scrim closes it.",
+    "only_on": [
+      "linux",
+      "macos",
+      "windows"
+    ],
+    "steps": [
+      {
+        "op": "resize",
+        "width": 411,
+        "height": 760
+      },
+      {
+        "op": "set_mode",
+        "mode": "light"
+      },
+      {
+        "op": "set_theme",
+        "theme": "flora"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "click",
+        "text": "Seed invoice 2026-114"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "assert_exists",
+        "selector": ".__azul-native-preview-bottom"
+      },
+      {
+        "op": "assert_exists",
+        "selector": ".__azul-native-preview-grip"
+      },
+      {
+        "op": "take_screenshot"
+      },
+      {
+        "op": "double_click",
+        "text": "Seed invoice 2026-114"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "assert_exists",
+        "selector": ".__azul-native-action-sheet-panel"
+      },
+      {
+        "op": "take_screenshot"
+      },
+      {
+        "op": "click",
+        "selector": ".__azul-native-action-sheet-scrim"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "assert_not_exists",
+        "selector": ".__azul-native-action-sheet-panel"
+      }
+    ]
+  }
+]

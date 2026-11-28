@@ -1,0 +1,387 @@
+[
+  {
+    "name": "azmail_the_sidebar_is_the_folder_pane_and_collapses_to_an_18_px_rail",
+    "description": "The main window of AzMail on a desktop (the sample account, 1280 x 860): the full-height sidebar is the folder pane (the account's address over its folders with their counts, the four module buttons), the tab strip is the title bar, the Preview is docked at the right. The toggle at the foot collapses the sidebar to the 18 px rail, with the app's quick-access buttons at its bottom; the toggle brings it back.",
+    "only_on": [
+      "linux",
+      "macos",
+      "windows"
+    ],
+    "steps": [
+      {
+        "op": "resize",
+        "width": 1280,
+        "height": 860
+      },
+      {
+        "op": "set_mode",
+        "mode": "light"
+      },
+      {
+        "op": "set_theme",
+        "theme": "flora"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "assert_exists",
+        "selector": "#__azmail_ribbon"
+      },
+      {
+        "op": "assert_exists",
+        "selector": ".__azul-native-sidebar-expanded"
+      },
+      {
+        "op": "assert_not_exists",
+        "selector": ".__azul-native-app-frame-rail"
+      },
+      {
+        "op": "assert_exists",
+        "selector": ".__azul-native-preview-right"
+      },
+      {
+        "op": "assert_not_exists",
+        "selector": ".__azul-native-preview-bottom"
+      },
+      {
+        "op": "find_node_by_text",
+        "text": "ada@example.org"
+      },
+      {
+        "op": "assert_response",
+        "contains": "\"found\":true"
+      },
+      {
+        "op": "find_node_by_text",
+        "text": "Inbox"
+      },
+      {
+        "op": "assert_response",
+        "contains": "\"found\":true"
+      },
+      {
+        "op": "find_node_by_text",
+        "text": "Sent Items"
+      },
+      {
+        "op": "assert_response",
+        "contains": "\"found\":true"
+      },
+      {
+        "op": "find_node_by_text",
+        "text": "Calendar"
+      },
+      {
+        "op": "assert_response",
+        "contains": "\"found\":true"
+      },
+      {
+        "op": "click",
+        "selector": ".__azul-native-sidebar-toggle"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "assert_exists",
+        "selector": ".__azul-native-sidebar-rail"
+      },
+      {
+        "op": "assert_layout",
+        "selector": ".__azul-native-sidebar-rail",
+        "property": "width",
+        "expected": 18,
+        "tolerance": 0.6
+      },
+      {
+        "op": "assert_exists",
+        "selector": ".__azul-native-sidebar-quick-button"
+      },
+      {
+        "op": "take_screenshot"
+      },
+      {
+        "op": "click",
+        "selector": ".__azul-native-sidebar-toggle"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "assert_exists",
+        "selector": ".__azul-native-sidebar-expanded"
+      }
+    ]
+  },
+  {
+    "name": "azmail_a_folder_row_shows_that_folder_and_the_message_in_the_preview",
+    "description": "A row of the sidebar shows its folder (the list, the status bar's count); a click on a message shows it in the Preview, which holds the message and nothing else: its details are behind a (?) button.",
+    "only_on": [
+      "linux",
+      "macos",
+      "windows"
+    ],
+    "steps": [
+      {
+        "op": "resize",
+        "width": 1280,
+        "height": 860
+      },
+      {
+        "op": "set_mode",
+        "mode": "light"
+      },
+      {
+        "op": "set_theme",
+        "theme": "flora"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "click",
+        "text": "Sent Items"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "find_node_by_text",
+        "text": "Items: 1"
+      },
+      {
+        "op": "assert_response",
+        "contains": "\"found\":true"
+      },
+      {
+        "op": "find_node_by_text",
+        "text": "Garden plan for October"
+      },
+      {
+        "op": "assert_response",
+        "contains": "\"found\":true"
+      },
+      {
+        "op": "click",
+        "text": "Inbox"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "find_node_by_text",
+        "text": "Items: 4"
+      },
+      {
+        "op": "assert_response",
+        "contains": "\"found\":true"
+      },
+      {
+        "op": "click",
+        "text": "Seed invoice 2026-114"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "assert_exists",
+        "selector": ".__azul-native-preview-pane"
+      },
+      {
+        "op": "assert_exists",
+        "selector": ".__azul-native-preview-help"
+      },
+      {
+        "op": "take_screenshot"
+      },
+      {
+        "op": "click",
+        "selector": ".__azul-native-preview-help"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "find_node_by_text",
+        "text": "Sent"
+      },
+      {
+        "op": "assert_response",
+        "contains": "\"found\":true"
+      }
+    ]
+  },
+  {
+    "name": "azmail_the_file_tab_is_the_location_and_its_more_button_opens_the_old_file_pages",
+    "description": "File is the first tab and shows the location (the account over the folder's name, big and bold, no pen); the `...` beside it opens File's old pages (the backstage: Info, Print, Help, Options, Exit), another tab leaves them.",
+    "only_on": [
+      "linux",
+      "macos",
+      "windows"
+    ],
+    "steps": [
+      {
+        "op": "resize",
+        "width": 1280,
+        "height": 860
+      },
+      {
+        "op": "set_mode",
+        "mode": "light"
+      },
+      {
+        "op": "set_theme",
+        "theme": "flora"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "click",
+        "text": "File"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "assert_exists",
+        "selector": ".__azul-native-location-name"
+      },
+      {
+        "op": "assert_not_exists",
+        "selector": ".__azul-native-location-pen"
+      },
+      {
+        "op": "assert_exists",
+        "selector": ".__azul-native-location-more"
+      },
+      {
+        "op": "take_screenshot"
+      },
+      {
+        "op": "click",
+        "selector": ".__azul-native-location-more"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "assert_exists",
+        "selector": "#__azmail_backstage"
+      },
+      {
+        "op": "assert_exists",
+        "selector": "#__azmail_ribbon"
+      },
+      {
+        "op": "click",
+        "text": "Home"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "assert_not_exists",
+        "selector": "#__azmail_backstage"
+      }
+    ]
+  },
+  {
+    "name": "azmail_the_rails_quick_access_buttons_run_the_ribbons_commands",
+    "description": "The collapsed rail holds the app's own quick-access buttons at its bottom: Send / Receive, flag, read, and Compose last, nearest the thumb. Flag and read cannot run with no message selected; with one selected they can; Compose opens a message window.",
+    "only_on": [
+      "linux",
+      "macos",
+      "windows"
+    ],
+    "steps": [
+      {
+        "op": "resize",
+        "width": 1280,
+        "height": 860
+      },
+      {
+        "op": "set_mode",
+        "mode": "light"
+      },
+      {
+        "op": "set_theme",
+        "theme": "flora"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "click",
+        "selector": ".__azul-native-sidebar-toggle"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "assert_exists",
+        "selector": ".__azul-native-sidebar-quick-button"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "click",
+        "text": "Seed invoice 2026-114"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "assert_exists",
+        "selector": ".__azul-native-sidebar-quick"
+      },
+      {
+        "op": "take_screenshot"
+      }
+    ]
+  }
+]
