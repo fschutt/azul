@@ -366,6 +366,8 @@ def warm_text(warm):
     """The line of a warm start in the report: what was seen, and whether the process really was the same one."""
     summary = warm.get("summary") or {}
     same = "the same process" if warm.get("same_process") else "NOT the same process (a cold start)"
+    if warm.get("delivered_to_top"):
+        same += ", BUT the start was delivered to the activity that was there (a resume, not a warm start)"
     return (f"warm start (the activity made again in a live process; {same}): `{warm.get('runs', '?')}`; black {summary.get('black', '?')}"
             f", starting window {summary.get('splash', '?')} frames, wrong colour {summary.get('wrong', '?')}"
             + (f"; Displayed +{warm['displayed']} ms" if warm.get("displayed") else ""))
@@ -496,26 +498,27 @@ def one_start(dev, package, activity, row, out_dir, keep_resume, warm=False):
 
 def warm_start(dev, package, activity, row, out_dir):
     """A WARM start: the process of the app is alive and its activity is made again (what a phone does with an app the user left a while ago).
-    `always_finish_activities` destroys the activity when the user leaves it and the process stays; the next start is recorded like a cold one.
-    -> {runs, black, same_process, ...} (the record of the start; `same_process` False means the system killed the process and this was a cold start)."""
-    dev.sh("settings put global always_finish_activities 1")
-    try:
-        dev.sh("input keyevent KEYCODE_HOME")
-        time.sleep(2.5)
-        before = dev.sh(f"pidof {package}").strip()
-        dev.adb("logcat", "-c")
-        proc, remote = dev.record_start()
-        dev.sh(f"am start -n {package}/{activity}")
-        dev.wait_front(package)
-        time.sleep(row.get("settle", 3.5))
-        video = out_dir / "warm.mp4"
-        dev.record_stop(proc, remote, video)
-        after = dev.sh(f"pidof {package}").strip()
-        log = dev.adb("logcat", "-d", "-v", "threadtime", timeout=120)
-        (out_dir / "warm-logcat.txt").write_text(log)
-    finally:
-        dev.sh("settings put global always_finish_activities 0")
-    result = {"same_process": bool(before) and before == after, "displayed": displayed_ms(log), "events": log_events(log)}
+    The app is sent home (its process stays), then started with FLAG_ACTIVITY_NEW_TASK | FLAG_ACTIVITY_CLEAR_TASK: the old activity is finished and a new
+    one is made in the same process, which gets its own starting window; the recording is cut like a cold start's. (The developer setting "Don't keep
+    activities", `always_finish_activities`, did not destroy the activity of a NativeActivity on the emulator: the start was delivered to the one that was
+    still there, `result code=2`, which is a resume.)
+    -> {runs, summary, same_process, ...} (`same_process` False means the system killed the process and this was a cold start)."""
+    dev.sh("input keyevent KEYCODE_HOME")
+    time.sleep(2.5)
+    before = dev.sh(f"pidof {package}").strip()
+    dev.adb("logcat", "-c")
+    proc, remote = dev.record_start()
+    dev.sh(f"am start -n {package}/{activity} -f 0x10008000")
+    dev.wait_front(package)
+    time.sleep(row.get("settle", 3.5))
+    video = out_dir / "warm.mp4"
+    dev.record_stop(proc, remote, video)
+    after = dev.sh(f"pidof {package}").strip()
+    log = dev.adb("logcat", "-d", "-v", "threadtime", timeout=120)
+    (out_dir / "warm-logcat.txt").write_text(log)
+    # the system's own word: `result code=0` is a new activity, 2 is a start delivered to the one that was there (a resume, not a warm start)
+    delivered_to_top = "result code=2" in log
+    result = {"same_process": bool(before) and before == after, "delivered_to_top": delivered_to_top, "displayed": displayed_ms(log), "events": log_events(log)}
     frames = fa.cut_frames(video)
     if frames:
         sigs = [fa.signature_of(f) for f in frames]

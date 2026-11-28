@@ -346,30 +346,33 @@ class WarmStartTests(unittest.TestCase):
         self.addCleanup(self.no_sleep.stop)
         self.addCleanup(self.no_frames.stop)
 
-    def run_warm(self, dev, tmp="/tmp/never-written"):
+    def run_warm(self, dev):
         import tempfile
         with tempfile.TemporaryDirectory() as d:
             return lab.warm_start(dev, "com.azul.AzWidgets", "com.azul.app.AzulActivity", {"settle": 1.0}, Path(d))
 
-    def test_the_activity_is_destroyed_by_leaving_it_and_the_process_stays_and_the_next_start_is_recorded(self):
+    def test_the_app_is_sent_home_its_process_stays_and_the_activity_is_made_again_in_a_new_task(self):
         dev = FakeDevice(["4242", "4242"])
         record = self.run_warm(dev)
         calls = dev.calls
-        order = [calls.index(c) for c in ("settings put global always_finish_activities 1", "input keyevent KEYCODE_HOME", "pidof com.azul.AzWidgets",
-                                          "record_start", "am start -n com.azul.AzWidgets/com.azul.app.AzulActivity", "record_stop")]
-        self.assertEqual(order, sorted(order), "destroy-on-leave, home, the pid, the recording, the start, the end of the recording")
-        self.assertEqual(calls[-1], "settings put global always_finish_activities 0", "the developer setting is put back")
+        start = "am start -n com.azul.AzWidgets/com.azul.app.AzulActivity -f 0x10008000"
+        order = [calls.index(c) for c in ("input keyevent KEYCODE_HOME", "pidof com.azul.AzWidgets", "record_start", start, "record_stop")]
+        self.assertEqual(order, sorted(order), "home, the pid, the recording, the start, the end of the recording")
         self.assertTrue(record["same_process"])
+        self.assertFalse(any("always_finish_activities" in c for c in calls), "no developer setting: it did not destroy the activity on the emulator")
 
     def test_a_process_the_system_killed_is_not_a_warm_start(self):
         self.assertFalse(self.run_warm(FakeDevice(["4242", "5151"]))["same_process"], "another pid: a cold start")
         self.assertFalse(self.run_warm(FakeDevice(["", "5151"]))["same_process"], "no process before the start: a cold start")
 
-    def test_the_developer_setting_is_put_back_when_the_device_goes_away(self):
-        dev = FakeDevice(["4242", "4242"], fail_on="wait_front")
-        with self.assertRaises(RuntimeError):
-            self.run_warm(dev)
-        self.assertEqual(dev.calls[-1], "settings put global always_finish_activities 0")
+    def test_a_start_the_system_delivered_to_the_running_activity_is_told_as_a_resume(self):
+        class Delivered(FakeDevice):
+            def adb(self, *args, timeout=90, binary=False):
+                super().adb(*args, timeout=timeout, binary=binary)
+                return "11-28 09:56:08.689   520  1749 I ActivityTaskManager: START u0 {cmp=com.azul.AzWidgets/com.azul.app.AzulActivity} result code=2" if "-d" in args else ""
+        record = self.run_warm(Delivered(["4242", "4242"]))
+        self.assertTrue(record["delivered_to_top"])
+        self.assertIn("a resume, not a warm start", lab.warm_text(record))
 
     def test_the_report_says_whether_it_was_the_same_process(self):
         text = lab.warm_text({"same_process": False, "runs": "L5 S3 2x9", "summary": {"black": 0, "splash": 3, "wrong": 0}})

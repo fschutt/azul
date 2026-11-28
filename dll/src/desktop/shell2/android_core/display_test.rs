@@ -101,14 +101,25 @@ fn the_first_insets_snapshot_is_five_insets_then_the_features_array() {
     assert!(split_snapshot(&[]).is_none());
 }
 
-/// An app that hides a bar or draws into the cutout area gets new insets after its request; one that asks for neither does not, and its first
-/// layout needs no wait.
+/// The system applies what the app asked of the system bars in the window's first dispatches: the very first shows the window before the request (the
+/// status bar still shown), the next one, a few milliseconds later, the bar hidden. A bar the app asked to hide that the snapshot still shows, or says
+/// nothing of, is a request the snapshot does not show yet; an app that asks nothing never waits.
 ///
-/// Mutation: the default answering true (every app would wait for insets that never change).
+/// Mutation: the answer true whenever the app asks for something (the gate that skipped the snapshot for AzWriter although it showed the request done).
 #[test]
-fn only_a_request_that_hides_a_bar_or_draws_into_the_cutout_moves_the_insets() {
-    assert!(!bars_request_moves_insets(false, false, false), "the default asks nothing of the bars");
-    assert!(bars_request_moves_insets(true, false, false), "a hidden status bar (AzWriter on a phone)");
-    assert!(bars_request_moves_insets(false, true, false));
-    assert!(bars_request_moves_insets(false, false, true), "the cutout area");
+fn a_request_the_snapshot_shows_done_moves_nothing() {
+    let bar = |visible| Some(Bar { rect: Px { left: 0, top: 0, right: 1080, bottom: 128 }, visible });
+    let features = |status, navigation| DisplayFeaturesPx { cutouts: vec![], corners: [0; 4], status, navigation, fingerprint: false };
+    let shown = features(bar(true), bar(true));
+    let hidden = features(bar(false), bar(true));
+    assert!(!bars_request_moves_insets(Some(&shown), false, false, false), "an app that asks nothing never waits");
+    assert!(!bars_request_moves_insets(None, false, false, false), "nor without features");
+    assert!(bars_request_moves_insets(Some(&shown), true, false, false), "the status bar the app hides, still shown in the snapshot of the first dispatch");
+    assert!(!bars_request_moves_insets(Some(&hidden), true, false, false), "the next dispatch shows it hidden: the request is in the insets");
+    assert!(bars_request_moves_insets(Some(&hidden), true, true, false), "the navigation bar the app hides is still shown");
+    assert!(!bars_request_moves_insets(Some(&features(bar(false), bar(false))), true, true, false));
+    assert!(bars_request_moves_insets(Some(&features(None, bar(true))), true, false, false), "a snapshot that says nothing of the bar does not show it hidden");
+    assert!(!bars_request_moves_insets(Some(&shown), false, false, true), "the cutout area: the mode is set before the window's first dispatch, the features show the cutout");
+    assert!(bars_request_moves_insets(None, true, false, false), "no features at all: as before, the request is a reason to wait");
+    assert!(bars_request_moves_insets(None, false, false, true), "the cutout area without features");
 }

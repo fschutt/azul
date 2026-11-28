@@ -1725,41 +1725,63 @@ fn night_mode_of(app: &AndroidApp) -> Option<azul_core::window::DarkLightMode> {
     }
 }
 
-/// Whether the insets of the window's first dispatch are the ones the app's first layout should be made with.
-///
-/// They are unless the app asks the system to hide a bar or to draw into the cutout area (`android_core::display::bars_request_moves_insets`),
-/// which changes them a few frames after the request (the UI thread applies it, the system relayouts the window and dispatches it again, a hide
-/// with an animation).
+/// How long the engine asks Java again for the window's first insets while the app's request of the system bars is not in them yet.
 #[cfg(all(target_os = "android", feature = "android-activity"))]
-fn early_insets_fit_the_request(window: &AndroidWindow) -> bool {
-    use crate::desktop::shell2::android_core::display::bars_request_moves_insets;
-
-    let wanted = window.common.current_window_state().flags.system_bars;
-    let moves = bars_request_moves_insets(wanted.status as i32 != 0, wanted.navigation as i32 != 0, wanted.draw_into_cutout);
-    if moves {
-        log_info!(
-            LogCategory::Window,
-            "[Android] the app asks for the system bars to change (a hidden bar or the cutout area): its insets come after the request, not at the surface"
-        );
-    }
-    !moves
-}
+const EARLY_INSETS_POLL: std::time::Duration = std::time::Duration::from_millis(5);
+/// How many times it asks again (80 ms in all: the dispatch that shows the request came 9 and 18 ms after the one before it in the lab).
+#[cfg(all(target_os = "android", feature = "android-activity"))]
+const EARLY_INSETS_POLLS: u32 = 16;
 
 /// Apply what the window's first insets dispatch gave, before the first layout.
 ///
 /// The snapshot (`NativeTextBridge.insetsSnapshot`) is asked of Java synchronously: the dispatch comes before the surface exists, this is asked
 /// when the surface does. Nothing when the activity has no dispatch yet: the insets then come the way they always did, from the Java UI thread,
 /// after the first picture.
+///
+/// An app that asks the system to hide a bar (AzWriter on a phone) is applied when the snapshot SHOWS the request done: the system applies it in the
+/// window's first dispatches, the very first still shows the bar and the next, a few milliseconds later, does not
+/// (`android_core::display::bars_request_moves_insets`). Java is asked again for up to 80 ms; a request that is still not in the insets by then
+/// leaves the first layout as it always was (no snapshot: the insets come after the request).
 #[cfg(all(target_os = "android", feature = "android-activity"))]
 fn apply_early_insets(window: &mut AndroidWindow) {
-    let Some(snapshot) = early_insets() else {
+    use crate::desktop::shell2::android_core::display::{bars_request_moves_insets, decode, split_snapshot};
+
+    let wanted = window.common.current_window_state().flags.system_bars;
+    let (status_hidden, navigation_hidden, draw_into_cutout) = (wanted.status as i32 != 0, wanted.navigation as i32 != 0, wanted.draw_into_cutout);
+    let mut asked_again = 0_u32;
+    let snapshot = loop {
+        let Some(snapshot) = early_insets() else {
+            log_info!(
+                LogCategory::Window,
+                "[Android] no insets yet at the surface: they come from the Java UI thread after the first picture"
+            );
+            return;
+        };
+        let Some((_, features)) = split_snapshot(&snapshot) else {
+            return;
+        };
+        if !bars_request_moves_insets(decode(features).as_ref(), status_hidden, navigation_hidden, draw_into_cutout) {
+            break snapshot;
+        }
+        if asked_again >= EARLY_INSETS_POLLS {
+            log_info!(
+                LogCategory::Window,
+                "[Android] the app's request of the system bars is not in the window's insets after {} ms: its insets come after the request, not at the surface",
+                u128::from(EARLY_INSETS_POLLS) * EARLY_INSETS_POLL.as_millis()
+            );
+            return;
+        }
+        asked_again += 1;
+        std::thread::sleep(EARLY_INSETS_POLL);
+    };
+    if asked_again > 0 {
         log_info!(
             LogCategory::Window,
-            "[Android] no insets yet at the surface: they come from the Java UI thread after the first picture"
+            "[Android] the app's request of the system bars is in the window's insets after {} ms",
+            u128::from(asked_again) * EARLY_INSETS_POLL.as_millis()
         );
-        return;
-    };
-    let Some((insets, features)) = crate::desktop::shell2::android_core::display::split_snapshot(&snapshot) else {
+    }
+    let Some((insets, features)) = split_snapshot(&snapshot) else {
         return;
     };
     log_info!(
@@ -2098,13 +2120,9 @@ fn handle_poll_event(app: &AndroidApp, window: &mut AndroidWindow, event: PollEv
                         // The insets and the display features of the window's FIRST dispatch (`NativeTextBridge.installEarlyInsetsListener`),
                         // before the first layout: laid out without them the first picture sat under the status bar, and the insets that
                         // arrived after it forced a second full layout and moved the page (ledger E60, the Resize pass after the first present).
-                        // Not for an app that asks the system to hide a bar or to draw into the cutout area: the request changes the insets
-                        // (it is sent below, and the window is dispatched again a few frames later), the snapshot is the window BEFORE it, and
-                        // a layout made for it is another page than the one the request leaves (AzWriter's strip takes the hidden status bar's
-                        // place). Such an app lays its first picture out as it always did, and the insets come as before.
-                        if early_insets_fit_the_request(window) {
-                            apply_early_insets(window);
-                        }
+                        // An app that asks the system to hide a bar (AzWriter's strip takes the hidden status bar's place) gets them when the
+                        // snapshot shows the request done, and lays its first picture out as it always did when it does not.
+                        apply_early_insets(window);
                         // On the launch InitWindow this preserves the queued
                         // `Initial`; on a re-attach (rotation recreates the
                         // surface with new dimensions and does NOT deliver

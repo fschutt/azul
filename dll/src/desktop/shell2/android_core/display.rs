@@ -115,15 +115,19 @@ fn bar(flat: &[i32], at: usize) -> Option<Option<Bar>> {
     Some(Some(Bar { rect, visible: b[5] != 0 }))
 }
 
-/// Whether what the app asks of the system bars changes the insets the window is dispatched.
+/// Whether what the app asks of the system bars is still to change the insets the snapshot shows.
 ///
-/// A bar the app hides (`WindowFlags::system_bars`) takes its inset away, a window that draws into the cutout area takes the cutout's. An app that
-/// asks for neither (the default) keeps the insets of the window's first dispatch, which are right for its first layout; one that asks for either
-/// gets NEW insets a few frames after the request (the UI thread applies it, the system relayouts the window and dispatches it again, a hide with an
-/// animation of its own), so the first dispatch is the window before the request: not the page the app's first layout should be made for.
+/// The system applies the request in the window's first dispatches: the very first shows the window before it (the status bar still shown), the next,
+/// a few milliseconds later (6 and 9 ms in the lab), the bar hidden. A bar the app asks to hide that the snapshot still shows, or says nothing of, is a
+/// request the snapshot does not show yet; a window that draws into the cutout area has its cutout mode set before its first dispatch, so its features
+/// show the cutout from the start. Without features the request is a reason to wait, as it was before the features were read.
 #[must_use]
-pub const fn bars_request_moves_insets(status_hidden: bool, navigation_hidden: bool, draw_into_cutout: bool) -> bool {
-    status_hidden || navigation_hidden || draw_into_cutout
+pub fn bars_request_moves_insets(shown: Option<&DisplayFeaturesPx>, status_hidden: bool, navigation_hidden: bool, draw_into_cutout: bool) -> bool {
+    let still_shown = |hidden_wanted: bool, bar: Option<Bar>| hidden_wanted && bar.is_none_or(|b| b.visible);
+    match shown {
+        None => status_hidden || navigation_hidden || draw_into_cutout,
+        Some(features) => still_shown(status_hidden, features.status) || still_shown(navigation_hidden, features.navigation),
+    }
 }
 
 /// Split what `NativeTextBridge.insetsSnapshot` hands the engine into the insets and the display features.

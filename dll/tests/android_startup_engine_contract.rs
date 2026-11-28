@@ -142,27 +142,33 @@ fn insets_the_layout_already_has_are_no_layout_pass() {
 }
 
 /// AzWriter on a phone hides the status bar and draws into the cutout area, and its strip takes the bar's place only while the bar is hidden
-/// (`ribbon::status_band`): the insets of the window's first dispatch are the window BEFORE that request, so a first layout made for them is another
-/// page (an ordinary row under the bar) that the request's answer then replaces. An app that asks the system to hide a bar or to draw into the cutout
-/// area keeps the old path for its first layout (no snapshot: the insets come after the request, as before); an app that asks for nothing gets them.
+/// (`ribbon::status_band`). The system applies the request in the window's first dispatches: the very first still shows the bar (a first layout made
+/// for it is an ordinary row under the bar that the request's answer replaces, and the strip lanes around the camera arrive after the first picture), the
+/// next, 6 to 18 ms later in the lab on both emulator profiles, shows it hidden. The engine takes the snapshot when it SHOWS the request done, and asks
+/// Java again for it, bounded (80 ms), while it does not; a request still not in it by then leaves the first layout as it always was.
 ///
-/// Mutation: the snapshot applied for every app (AzWriter's first picture is the wrong page and moves).
+/// Mutation: the snapshot applied whatever it shows (the first layout is the wrong page and moves); no limit on the asking (a window whose bar the
+/// system refuses to hide is waited for for ever); no asking at all (AzWriter's first layout lacks the camera's lanes: the state of 98d415cb4e).
 #[test]
-fn an_app_that_asks_for_the_bars_to_change_does_not_get_the_snapshot_that_precedes_the_request() {
+fn an_app_that_asks_for_the_bars_to_change_gets_the_snapshot_that_shows_the_request_done() {
     let shell = rust_code("dll/src/desktop/shell2/android/mod.rs");
     let arm = shell.find("MainEvent::InitWindow{..}=>{").expect("the surface-created arm") + "MainEvent::InitWindow{..}".len();
     let init = body(&shell[arm..], "=>");
-    let gate = init.find("ifearly_insets_fit_the_request(window){apply_early_insets(window);}").expect("the snapshot is applied only when it fits the request");
+    let apply_at = init.find("apply_early_insets(window);").expect("the snapshot is applied at the surface");
     let layout = init.find("window.common.request_regeneration(reason)").expect("the layout is requested");
     let request = init[layout..].find("apply_system_bars_if_changed(window);").expect("the request goes to the activity") + layout;
-    assert!(gate < layout && layout < request, "the gate comes before the layout, the request after it as it always did");
+    assert!(apply_at < layout && layout < request, "the snapshot comes before the layout, the request after it as it always did");
 
-    let fit = body(&shell, "fnearly_insets_fit_the_request(window:&AndroidWindow)->bool{");
-    assert!(
-        fit.contains("bars_request_moves_insets(wanted.status asi32!=0,wanted.navigation asi32!=0,wanted.draw_into_cutout)".replace(' ', "").as_str()),
-        "a hidden bar or the cutout area moves the insets"
-    );
-    assert!(fit.trim_end().ends_with("!moves}"), "and then the snapshot does not fit");
+    let early = body(&shell, "fnapply_early_insets(window:&mutAndroidWindow){");
+    let asks = early
+        .find("if!bars_request_moves_insets(decode(features).as_ref(),status_hidden,navigation_hidden,draw_into_cutout){breaksnapshot;}")
+        .expect("the snapshot is taken only when it shows the request done");
+    let limit = early.find("ifasked_again>=EARLY_INSETS_POLLS{").expect("the asking is bounded");
+    let again = early.find("std::thread::sleep(EARLY_INSETS_POLL);").expect("Java is asked again after a pause");
+    assert!(asks < limit && limit < again, "done -> the limit -> the pause");
+    assert!(early[limit..again].contains("return;"), "past the limit the first layout is made as it always was");
+    assert!(shell.contains("constEARLY_INSETS_POLLS:u32=16;") && shell.contains("EARLY_INSETS_POLL:std::time::Duration=std::time::Duration::from_millis(5);"), "80 ms in all");
+    assert!(!shell.contains("fnearly_insets_fit_the_request"), "the gate that skipped the snapshot for every such app is gone");
 }
 
 /// The system reports "resized" at every relayout of the window that touches its surface, most of them with the size the window already has (the
