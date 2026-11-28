@@ -1,7 +1,7 @@
 [
   {
     "name": "azreader_phone_taps",
-    "description": "On a phone: the page over the whole screen; a tap in the middle shows the toolbar and the slider, a tap on the right side turns the page, a tap in the middle again hides them.",
+    "description": "On a phone: the page over the whole screen; a tap in the middle shows the toolbar and the slider, the button beside the slider opens the sheet of contents and pages (a tap beside it closes it), a tap on the right side turns the page, a tap in the middle again hides them.",
     "only_on": ["android", "ios"],
     "steps": [
       {"op": "wait_frame"},
