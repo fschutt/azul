@@ -68,6 +68,8 @@ PY
 read -r runtime devtype <<<"$pick"
 echo "simulator: $runtime / $devtype"
 
+# a soft keyboard on the screen: the Simulator connects the Mac's hardware keyboard by default, which keeps it away (a runner only: this is the user's preference on a Mac)
+[ "${GITHUB_ACTIONS:-}" = "true" ] && defaults write com.apple.iphonesimulator ConnectHardwareKeyboard -bool false >/dev/null 2>&1
 udid="$(xcrun simctl create azul-qa "$devtype" "$runtime")" || exit 2
 trap 'xcrun simctl shutdown "$udid" >/dev/null 2>&1; xcrun simctl delete "$udid" >/dev/null 2>&1' EXIT
 boot_start=$(date +%s)

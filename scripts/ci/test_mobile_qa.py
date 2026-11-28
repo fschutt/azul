@@ -1147,6 +1147,37 @@ class RunFolderTests(unittest.TestCase):
                 os.chdir(old)
 
 
+class MapsScriptTests(unittest.TestCase):
+    """The audit script of AzMaps (mobile_e2e.py s_script_maps) drives the refactored app (WP-E2: the layers key, the style popover, the chips, the search
+    field and its keyboard, the pin of a double tap) and still the sidebar app before it."""
+
+    TEXT = (Path(__file__).resolve().parent / "mobile_e2e.py").read_text(encoding="utf-8")
+    LOG = """\
+11-28 09:10:07.400  3000  3020 I RustStdoutStderr: AZMAPS_VIEW 48.5216 9.0576 14
+11-28 09:10:08.500  3000  3020 I RustStdoutStderr: AZMAPS_STYLE satellite
+11-28 09:10:09.600  3000  3020 I RustStdoutStderr: AZMAPS_CHIP 0 restaurants cafes
+11-28 09:10:10.700  3000  3020 I RustStdoutStderr: AZMAPS_PLACE 3
+11-28 09:10:10.800  3000  3020 I RustStdoutStderr: AZMAPS_PANEL open
+"""
+
+    def test_the_new_markers_are_read_as_values(self):
+        self.assertEqual(q.marker_values(self.LOG, "AZMAPS_STYLE"), ["satellite"])
+        self.assertEqual(q.marker_values(self.LOG, "AZMAPS_CHIP"), ["0 restaurants cafes"])
+        self.assertEqual(q.marker_values(self.LOG, "AZMAPS_PLACE"), ["3"])
+        self.assertEqual(q.marker_values(self.LOG, "AZMAPS_PANEL"), ["open"])
+
+    def test_the_script_presses_the_keys_of_the_refactored_app(self):
+        for needle in ("#__azmaps_layers", "#__azmaps_style-1", "#__azmaps_chip-0", "#__azmaps_search", '"AZMAPS_STYLE"', '"AZMAPS_CHIP"', '"AZMAPS_PLACE"', "dev.ime_shown()"):
+            self.assertIn(needle, self.TEXT)
+
+    def test_the_sidebar_app_before_the_refactor_is_still_driven(self):
+        self.assertIn("#__azmaps_sidebar-toggle", self.TEXT)
+        self.assertIn('"AZMAPS_SIDEBAR"', self.TEXT)
+
+    def test_the_new_keys_come_first_and_decide_which_app_it_is(self):
+        self.assertLess(self.TEXT.index('tap_node(s, "#__azmaps_layers")'), self.TEXT.index('for selector in ("#__azmaps_sidebar-toggle"'))
+
+
 class MarkerTests(unittest.TestCase):
     LOG = """\
 11-26 08:10:01.100  3000  3020 I RustStdoutStderr: AZPAINT_STROKES 0

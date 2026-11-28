@@ -57,6 +57,11 @@ class DisplayFeaturesTests(unittest.TestCase):
         self.assertIn("$xn-display-features.json", self.TEXT)
         self.assertEqual(self.TEXT.count("SIMCTL_CHILD_AZ_DEBUG=8797"), 2)
 
+    def test_the_simulators_hardware_keyboard_is_disconnected_on_a_runner_only(self):
+        line = next(l for l in self.TEXT.splitlines() if "ConnectHardwareKeyboard" in l and "defaults write" in l)
+        self.assertIn('"${GITHUB_ACTIONS:-}" = "true"', line)       # on the user's Mac it is the user's preference
+        self.assertLess(self.TEXT.index("ConnectHardwareKeyboard"), self.TEXT.index("simctl create azul-qa"))
+
     def test_the_script_is_valid_shell(self):
         import subprocess
         self.assertEqual(subprocess.run(["bash", "-n", str(HERE / "ios_qa.sh")]).returncode, 0)
