@@ -266,7 +266,8 @@ class E2eVariantTest(unittest.TestCase):
     def test_with_the_input_the_libs_of_the_listed_columns_and_the_apps_that_ask_are_planned(self):
         plan = demo_apps.plan(self.m, e2e=True)
         libs = {(e["leg"], e["variant"]): e for k in ("libs_android", "libs_ios") for e in plan[k] if e["variant"].startswith("mobile-e2e")}
-        self.assertEqual(sorted(libs), [("android-x86_64", "mobile-e2e"), ("android-x86_64", "mobile-e2e-iroh"),
+        self.assertEqual(sorted(libs), [("android-arm64", "mobile-e2e"), ("android-arm64", "mobile-e2e-iroh"),
+                                        ("android-x86_64", "mobile-e2e"), ("android-x86_64", "mobile-e2e-iroh"),
                                         ("ios-sim", "mobile-e2e"), ("ios-sim", "mobile-e2e-iroh")])
         for (leg, variant), e in libs.items():
             feats = e["features"].split(",")
@@ -609,6 +610,136 @@ class DesktopE2eTest(unittest.TestCase):
         for job in ("apps_linux", "apps_macos", "apps_windows"):
             self.assertIn("DEMO_VARIANT: ${{ matrix.variant }}", jobs[job], job)
             self.assertIn('--variant "$DEMO_VARIANT"', jobs[job], job)
+
+
+def qa_only_manifest(directory, package="AzPaint"):
+    """The real manifest with the entry of `package` made what AzSelfTest is: an app that exists only as a QA build (phones only, linked
+    against the artifact-only library, `qa_only = true`). The package stands in for it because the checks look at crates that exist."""
+    text = demo_apps.MANIFEST.read_text(encoding="utf-8")
+    head, found, rest = text.partition(f'package = "{package}"\n')
+    assert found, package
+    block, sep, tail = rest.partition("\n[[app]]")
+    block = block.replace('platforms = ["linux", "macos-arm64", "macos-intel", "windows", "android", "ios"]', 'platforms = ["android", "ios"]')
+    block = block.replace('mobile_lib = "mobile"\n', 'mobile_lib = "mobile-e2e"\nqa_only = true\n')
+    assert "qa_only = true" in block and 'platforms = ["android", "ios"]' in block, block
+    path = pathlib.Path(directory) / "demo_apps.toml"
+    path.write_text(head + found + block + sep + tail, encoding="utf-8")
+    return demo_apps.load(path)
+
+
+class QaOnlyAppTest(unittest.TestCase):
+    """An app that says `qa_only = true` (AzSelfTest: every device capability, one probe each) exists only as a QA build: built when a run asks
+    for QA builds, for the columns of the artifact-only library it links, and nothing else. It is no row or link of the release page, no
+    release asset, no cell of the status table and no entry of the shipped plan: it is not in the list of the apps of the release at all
+    (`m["app"]`), so nothing that reads that list can ship it by forgetting to skip it."""
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.m = qa_only_manifest(self._tmp.name)
+
+    def test_the_app_is_a_qa_app_and_not_one_of_the_release(self):
+        self.assertNotIn("AzPaint", [a["package"] for a in self.m["app"]])
+        self.assertEqual([a["package"] for a in self.m["qa_app"]], ["AzPaint"])
+        app = self.m["qa_app"][0]
+        self.assertTrue(app["qa_only"] and app["e2e"])
+        self.assertEqual((app["mobile_lib"], app["e2e_lib"]), ("mobile-e2e", "mobile-e2e"))   # the QA lib it links is its QA lib
+        self.assertTrue(all(a["qa_only"] is False for a in demo_apps.load()["app"]))
+
+    def test_the_manifest_with_such_an_app_passes_its_own_check(self):
+        self.assertEqual(demo_apps.check(self.m), [])
+
+    def test_nothing_of_it_is_in_the_plan_of_a_run_that_asks_for_no_qa_builds(self):
+        plan = demo_apps.plan(self.m)
+        for key, entries in plan.items():
+            if key.startswith(("libs_", "apps_")):
+                for e in entries:
+                    self.assertNotIn("AzPaint", e.get("apps", "").split(), key)
+                    self.assertNotEqual(e.get("variant"), "mobile-e2e", key)
+
+    def test_a_run_that_asks_for_qa_builds_builds_it_for_the_columns_of_its_qa_lib_only(self):
+        plan = demo_apps.plan(self.m, e2e=True)
+        built = {e["leg"] for k in ("apps_android", "apps_ios") for e in plan[k] if "AzPaint" in e["apps"].split()}
+        self.assertEqual(built, {"android-arm64", "android-x86_64", "ios-sim"})      # no iOS device build: the QA lib has none
+        for k in ("apps_android", "apps_ios"):
+            for e in plan[k]:
+                if "AzPaint" in e["apps"].split():
+                    self.assertEqual(e["variant"], "mobile-e2e")                     # never a shipped entry (variant "")
+                    self.assertTrue(e["artifact"].startswith("demoe2e-"), e["artifact"])
+        libs = {e["leg"] for k in ("libs_android", "libs_ios") for e in plan[k] if e["variant"] == "mobile-e2e"}
+        self.assertLessEqual(built, libs)
+
+    def test_the_status_table_has_no_row_for_it_only_its_qa_builds(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = pathlib.Path(d)
+            (root / "AzPaint.android-arm64-e2e.result.json").write_text(json.dumps({
+                "app": "AzPaint", "column": "android-arm64", "variant": "mobile-e2e", "status": "built", "size": 9000,
+                "shipped_size": 9000, "seconds": 20, "engine_crates": [], "artifact": "AzPaint-e2e-android-arm64.apk"}))
+            data, md = demo_apps.status([root], m=self.m)
+        self.assertNotIn("AzPaint", [r["app"] for r in data["apps"]])
+        self.assertEqual([(q["app"], q["column"], q["artifact"]) for q in data["summary"]["qa_builds"]],
+                         [("AzPaint", "android-arm64", "AzPaint-e2e-android-arm64.apk")])
+        self.assertEqual(data["summary"]["assets"], 0)
+
+    def test_the_asset_list_never_names_it_and_the_library_commands_answer_for_it(self):
+        with mock.patch.object(demo_apps, "load", lambda path=demo_apps.MANIFEST: self.m):
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                self.assertEqual(demo_apps.main(["assets"]), 0)
+            self.assertNotIn("AzPaint", buf.getvalue())
+            self.assertTrue(buf.getvalue())
+            for command in ("mobile-lib", "e2e-lib"):
+                buf = io.StringIO()
+                with contextlib.redirect_stdout(buf):
+                    self.assertEqual(demo_apps.main([command, "AzPaint"]), 0, command)
+                self.assertEqual(buf.getvalue().strip(), "mobile-e2e", command)
+
+    def test_the_qa_only_command_and_the_ios_qa_script_know_it_has_no_shipped_build(self):
+        with mock.patch.object(demo_apps, "load", lambda path=demo_apps.MANIFEST: self.m), contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(demo_apps.main(["qa-only", "AzPaint"]), 0)
+            self.assertEqual(demo_apps.main(["qa-only", "AzWidgets"]), 1)
+            self.assertEqual(demo_apps.main(["qa-only"]), 2)
+        path = HERE / "ci" / "ios_build_qa.sh"
+        text = path.read_text(encoding="utf-8")
+        self.assertEqual(subprocess.run(["bash", "-n", str(path)]).returncode, 0)
+        self.assertIn('demo_apps.py qa-only "$app"', text)
+        self.assertIn('variants="mobile-e2e"', text)
+        self.assertIn("it has no shipped (mobile) build", text)
+
+    def test_the_check_names_every_way_such_an_app_could_ship(self):
+        def errors(**changes):
+            m = qa_only_manifest(self._tmp.name)
+            m["qa_app"][0].update(changes)
+            return demo_apps.check(m)
+
+        def named(errs, *words):
+            return any("AzPaint" in e and all(w in e for w in words) for e in errs)
+
+        self.assertTrue(named(errors(mobile_lib="mobile", e2e_lib="mobile"), "qa_only", "mobile_lib"), errors(mobile_lib="mobile", e2e_lib="mobile"))
+        self.assertTrue(named(errors(platforms=["linux", "android"]), "qa_only", "platforms"), errors(platforms=["linux", "android"]))
+        self.assertTrue(named(errors(e2e_lib="mobile-e2e-iroh"), "qa_only", "e2e_lib"), errors(e2e_lib="mobile-e2e-iroh"))
+        # a value that is no boolean is not `true`: the app would stay in the list of the release
+        text = demo_apps.MANIFEST.read_text(encoding="utf-8").replace('package = "AzPaint"\n', 'package = "AzPaint"\nqa_only = "yes"\n', 1)
+        path = pathlib.Path(self._tmp.name) / "string.toml"
+        path.write_text(text, encoding="utf-8")
+        self.assertTrue(named(demo_apps.check(demo_apps.load(path)), "qa_only", "true or false"))
+        # a shipped app that links the QA library stays an error: the debug server would go to the users
+        m = demo_apps.load()
+        next(a for a in m["app"] if a["package"] == "AzPaint")["mobile_lib"] = "mobile-e2e"
+        self.assertTrue(named(demo_apps.check(m), "artifact_only"))
+
+    def test_the_build_driver_has_no_shipped_build_of_it(self):
+        with tempfile.TemporaryDirectory() as d:
+            argv = ["android", "--target", "x86_64-linux-android", "--libs", d, "--apps", "AzPaint",
+                    "--out", str(pathlib.Path(d) / "o"), "--results", str(pathlib.Path(d) / "r")]
+            with mock.patch.object(demo_apps, "load", lambda path=demo_apps.MANIFEST: self.m), \
+                    mock.patch.object(demo_build, "phone") as phone:
+                with self.assertRaises(SystemExit) as caught:
+                    demo_build.main(argv)                                     # no --variant: a shipped build
+                self.assertIn("qa_only", str(caught.exception))
+                phone.assert_not_called()
+                self.assertEqual(demo_build.main(argv + ["--variant", "mobile-e2e"]), 0)    # the QA build is the build of it
+                phone.assert_called_once()
 
 
 class WorkflowContractTest(unittest.TestCase):
