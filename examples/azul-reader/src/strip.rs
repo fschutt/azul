@@ -218,6 +218,8 @@ fn contents(app: &RefAny, st: &AppState) -> Dom {
     };
     let current = st.chapter.as_ref().map(|c| c.chapter);
     let current_entry = current.and_then(|c| open.book.toc.iter().position(|e| e.chapter == Some(c)));
+    // A row is a touch target on a phone (48 dp; a node of an app's own gets no floor from the engine).
+    let row_height = if st.phone { 48 } else { 32 };
     let mut pane = Dom::create_div()
         .with_id(ids::TOC)
         .with_css(PANE_CSS)
@@ -228,7 +230,8 @@ fn contents(app: &RefAny, st: &AppState) -> Dom {
             .with_id(ids::indexed(&ids::TOC_ROW, i))
             .with_class(ids::TOC_ROW_CLASS)
             .with_css(format!(
-                "padding: 8px 14px 8px {}px; font-size: 13px; min-height: 20px; {} {}",
+                "display: flex; flex-direction: row; align-items: center; padding: 4px 14px 4px {}px; \
+                 font-size: 13px; min-height: {row_height}px; box-sizing: border-box; {} {}",
                 14 + 14 * entry.depth.min(6),
                 if entry.chapter.is_some() {
                     "color: system:text; cursor: pointer;"
@@ -284,7 +287,7 @@ fn bookmarks(app: &RefAny, st: &AppState) -> Dom {
     for (i, mark) in open.state.bookmarks.iter().enumerate() {
         let percent = position::percent_label(position::book_progress(&open.weights, mark.position));
         let mut body = Dom::create_div()
-            .with_css("display: flex; flex-direction: column; flex-grow: 1; cursor: pointer; min-width: 0px;")
+            .with_css("display: flex; flex-direction: column; justify-content: center; flex-grow: 1; cursor: pointer; min-width: 0px; min-height: 48px;")
             .with_child(text(
                 &format!("{} - {percent}", mark.chapter_title),
                 "font-size: 12px; color: system:secondary-text;",
