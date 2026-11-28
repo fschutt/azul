@@ -3616,9 +3616,9 @@ extern "C" fn on_touch_move(mut data: RefAny, info: CallbackInfo) -> Update {
     let Some(at) = first_touch(&info) else {
         return Update::DoNothing;
     };
-    if !data
+    if data
         .downcast_ref::<CodeViewShared>()
-        .is_some_and(|s| s.finger.last.is_some())
+        .is_none_or(|s| s.finger.last.is_none())
     {
         return Update::DoNothing;
     }
