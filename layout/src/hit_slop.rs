@@ -15,8 +15,12 @@
 //!   the visual always beats another box's slop ([`pick`] answers `None`).
 //! - Only a touch outside every visual rect uses the slop: the box whose effective rect holds the
 //!   point and whose centre is nearest wins, a tie goes to the box painted in front.
-//! - The slop never goes where the box could not be hit anyway: a clip (a scroller's viewport, an
-//!   `overflow: hidden` ancestor) cuts the effective rect as it cuts the visual one.
+//! - The slop never goes where the box could not be hit anyway: a point outside a clip (a
+//!   scroller's viewport, an `overflow: hidden` ancestor) is outside the box's visual and its slop
+//!   alike (`inside_clips`).
+//! - The point is the touch IN THE SPACE OF EACH BOX (a box in a scrolled frame is looked at where
+//!   it is painted: the caller maps the touch through the box's scroll and transform chain), so a
+//!   candidate carries its own point.
 //!
 //! A mouse never uses it (a pointer is as precise as a pixel), and a desktop window has no floor
 //! ([`touch_floor`]).
@@ -45,10 +49,13 @@ pub fn touch_floor(os: &str) -> Option<f32> {
 pub struct SlopCandidate<Id: Copy> {
     /// What the caller calls the box (a node, an index).
     pub id: Id,
-    /// Where the box is painted, in the touch's space.
+    /// Where the box is painted, in the box's own space.
     pub visual: LogicalRect,
-    /// What cuts the box (the intersection of its clipping ancestors), when something does.
-    pub clip: Option<LogicalRect>,
+    /// The touch in the box's own space (through its scroll frames and transforms).
+    pub point: LogicalPosition,
+    /// Whether that point lies inside every clip that cuts the box (a scroller's viewport, an
+    /// `overflow: hidden` ancestor): outside one, neither the box nor its slop is there.
+    pub inside_clips: bool,
     /// Its place in paint order: the larger, the further in front.
     pub order: usize,
 }
@@ -74,22 +81,6 @@ pub fn effective_rect(rect: LogicalRect, floor: f32) -> LogicalRect {
     LogicalRect::new(LogicalPosition::new(gx, gy), LogicalSize::new(gw, gh))
 }
 
-/// The part of `rect` inside `clip` (`None`: nothing is left).
-fn clipped(rect: LogicalRect, clip: Option<LogicalRect>) -> Option<LogicalRect> {
-    let Some(clip) = clip else { return Some(rect) };
-    let left = rect.min_x().max(clip.min_x());
-    let top = rect.min_y().max(clip.min_y());
-    let right = rect.max_x().min(clip.max_x());
-    let bottom = rect.max_y().min(clip.max_y());
-    if right < left || bottom < top {
-        return None;
-    }
-    Some(LogicalRect::new(
-        LogicalPosition::new(left, top),
-        LogicalSize::new(right - left, bottom - top),
-    ))
-}
-
 /// Whether `point` lies in `rect` (the edges count: a finger on the border is on the box).
 fn holds(rect: LogicalRect, point: LogicalPosition) -> bool {
     point.x >= rect.min_x()
@@ -106,37 +97,34 @@ fn centre(rect: LogicalRect) -> (f32, f32) {
     )
 }
 
-/// Which box a touch at `point` is for, when the normal hit test is not enough: `None` when the
-/// point is inside the visual rect of ANY candidate (the normal hit test answers, the visual
-/// beats every slop) or inside no candidate's effective rect; else the candidate whose effective
-/// rect holds the point and whose centre is nearest, a tie to the one painted in front.
+/// Which box a touch is for, when the normal hit test is not enough: `None` when the point is
+/// inside the visual rect of ANY candidate (the normal hit test answers, the visual beats every
+/// slop) or inside no candidate's effective rect; else the candidate whose effective rect holds
+/// its point and whose centre is nearest, a tie to the one painted in front.
 #[must_use]
-pub fn pick<Id: Copy>(
-    point: LogicalPosition,
-    candidates: &[SlopCandidate<Id>],
-    floor: f32,
-) -> Option<Id> {
-    if !point.x.is_finite() || !point.y.is_finite() || !floor.is_finite() || floor <= 0.0 {
+pub fn pick<Id: Copy>(candidates: &[SlopCandidate<Id>], floor: f32) -> Option<Id> {
+    if !floor.is_finite() || floor <= 0.0 {
         return None;
     }
+    let usable = |c: &&SlopCandidate<Id>| {
+        c.inside_clips && c.point.x.is_finite() && c.point.y.is_finite()
+    };
     // A touch on any box's own pixels is the normal hit test's.
     if candidates
         .iter()
-        .any(|c| clipped(c.visual, c.clip).is_some_and(|visual| holds(visual, point)))
+        .filter(usable)
+        .any(|c| holds(c.visual, c.point))
     {
         return None;
     }
     let mut best: Option<(f32, usize, Id)> = None;
-    for c in candidates {
-        let Some(effective) = clipped(effective_rect(c.visual, floor), c.clip) else {
-            continue;
-        };
-        if !holds(effective, point) {
+    for c in candidates.iter().filter(usable) {
+        if !holds(effective_rect(c.visual, floor), c.point) {
             continue;
         }
         // The distance to the centre of the box as it LOOKS: the nearer control is the one meant.
         let (cx, cy) = centre(c.visual);
-        let distance = (point.x - cx).hypot(point.y - cy);
+        let distance = (c.point.x - cx).hypot(c.point.y - cy);
         let better = match best {
             None => true,
             Some((d, order, _)) => distance < d || (distance == d && c.order > order),
