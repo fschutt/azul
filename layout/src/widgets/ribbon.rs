@@ -4200,7 +4200,7 @@ impl Ribbon {
             // and shows no scrollbar; a turn of the phone brings the selected pill into a lane.
             tab_bar.root.set_css("overflow-x: auto; overflow-y: hidden; scrollbar-width: none;");
             tab_bar = tab_bar.with_callbacks(crate::widgets::tabs::strip_resized_callbacks(
-                strip_scroll.clone(),
+                strip_scroll,
             ));
         }
 

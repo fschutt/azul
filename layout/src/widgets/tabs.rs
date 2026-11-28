@@ -1591,29 +1591,29 @@ fn phone_build() -> bool {
 #[derive(Debug, Clone)]
 #[repr(C)]
 pub struct TabHeader {
+    /// Optional callback invoked when a tab is clicked.
+    pub on_click: OptionTabOnClick,
+    /// The strip in the status bar's band (`with_status_bar`): it takes the place of the clock
+    /// and the battery icons and slides around the cutouts of the display. `None` (the default)
+    /// keeps it a row of the layout.
+    pub status_bar: crate::widgets::tab_strip::OptionStatusBarBand,
     /// Labels for each tab.
     pub tabs: StringVec,
+    /// How the panel opens and closes (`with_reveal`), kept by the app
+    /// between rebuilds; `None` keeps the active tab's panel always shown.
+    pub reveal: crate::widgets::tab_reveal::OptionTabReveal,
     /// Zero-based index of the currently active tab. An index past the last
     /// tab selects none: no tab is drawn selected.
     pub active_tab: usize,
-    /// Optional callback invoked when a tab is clicked.
-    pub on_click: OptionTabOnClick,
     /// The widget theme this tab bar is PINNED to (`with_theme`), or `None`
     /// to follow the app theme (`AppConfig::with_theme`,
     /// `CallbackInfo::set_theme`; flat unless the app chose another).
     pub theme: crate::widgets::themes::OptionUiTheme,
     /// The shape of the tabs (`with_style`); `Auto` takes the theme's own.
     pub style: TabStyle,
-    /// How the panel opens and closes (`with_reveal`), kept by the app
-    /// between rebuilds; `None` keeps the active tab's panel always shown.
-    pub reveal: crate::widgets::tab_reveal::OptionTabReveal,
-    /// The strip in the status bar's band (`with_status_bar`): it takes the place of the clock
-    /// and the battery icons and slides around the cutouts of the display. `None` (the default)
-    /// keeps it a row of the layout. APPENDED for ABI stability.
-    pub status_bar: crate::widgets::tab_strip::OptionStatusBarBand,
     /// Whether a vertical swipe on the panel of this bar flips to the previous / next tab
     /// (`with_flip`, then `TabContent::with_flip_of`): `AtEdges` (the default) flips with a finger
-    /// that pulls past the end of the content, never with a wheel. APPENDED for ABI stability.
+    /// that pulls past the end of the content, never with a wheel.
     pub flip: crate::widgets::tab_flip::TabFlip,
 }
 
@@ -2374,7 +2374,7 @@ impl TabHeader {
                 ..Default::default()
             })
             // A turn of the phone brings the selected pill into a lane of the new band.
-            .with_callbacks(strip_resized_callbacks(scroll.clone()))
+            .with_callbacks(strip_resized_callbacks(scroll))
             .with_children(DomVec::from_vec(nodes));
 
         let mut header_css = format!(

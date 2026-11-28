@@ -547,7 +547,7 @@ fingerprint symbol over the sensor) it needs the shapes. `info.get_display_featu
 
 | | Android | iOS | desktop, web, headless |
 |---|---|---|---|
-| `cutouts` (rect, shape, `approximate`) | `DisplayCutout.getBoundingRects()` (API 28), per rotation; `approximate` is false | no API for the shape: a table of the screen's size, `approximate` is true, on its side the cutout is at the left or right edge; an unknown screen has none and the insets are still right | none |
+| `cutouts` (rect, shape, `approximate`) | the display cutout's bounding rects (Android API 28), per rotation; `approximate` is false | no API for the shape: a table of the screen's size, `approximate` is true, on its side the cutout is at the left or right edge; an unknown screen has none and the insets are still right | none |
 | `corner_radii` | `RoundedCorner` (API 31), else 0 | a table, `approximate`; 0 on an iPad | 0 |
 | `bars.status` and `bars.navigation` (rect when shown, `visible`) | `WindowInsets` (API 30): the band is known while the bar is hidden | `UIStatusBarManager.statusBarFrame`; the home indicator band; no status bar on a phone on its side | none |
 | `fingerprint` (kind, `spot`) | the kind where the public API knows it (a phone with a sensor: `Unknown`); WHERE the sensor is under the glass is hidden API and is not read: `spot` is none (centre your symbol above the bottom edge, or let the system prompt draw it) | a home button is `Front` (no spot); Face ID has no place | none |

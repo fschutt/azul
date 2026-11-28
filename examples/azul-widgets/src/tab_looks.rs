@@ -20,6 +20,7 @@ use azul::{
     callbacks::{RibbonOnTabClickCallbackType, TabOnClickCallbackType},
     prelude::*,
     widgets::*,
+    window::{DisplayPreset, SystemBarMode},
 };
 
 use crate::{captioned, keep, section, strs};

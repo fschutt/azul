@@ -97,9 +97,9 @@ impl StatusBarBand {
         let right = (width - inset_right).max(left);
         let lanes = features.free_lanes(0.0, height, left, right, CUTOUT_MARGIN);
         Self {
+            lanes,
             height,
             width,
-            lanes,
         }
     }
 
