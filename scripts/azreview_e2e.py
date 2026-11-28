@@ -2039,9 +2039,9 @@ def review_session(args, logs, out, binary):
             if review_op(app, action) != want:
                 raise Failure("the op %s did not lead to %s" % (action, want))
         expect("the op", "stopped", 6, 6)
-        answer = app.must("azreview_review", action="hover")["data"]["value"]["result"]
-        if answer.get("success") or "start" not in str(answer.get("error")):
-            raise Failure("an action the op does not know was not refused in words: %s" % answer)
+        refused = app.op("azreview_review", action="hover")
+        if not (isinstance(refused, dict) and refused.get("status") == "error" and "start" in str(refused.get("message"))):
+            raise Failure("an action the op does not know was not refused in words: %s" % refused)
         no_lint(app, "the review session run")
     except Failure:
         print("---- stdout ----\n%s---- stderr ----\n%s" % (e2e.tail(app.out_path), e2e.tail(app.err_path)))
