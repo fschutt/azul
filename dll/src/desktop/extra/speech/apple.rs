@@ -219,6 +219,7 @@ unsafe fn authorization(recognizer_cls: &AnyClass) -> isize {
         *reply.0.lock().unwrap_or_else(PoisonError::into_inner) = Some(status);
         reply.1.notify_all();
     });
+    crate::plog_info!("[speech] asking the system for the speech-recognition grant (requestAuthorization, OS prompt)");
     let _: () = unsafe { msg_send![recognizer_cls, requestAuthorization: &*handler] };
     let (lock, ready) = &*answer;
     let guard = lock.lock().unwrap_or_else(PoisonError::into_inner);

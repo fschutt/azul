@@ -6078,15 +6078,16 @@ impl CallbackInfo {
     }
 
     /// Store `secret` under `key` in the OS keyring (Keychain / `KeyStore` /
-    /// libsecret / `CredentialLocker`), in the app's own namespace (its app
-    /// id). When `require_biometry` is set, a later `keyring_get` of this key
-    /// triggers the OS biometric prompt. Returns immediately; the outcome
-    /// arrives via `get_keyring_result()` on a later frame.
+    /// libsecret / Credential Manager), in the app's own namespace (its app
+    /// id), readable while the device is unlocked (`KeyringProtection::DeviceUnlocked`):
+    /// never a sheet. Returns immediately; the outcome arrives via `get_keyring_result()` on a
+    /// later frame. For a secret behind the user's biometric or passcode use
+    /// [`Self::keyring_store_protected`].
     ///
     /// The secret is marked as one (`AzString::set_secret`): the request, the
     /// backend's copy of it and every clone are zeroed when they are freed.
-    pub fn keyring_store(&mut self, key: AzString, secret: AzString, require_biometry: bool) {
-        self.keyring_store_in(azul_core::keyring::KeyringNamespace::app(), key, secret, require_biometry);
+    pub fn keyring_store(&mut self, key: AzString, secret: AzString) {
+        self.keyring_store_in(azul_core::keyring::KeyringNamespace::app(), key, secret);
     }
 
     /// [`Self::keyring_store`] in `namespace`: the entries apps share (the
@@ -6096,7 +6097,47 @@ impl CallbackInfo {
         namespace: azul_core::keyring::KeyringNamespace,
         key: AzString,
         secret: AzString,
-        require_biometry: bool,
+    ) {
+        self.keyring_store_protected_in(
+            namespace,
+            key,
+            secret,
+            azul_core::keyring::KeyringProtection::DeviceUnlocked,
+            azul_core::keyring::KeyringPrompt::default(),
+        );
+    }
+
+    /// Store `secret` under `key` in the app's own namespace, guarded as `protection` says: a
+    /// secret that only the user's biometric (`Biometric`) or biometric-or-passcode
+    /// (`UserPresence`) opens again ([`Self::keyring_unlock`]), released by the OS or the secure
+    /// hardware where the platform can (`Keyring::support` says where). Call it from the
+    /// callback of the user's action (a button): the platform may show its sheet, with `prompt`'s
+    /// text. The outcome arrives via `get_keyring_result()`: `Stored`, or why not (`NotEnrolled`:
+    /// the device cannot meet the level, nothing was stored; `Cancelled`; `Unavailable`).
+    pub fn keyring_store_protected(
+        &mut self,
+        key: AzString,
+        secret: AzString,
+        protection: azul_core::keyring::KeyringProtection,
+        prompt: azul_core::keyring::KeyringPrompt,
+    ) {
+        self.keyring_store_protected_in(
+            azul_core::keyring::KeyringNamespace::app(),
+            key,
+            secret,
+            protection,
+            prompt,
+        );
+    }
+
+    /// [`Self::keyring_store_protected`] in `namespace`.
+    pub fn keyring_store_protected_in(
+        &mut self,
+        namespace: azul_core::keyring::KeyringNamespace,
+        key: AzString,
+        secret: AzString,
+        protection: azul_core::keyring::KeyringProtection,
+        prompt: azul_core::keyring::KeyringPrompt,
     ) {
         let mut secret = secret;
         secret.set_secret(true);
@@ -6105,14 +6146,16 @@ impl CallbackInfo {
             azul_core::keyring::KeyringRequest::Store {
                 key,
                 secret,
-                require_biometry,
+                protection,
+                prompt,
             },
         );
     }
 
-    /// Read the secret stored under `key` in the app's own namespace (its app
-    /// id). A biometry-bound item shows the OS prompt first; the secret (or a
-    /// denial) arrives via `get_keyring_result()` on a later frame.
+    /// Read the secret stored under `key` in the app's own namespace (its app id) without the
+    /// user: an unprotected item arrives as `Retrieved` via `get_keyring_result()` on a later
+    /// frame; a protected one answers `WouldPrompt` and NO sheet shows (the app explains, then
+    /// calls [`Self::keyring_unlock`] from the user's action).
     pub fn keyring_get(&mut self, key: AzString) {
         self.keyring_get_in(azul_core::keyring::KeyringNamespace::app(), key);
     }
@@ -6125,8 +6168,36 @@ impl CallbackInfo {
         );
     }
 
+    /// Read the secret stored under `key` in the app's own namespace behind the user check its
+    /// protection asks: the ONLY read that shows the platform's sheet (biometric, or biometric
+    /// or passcode), with `prompt`'s text. Call it from the callback of the user's action.
+    /// Arrives via `get_keyring_result()` on a later frame, and the answer says why when the
+    /// secret does not: `Cancelled`, `Failed`, `LockedOut`, `NotEnrolled`, `Invalidated` (the
+    /// enrolled biometrics changed: store the secret again), `Denied` (the system refuses this
+    /// app). An unprotected item is read plainly, with no sheet.
+    pub fn keyring_unlock(
+        &mut self,
+        key: AzString,
+        prompt: azul_core::keyring::KeyringPrompt,
+    ) {
+        self.keyring_unlock_in(azul_core::keyring::KeyringNamespace::app(), key, prompt);
+    }
+
+    /// [`Self::keyring_unlock`] in `namespace`.
+    pub fn keyring_unlock_in(
+        &mut self,
+        namespace: azul_core::keyring::KeyringNamespace,
+        key: AzString,
+        prompt: azul_core::keyring::KeyringPrompt,
+    ) {
+        self.get_layout_window().app_services.keyring.push_request_in(
+            namespace,
+            azul_core::keyring::KeyringRequest::Unlock { key, prompt },
+        );
+    }
+
     /// Remove the item stored under `key` in the app's own namespace (no-op if
-    /// absent). The outcome arrives via `get_keyring_result()`.
+    /// absent). Never shows a sheet. The outcome arrives via `get_keyring_result()`.
     pub fn keyring_delete(&mut self, key: AzString) {
         self.keyring_delete_in(azul_core::keyring::KeyringNamespace::app(), key);
     }
@@ -6249,6 +6320,38 @@ impl CallbackInfo {
         self.get_layout_window()
             .permission_manager
             .get_status(capability)
+    }
+
+    /// Opens the system's settings page where the user can change the permission of
+    /// `capability`: Android's details page of the app, iOS's page of the app, macOS's Privacy &
+    /// Security pane of that permission, Windows's Privacy page of it. `Unsupported` where there
+    /// is no such page (Linux has no per-app permission settings): the app tells the user where
+    /// to look. For a `Denied` capability, from the callback of the user's tap on "Open settings"
+    /// - a denied permission is not asked again, this is the way back.
+    pub fn open_app_settings(
+        &mut self,
+        capability: crate::managers::permission::Capability,
+    ) -> crate::managers::permission::SettingsOpened {
+        use crate::managers::permission::{settings_url, SettingsOpened, SettingsPlatform};
+        let Some(target) = settings_url(capability, SettingsPlatform::current()) else {
+            return SettingsOpened::Unsupported;
+        };
+        // The scheme is what is before the first colon of every target.
+        let scheme = target.split(':').next().unwrap_or_default();
+        let url = azul_core::url::Url {
+            href: AzString::from(target),
+            scheme: AzString::from(scheme),
+            host: AzString::default(),
+            port: 0,
+            path: AzString::default(),
+            query: AzString::default(),
+            fragment: AzString::default(),
+        };
+        if url.open() {
+            SettingsOpened::Opened
+        } else {
+            SettingsOpened::Unsupported
+        }
     }
 
     /// The IME composition (preedit) text currently being composed on the

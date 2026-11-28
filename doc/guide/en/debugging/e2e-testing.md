@@ -251,6 +251,31 @@ Under `AZ_BACKEND=headless` the notification backend records what the app posts 
 
 The in-crate headless runner (`azul-doc e2e`) has no notification service: there `notification_event` only queues the event, and nothing runs it.
 
+### Secrets: the keyring and the biometric sensor
+
+A run that is a stand-in (a debug build, or a build with the cargo feature `test-hooks` under `AZ_BACKEND=headless`) never reaches the system keyring or a real sensor: the keyring is a map and the sensor is a *pretend user* the scenario scripts. Three ops of the engine itself (an app's own command of the same name would be shadowed) drive the flows of [Secrets and Biometrics](../system/secrets.md):
+
+- `standin_user` (params, all optional: `enrolled`, `passcode`, `script`, `enrollment_changed`). `enrolled` / `passcode` say what the device has set up; `script` is the list of what the user does at the next sheets - `match`, `mismatch`, `cancel`, `lockout`, `passcode`, `not_enrolled` - and once it runs out the user matches; `enrollment_changed: true` adds or removes a finger, so a `Biometric` item is invalidated and a `UserPresence` one is not.
+- `keyring` (params: `action` = `store`, `store_protected`, `get`, `unlock` or `delete`; `key`; `secret` and, for `store_protected`, `protection` = `device_unlocked`, `user_presence` or `biometric`; `reason`, `cancel_label`, `namespace`; `expect`, `expect_secret`). Asks the keyring exactly what a callback's `keyring_*` call asks, waits for the answer (the step says pending until the pump has delivered it) and fails when it is not the one in `expect`: `stored`, `retrieved`, `deleted`, `not_found`, `denied`, `unavailable`, `error`, `cancelled`, `failed`, `locked_out`, `not_enrolled`, `invalidated` or `would_prompt`. `expect_secret` checks the secret read and the step's answer never repeats it.
+- `biometric_prompt` (params: `reason`, `cancel_label`, `allow_device_credential`, `expect` = `authenticated`, `failed`, `cancelled`, `fell_back_to_passcode`, `unavailable`, `error`, `locked_out` or `not_enrolled`). The standalone biometric gate, asked and awaited the same way.
+
+A run whose keyring is the system's (a release build without the hooks) refuses `keyring` and `biometric_prompt`: the step fails with a sentence saying so and touches nothing, so a scenario can never write to the user's own keychain or show a sheet.
+
+```json
+{ "op": "standin_user", "enrolled": true, "passcode": true, "script": ["mismatch", "cancel", "match"] },
+{ "op": "keyring", "action": "store_protected", "key": "vault", "secret": "s3cr3t",
+  "protection": "biometric", "reason": "Turn on unlocking", "expect": "stored" },
+{ "op": "keyring", "action": "get", "key": "vault", "expect": "would_prompt" },
+{ "op": "keyring", "action": "unlock", "key": "vault", "reason": "Unlock", "expect": "failed" },
+{ "op": "keyring", "action": "unlock", "key": "vault", "reason": "Unlock", "expect": "cancelled" },
+{ "op": "keyring", "action": "unlock", "key": "vault", "reason": "Unlock",
+  "expect": "retrieved", "expect_secret": "s3cr3t" },
+{ "op": "standin_user", "enrollment_changed": true },
+{ "op": "keyring", "action": "unlock", "key": "vault", "reason": "Unlock", "expect": "invalidated" }
+```
+
+(`tests/e2e/keyring_protection_flow.json` is the whole scenario; it is marked pending until the matrix's desktop host is a stand-in build.)
+
 ### System sounds
 
 `CallbackInfo::play_system_sound` asks for a sound by meaning (see [Sounds](../system/sounds.md)). The window's `SoundManager` decides each request and RECORDS it, with the route the platform has for it and the reason it did not play when it did not; a headless run plays nothing and records everything, so the same scenario runs unchanged on every desktop and on the phones:

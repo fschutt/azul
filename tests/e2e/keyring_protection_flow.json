@@ -1,0 +1,219 @@
+[
+  {
+    "name": "keyring_protection_flow",
+    "description": "A secret behind the user's biometric or passcode, through the whole engine path: the stand-in keyring and its scripted user answer a store that cannot be met, a get that never shows a sheet, a mismatch, a cancel, a lockout and a match, a change of the enrolled fingers (invalidated), a passcode that still opens a user-presence item, an unlock of an unprotected item that shows no sheet, and the standalone biometric gate. Every keyring step waits for its answer and fails with what it got.",
+    "only_on": [
+      "linux",
+      "macos",
+      "windows"
+    ],
+    "steps": [
+      {
+        "op": "standin_user",
+        "enrolled": false,
+        "passcode": false
+      },
+      {
+        "op": "keyring",
+        "action": "store_protected",
+        "key": "vault",
+        "secret": "s3cr3t",
+        "protection": "biometric",
+        "reason": "Turn on unlocking with this device",
+        "expect": "not_enrolled"
+      },
+      {
+        "op": "keyring",
+        "action": "get",
+        "key": "vault",
+        "expect": "not_found"
+      },
+      {
+        "op": "standin_user",
+        "enrolled": true,
+        "passcode": true,
+        "script": [
+          "mismatch",
+          "cancel",
+          "lockout",
+          "match"
+        ]
+      },
+      {
+        "op": "keyring",
+        "action": "store_protected",
+        "key": "vault",
+        "secret": "s3cr3t",
+        "protection": "biometric",
+        "reason": "Turn on unlocking with this device",
+        "expect": "stored"
+      },
+      {
+        "op": "keyring",
+        "action": "get",
+        "key": "vault",
+        "expect": "would_prompt"
+      },
+      {
+        "op": "keyring",
+        "action": "unlock",
+        "key": "vault",
+        "reason": "Unlock your vault",
+        "cancel_label": "Use password",
+        "expect": "failed"
+      },
+      {
+        "op": "keyring",
+        "action": "unlock",
+        "key": "vault",
+        "reason": "Unlock your vault",
+        "expect": "cancelled"
+      },
+      {
+        "op": "keyring",
+        "action": "unlock",
+        "key": "vault",
+        "reason": "Unlock your vault",
+        "expect": "locked_out"
+      },
+      {
+        "op": "keyring",
+        "action": "unlock",
+        "key": "vault",
+        "reason": "Unlock your vault",
+        "expect": "retrieved",
+        "expect_secret": "s3cr3t"
+      },
+      {
+        "op": "standin_user",
+        "enrollment_changed": true
+      },
+      {
+        "op": "keyring",
+        "action": "get",
+        "key": "vault",
+        "expect": "invalidated"
+      },
+      {
+        "op": "keyring",
+        "action": "unlock",
+        "key": "vault",
+        "reason": "Unlock your vault",
+        "expect": "invalidated"
+      },
+      {
+        "op": "keyring",
+        "action": "store_protected",
+        "key": "vault",
+        "secret": "again",
+        "protection": "biometric",
+        "reason": "Turn it on again",
+        "expect": "stored"
+      },
+      {
+        "op": "keyring",
+        "action": "unlock",
+        "key": "vault",
+        "reason": "Unlock your vault",
+        "expect": "retrieved",
+        "expect_secret": "again"
+      },
+      {
+        "op": "keyring",
+        "action": "store_protected",
+        "key": "token",
+        "secret": "t0ken",
+        "protection": "user_presence",
+        "reason": "Keep the token",
+        "expect": "stored"
+      },
+      {
+        "op": "standin_user",
+        "enrollment_changed": true,
+        "script": [
+          "passcode"
+        ]
+      },
+      {
+        "op": "keyring",
+        "action": "unlock",
+        "key": "token",
+        "reason": "Unlock the token",
+        "expect": "retrieved",
+        "expect_secret": "t0ken"
+      },
+      {
+        "op": "keyring",
+        "action": "store",
+        "key": "plain",
+        "secret": "open",
+        "expect": "stored"
+      },
+      {
+        "op": "standin_user",
+        "script": [
+          "cancel"
+        ]
+      },
+      {
+        "op": "keyring",
+        "action": "unlock",
+        "key": "plain",
+        "reason": "Not needed",
+        "expect": "retrieved",
+        "expect_secret": "open"
+      },
+      {
+        "op": "keyring",
+        "action": "get",
+        "key": "plain",
+        "expect": "retrieved",
+        "expect_secret": "open"
+      },
+      {
+        "op": "keyring",
+        "action": "delete",
+        "key": "vault",
+        "expect": "deleted"
+      },
+      {
+        "op": "keyring",
+        "action": "delete",
+        "key": "token",
+        "expect": "deleted"
+      },
+      {
+        "op": "keyring",
+        "action": "delete",
+        "key": "plain",
+        "expect": "deleted"
+      },
+      {
+        "op": "keyring",
+        "action": "get",
+        "key": "vault",
+        "expect": "not_found"
+      },
+      {
+        "op": "standin_user",
+        "enrolled": true,
+        "passcode": true,
+        "script": [
+          "mismatch",
+          "match"
+        ]
+      },
+      {
+        "op": "biometric_prompt",
+        "reason": "Confirm it is you",
+        "expect": "failed"
+      },
+      {
+        "op": "biometric_prompt",
+        "reason": "Confirm it is you",
+        "expect": "authenticated"
+      }
+    ],
+    "pending": "needs a host built as the stand-in (a debug build, or the cargo feature test-hooks) and a scenario run in the host of its own (the engine ops standin_user, keyring and biometric_prompt refuse a run whose keyring is the system's); the engine path of every step runs as a Rust test (capability_pump_test, standin_ops_test) on every host - flip this when the matrix's desktop host is such a build"
+  }
+]

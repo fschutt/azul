@@ -11271,6 +11271,17 @@ pub trait PlatformWindow {
             return false;
         }
 
+        // A screen reader's activation is the user's click: a permission request its callback
+        // causes may go out like after a click (the mouse state never moves for it).
+        if actions
+            .iter()
+            .any(|(_, _, action)| matches!(action, azul_core::dom::AccessibilityAction::Default))
+        {
+            if let Some(layout_window) = self.get_layout_window_mut() {
+                layout_window.permission_manager.note_gesture();
+            }
+        }
+
         // The injectable clock, not the wall clock: a11y-driven scroll and caret
         // timing must freeze with the rest of the engine under `freeze_test_clock`,
         // or no e2e scenario can assert on them.
@@ -11480,6 +11491,12 @@ pub trait PlatformWindow {
             let Some(layout_window) = borrows.layout_window else {
                 return ProcessEventResult::DoNothing;
             };
+            if matches!(how, MenuInvocation::Native { .. }) {
+                // A menu item the user chose is a user action, like a click in the window: a
+                // permission request its callback causes may go out (an accelerator is a key
+                // press of an input pass, noted there).
+                layout_window.permission_manager.note_gesture();
+            }
             layout_window.invoke_single_callback(
                 &mut menu_callback.callback,
                 &mut menu_callback.refany,
@@ -12451,6 +12468,20 @@ pub trait PlatformWindow {
             // AFTER the dismissal: an Escape that closed the popup here has
             // no popup left to be forwarded to (and was consumed there).
             self.forward_keys_to_popup();
+        }
+
+        // The user's gesture (a click, a tap, a key press) is what lets a permission that may
+        // ask them go out (`PermissionManager::admit`): noted before the callbacks of this
+        // pass run, so the layout pass a callback causes finds it.
+        let gesture = {
+            let current = self.get_current_window_state();
+            let previous = self.get_previous_window_state().as_ref().unwrap_or(current);
+            super::user_gesture::user_gesture_between(previous, current)
+        };
+        if gesture {
+            if let Some(layout_window) = self.get_layout_window_mut() {
+                layout_window.permission_manager.note_gesture();
+            }
         }
 
         // Get previous state (or use current as fallback for first frame)

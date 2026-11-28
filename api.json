@@ -21448,17 +21448,14 @@
                                     },
                                     {
                                         "secret": "String"
-                                    },
-                                    {
-                                        "require_biometry": "bool"
                                     }
                                 ],
-                                "fn_body": "object.keyring_store_in(namespace, key, secret, require_biometry)"
+                                "fn_body": "object.keyring_store_in(namespace, key, secret)"
                             },
                             "keyring_delete": {
                                 "doc": [
                                     "Remove the item stored under `key` in the app's own namespace (no-op if",
-                                    "absent). The outcome arrives via `get_keyring_result()`."
+                                    "absent). Never shows a sheet. The outcome arrives via `get_keyring_result()`."
                                 ],
                                 "fn_args": [
                                     {
@@ -21472,9 +21469,10 @@
                             },
                             "keyring_get": {
                                 "doc": [
-                                    "Read the secret stored under `key` in the app's own namespace (its app",
-                                    "id). A biometry-bound item shows the OS prompt first; the secret (or a",
-                                    "denial) arrives via `get_keyring_result()` on a later frame."
+                                    "Read the secret stored under `key` in the app's own namespace (its app id) without the",
+                                    "user: an unprotected item arrives as `Retrieved` via `get_keyring_result()` on a later",
+                                    "frame; a protected one answers `WouldPrompt` and NO sheet shows (the app explains, then",
+                                    "calls [`Self::keyring_unlock`] from the user's action)."
                                 ],
                                 "fn_args": [
                                     {
@@ -21489,10 +21487,11 @@
                             "keyring_store": {
                                 "doc": [
                                     "Store `secret` under `key` in the OS keyring (Keychain / `KeyStore` /",
-                                    "libsecret / `CredentialLocker`), in the app's own namespace (its app",
-                                    "id). When `require_biometry` is set, a later `keyring_get` of this key",
-                                    "triggers the OS biometric prompt. Returns immediately; the outcome",
-                                    "arrives via `get_keyring_result()` on a later frame.",
+                                    "libsecret / Credential Manager), in the app's own namespace (its app",
+                                    "id), readable while the device is unlocked (`KeyringProtection::DeviceUnlocked`):",
+                                    "never a sheet. Returns immediately; the outcome arrives via `get_keyring_result()` on a",
+                                    "later frame. For a secret behind the user's biometric or passcode use",
+                                    "[`Self::keyring_store_protected`].",
                                     "",
                                     "The secret is marked as one (`AzString::set_secret`): the request, the",
                                     "backend's copy of it and every clone are zeroed when they are freed."
@@ -21506,12 +21505,9 @@
                                     },
                                     {
                                         "secret": "String"
-                                    },
-                                    {
-                                        "require_biometry": "bool"
                                     }
                                 ],
-                                "fn_body": "object.keyring_store(key, secret, require_biometry)"
+                                "fn_body": "object.keyring_store(key, secret)"
                             },
                             "get_frame_timings": {
                                 "doc": [
@@ -21589,6 +21585,126 @@
                                     "type": "ScrollPhase"
                                 },
                                 "fn_body": "object.get_scroll_phase()"
+                            },
+                            "keyring_store_protected": {
+                                "doc": [
+                                    "Store `secret` under `key` in the app's own namespace, guarded as `protection` says: a",
+                                    "secret that only the user's biometric (`Biometric`) or biometric-or-passcode",
+                                    "(`UserPresence`) opens again ([`Self::keyring_unlock`]), released by the OS or the secure",
+                                    "hardware where the platform can (`Keyring::support` says where). Call it from the",
+                                    "callback of the user's action (a button): the platform may show its sheet, with `prompt`'s",
+                                    "text. The outcome arrives via `get_keyring_result()`: `Stored`, or why not (`NotEnrolled`:",
+                                    "the device cannot meet the level, nothing was stored; `Cancelled`; `Unavailable`)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "key": "String"
+                                    },
+                                    {
+                                        "secret": "String"
+                                    },
+                                    {
+                                        "protection": "KeyringProtection"
+                                    },
+                                    {
+                                        "prompt": "KeyringPrompt"
+                                    }
+                                ],
+                                "fn_body": "object.keyring_store_protected(key, secret, protection, prompt)"
+                            },
+                            "keyring_store_protected_in": {
+                                "doc": [
+                                    "[`Self::keyring_store_protected`] in `namespace`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "namespace": "KeyringNamespace"
+                                    },
+                                    {
+                                        "key": "String"
+                                    },
+                                    {
+                                        "secret": "String"
+                                    },
+                                    {
+                                        "protection": "KeyringProtection"
+                                    },
+                                    {
+                                        "prompt": "KeyringPrompt"
+                                    }
+                                ],
+                                "fn_body": "object.keyring_store_protected_in(namespace, key, secret, protection, prompt)"
+                            },
+                            "keyring_unlock": {
+                                "doc": [
+                                    "Read the secret stored under `key` in the app's own namespace behind the user check its",
+                                    "protection asks: the ONLY read that shows the platform's sheet (biometric, or biometric",
+                                    "or passcode), with `prompt`'s text. Call it from the callback of the user's action.",
+                                    "Arrives via `get_keyring_result()` on a later frame, and the answer says why when the",
+                                    "secret does not: `Cancelled`, `Failed`, `LockedOut`, `NotEnrolled`, `Invalidated` (the",
+                                    "enrolled biometrics changed: store the secret again), `Denied` (the system refuses this",
+                                    "app). An unprotected item is read plainly, with no sheet."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "key": "String"
+                                    },
+                                    {
+                                        "prompt": "KeyringPrompt"
+                                    }
+                                ],
+                                "fn_body": "object.keyring_unlock(key, prompt)"
+                            },
+                            "keyring_unlock_in": {
+                                "doc": [
+                                    "[`Self::keyring_unlock`] in `namespace`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "namespace": "KeyringNamespace"
+                                    },
+                                    {
+                                        "key": "String"
+                                    },
+                                    {
+                                        "prompt": "KeyringPrompt"
+                                    }
+                                ],
+                                "fn_body": "object.keyring_unlock_in(namespace, key, prompt)"
+                            },
+                            "open_app_settings": {
+                                "doc": [
+                                    "Opens the system's settings page where the user can change the permission of",
+                                    "`capability`: Android's details page of the app, iOS's page of the app, macOS's Privacy &",
+                                    "Security pane of that permission, Windows's Privacy page of it. `Unsupported` where there",
+                                    "is no such page (Linux has no per-app permission settings): the app tells the user where",
+                                    "to look. For a `Denied` capability, from the callback of the user's tap on \"Open settings\"",
+                                    "- a denied permission is not asked again, this is the way back."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "capability": "Capability"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "SettingsOpened"
+                                },
+                                "fn_body": "object.open_app_settings(capability)"
                             },
                             "play_system_sound": {
                                 "doc": [
@@ -195393,7 +195509,13 @@
                                 "NotFound": {},
                                 "Denied": {},
                                 "Unavailable": {},
-                                "Error": {}
+                                "Error": {},
+                                "Cancelled": {},
+                                "Failed": {},
+                                "LockedOut": {},
+                                "NotEnrolled": {},
+                                "Invalidated": {},
+                                "WouldPrompt": {}
                             }
                         ],
                         "repr": "C, u8"
@@ -201126,7 +201248,7 @@
                             },
                             "store_blocking_in": {
                                 "doc": [
-                                    "Stores `secret` under `key` in `namespace`, on this thread."
+                                    "Stores `secret` under `key` in `namespace`, unprotected, on this thread."
                                 ],
                                 "fn_args": [
                                     {
@@ -201137,15 +201259,12 @@
                                     },
                                     {
                                         "secret": "String"
-                                    },
-                                    {
-                                        "require_biometry": "bool"
                                     }
                                 ],
                                 "returns": {
                                     "type": "KeyringResult"
                                 },
-                                "fn_body": "azul_dll::unified::keyring::Keyring::store_blocking_in(namespace, key, secret, require_biometry)"
+                                "fn_body": "azul_dll::unified::keyring::Keyring::store_blocking_in(namespace, key, secret)"
                             },
                             "delete_blocking": {
                                 "doc": [
@@ -201165,8 +201284,8 @@
                             "get_blocking": {
                                 "doc": [
                                     "Reads the secret stored under `key` in the app's own namespace (its",
-                                    "app id), on this thread: `Retrieved`, `NotFound`, or why not (`Denied`,",
-                                    "`Unavailable`, `Error`)."
+                                    "app id), on this thread: `Retrieved`, `NotFound`, or why not (`WouldPrompt` for a",
+                                    "protected item, `Invalidated`, `Denied`, `Unavailable`, `Error`). Never a sheet."
                                 ],
                                 "fn_args": [
                                     {
@@ -201181,8 +201300,8 @@
                             "store_blocking": {
                                 "doc": [
                                     "Stores `secret` under `key` in the app's own namespace (replacing what",
-                                    "was there), on this thread: `Stored`, or why not. `require_biometry` as",
-                                    "in `CallbackInfo::keyring_store`."
+                                    "was there, unprotected), on this thread: `Stored`, or why not. Never a sheet:",
+                                    "a protected item is made with `CallbackInfo::keyring_store_protected`."
                                 ],
                                 "fn_args": [
                                     {
@@ -201190,19 +201309,16 @@
                                     },
                                     {
                                         "secret": "String"
-                                    },
-                                    {
-                                        "require_biometry": "bool"
                                     }
                                 ],
                                 "returns": {
                                     "type": "KeyringResult"
                                 },
-                                "fn_body": "azul_dll::unified::keyring::Keyring::store_blocking(key, secret, require_biometry)"
+                                "fn_body": "azul_dll::unified::keyring::Keyring::store_blocking(key, secret)"
                             },
                             "delete_quietly_in": {
                                 "doc": [
-                                    "[`Self::delete_blocking_in`] without ever showing a prompt (`Denied`",
+                                    "[`Self::delete_blocking_in`] without ever showing anything (`WouldPrompt`",
                                     "where the system would have to ask)."
                                 ],
                                 "fn_args": [
@@ -201220,9 +201336,9 @@
                             },
                             "get_quietly_in": {
                                 "doc": [
-                                    "[`Self::get_blocking_in`] without ever showing a prompt: where the system",
-                                    "would have to ask the user (an item behind Touch ID, another app's item,",
-                                    "a locked keychain) the answer is `Denied` and nothing shows. For",
+                                    "[`Self::get_blocking_in`] without ever showing anything: where the system",
+                                    "would have to ask the user (a protected item, another app's item,",
+                                    "a locked keychain) the answer is `WouldPrompt` and nothing shows. For",
                                     "background work - a sync at the start, a timer's poll - which must not",
                                     "raise a dialog the user did not ask for."
                                 ],
@@ -201241,7 +201357,7 @@
                             },
                             "store_quietly_in": {
                                 "doc": [
-                                    "[`Self::store_blocking_in`] without ever showing a prompt (`Denied` where",
+                                    "[`Self::store_blocking_in`] without ever showing anything (`WouldPrompt` where",
                                     "the system would have to ask)."
                                 ],
                                 "fn_args": [
@@ -201253,15 +201369,63 @@
                                     },
                                     {
                                         "secret": "String"
-                                    },
-                                    {
-                                        "require_biometry": "bool"
                                     }
                                 ],
                                 "returns": {
                                     "type": "KeyringResult"
                                 },
-                                "fn_body": "azul_dll::unified::keyring::Keyring::store_quietly_in(namespace, key, secret, require_biometry)"
+                                "fn_body": "azul_dll::unified::keyring::Keyring::store_quietly_in(namespace, key, secret)"
+                            },
+                            "needs_prompt": {
+                                "doc": [
+                                    "What a read of `key` in the app's own namespace needs, asked quietly (the item's record",
+                                    "only, never a sheet): nothing, the user's biometric, the user's biometric or passcode, or",
+                                    "the keyring's own unlock - so an app can explain BEFORE the sheet comes."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "key": "String"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "KeyringNeed"
+                                },
+                                "fn_body": "azul_dll::unified::keyring::Keyring::needs_prompt(key)"
+                            },
+                            "needs_prompt_in": {
+                                "doc": [
+                                    "[`Self::needs_prompt`] in `namespace`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "namespace": "KeyringNamespace"
+                                    },
+                                    {
+                                        "key": "String"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "KeyringNeed"
+                                },
+                                "fn_body": "azul_dll::unified::keyring::Keyring::needs_prompt_in(namespace, key)"
+                            },
+                            "support": {
+                                "doc": [
+                                    "What this device does for `protection`, asked quietly: `Hardware` (the OS or the secure",
+                                    "hardware releases the secret only after the user's check), `Library` (azul runs the",
+                                    "check, then reads an item that is not itself bound to it), `NotEnrolled` (nothing set up:",
+                                    "no biometric, no passcode) or `Unavailable`. For `DeviceUnlocked` it says whether the",
+                                    "platform keyring works at all."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "protection": "KeyringProtection"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "KeyringSupport"
+                                },
+                                "fn_body": "azul_dll::unified::keyring::Keyring::support(protection)"
                             }
                         },
                         "repr": "C"
@@ -201322,6 +201486,152 @@
                                 "fn_body": "object.is_app()"
                             }
                         },
+                        "repr": "C"
+                    },
+                    "KeyringProtection": {
+                        "external": "azul_core::keyring::KeyringProtection",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash",
+                            "Default"
+                        ],
+                        "enum_fields": [
+                            {
+                                "DeviceUnlocked": {},
+                                "UserPresence": {},
+                                "Biometric": {}
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "KeyringPrompt": {
+                        "external": "azul_core::keyring::KeyringPrompt",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "Default"
+                        ],
+                        "struct_fields": [
+                            {
+                                "reason": {
+                                    "type": "String"
+                                },
+                                "cancel_label": {
+                                    "type": "String"
+                                }
+                            }
+                        ],
+                        "constructors": {
+                            "create": {
+                                "doc": [
+                                    "A prompt that shows `reason` and the platform's own cancel button."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "reason": "String"
+                                    }
+                                ],
+                                "fn_body": "azul_core::keyring::KeyringPrompt::create(reason)"
+                            }
+                        },
+                        "functions": {
+                            "with_cancel_label": {
+                                "doc": [
+                                    "The same prompt with `cancel_label` on the sheet's cancel button."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "cancel_label": "String"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "KeyringPrompt"
+                                },
+                                "fn_body": "object.with_cancel_label(cancel_label)"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "KeyringNeed": {
+                        "external": "azul_core::keyring::KeyringNeed",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash",
+                            "Default"
+                        ],
+                        "enum_fields": [
+                            {
+                                "NotFound": {},
+                                "Nothing": {},
+                                "Unlock": {},
+                                "UserPresence": {},
+                                "Biometric": {},
+                                "Invalidated": {},
+                                "Unavailable": {},
+                                "Error": {}
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "KeyringSupport": {
+                        "external": "azul_core::keyring::KeyringSupport",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash",
+                            "Default"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Hardware": {},
+                                "Library": {},
+                                "NotEnrolled": {},
+                                "Unavailable": {}
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "SettingsOpened": {
+                        "external": "azul_layout::managers::permission::SettingsOpened",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash",
+                            "Default"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Opened": {},
+                                "Unsupported": {}
+                            }
+                        ],
                         "repr": "C"
                     }
                 }
@@ -206078,7 +206388,9 @@
                                 "Cancelled": {},
                                 "FellBackToPasscode": {},
                                 "Unavailable": {},
-                                "Error": {}
+                                "Error": {},
+                                "LockedOut": {},
+                                "NotEnrolled": {}
                             }
                         ],
                         "repr": "C"
@@ -212267,12 +212579,17 @@
                             },
                             "with_local_discovery": {
                                 "doc": [
-                                    "Returns the config with local-network discovery switched on or off. On (the default), the",
-                                    "endpoint finds peers on the local network by their endpoint id alone (mDNS), so a phone",
-                                    "finds a Mac whose address changed without the ticket's saved addresses or a relay, and it",
-                                    "announces itself there: its endpoint id (a public key) and its network addresses, to the",
-                                    "local link only (multicast, never routed; its relay is not announced). Turn it off for a",
-                                    "server or an app that must not announce itself to the network it sits on. An endpoint",
+                                    "Returns the config with local-network discovery switched on or off. Off (the default), the",
+                                    "endpoint uses tickets' addresses and relays only and touches the local network not at all:",
+                                    "no multicast, no announcement, and so no Local Network permission dialog on iOS and macOS.",
+                                    "On, the endpoint finds peers on the local network by their endpoint id alone (mDNS), so a",
+                                    "phone finds a Mac whose address changed without the ticket's saved addresses or a relay,",
+                                    "and it announces itself there: its endpoint id (a public key) and its network addresses, to",
+                                    "the local link only (multicast, never routed; its relay is not announced). Turn it on",
+                                    "where the user starts a feature that works on the local network (pairing, a call between",
+                                    "two devices of the same network): the system's permission dialog then comes at that moment,",
+                                    "not at launch; keep it off for a server or an app that must not announce itself to the",
+                                    "network it sits on. Android holds the multicast lock only while it is on. An endpoint",
                                     "that accepts nobody (`with_allowed_peers` with an empty list) only looks and does not",
                                     "announce, and `relay_only` never uses it. When the network or the OS refuses multicast",
                                     "the endpoint works without it; `IrohEndpoint::local_discovery_status` says why."

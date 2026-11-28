@@ -141,8 +141,10 @@ unsafe fn request_authorization_on(mgr: *mut Object, background: bool) {
             missing_key_message("the location request", key)
         );
     } else if background {
+        crate::plog_info!("[geolocation] asking the system for the background location grant (requestAlwaysAuthorization, OS prompt)");
         let _: () = msg_send![mgr, requestAlwaysAuthorization];
     } else {
+        crate::plog_info!("[geolocation] asking the system for the location grant (requestWhenInUseAuthorization, OS prompt)");
         let _: () = msg_send![mgr, requestWhenInUseAuthorization];
     }
 }

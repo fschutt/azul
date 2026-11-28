@@ -6,7 +6,9 @@
 //! and answers every call `Unavailable`.
 
 #[cfg(any(target_arch = "wasm32", az_engine_stubs))]
-use azul_core::keyring::{KeyringNamespace, KeyringResult};
+use azul_core::keyring::{
+    KeyringNamespace, KeyringNeed, KeyringProtection, KeyringResult, KeyringSupport,
+};
 #[cfg(any(target_arch = "wasm32", az_engine_stubs))]
 use azul_css::AzString;
 
@@ -31,11 +33,7 @@ impl Keyring {
         KeyringResult::Unavailable
     }
     /// No keyring on wasm.
-    pub fn store_blocking(
-        _key: AzString,
-        _secret: AzString,
-        _require_biometry: bool,
-    ) -> KeyringResult {
+    pub fn store_blocking(_key: AzString, _secret: AzString) -> KeyringResult {
         KeyringResult::Unavailable
     }
     /// No keyring on wasm.
@@ -51,7 +49,6 @@ impl Keyring {
         _namespace: KeyringNamespace,
         _key: AzString,
         _secret: AzString,
-        _require_biometry: bool,
     ) -> KeyringResult {
         KeyringResult::Unavailable
     }
@@ -68,12 +65,23 @@ impl Keyring {
         _namespace: KeyringNamespace,
         _key: AzString,
         _secret: AzString,
-        _require_biometry: bool,
     ) -> KeyringResult {
         KeyringResult::Unavailable
     }
     /// No keyring on wasm.
     pub fn delete_quietly_in(_namespace: KeyringNamespace, _key: AzString) -> KeyringResult {
         KeyringResult::Unavailable
+    }
+    /// No keyring on wasm.
+    pub fn needs_prompt(_key: AzString) -> KeyringNeed {
+        KeyringNeed::Unavailable
+    }
+    /// No keyring on wasm.
+    pub fn needs_prompt_in(_namespace: KeyringNamespace, _key: AzString) -> KeyringNeed {
+        KeyringNeed::Unavailable
+    }
+    /// No keyring on wasm.
+    pub fn support(_protection: KeyringProtection) -> KeyringSupport {
+        KeyringSupport::Unavailable
     }
 }

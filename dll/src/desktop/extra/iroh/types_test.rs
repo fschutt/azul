@@ -3,19 +3,21 @@ use azul_css::{AzString, StringVec};
 use super::*;
 
 #[test]
-fn a_new_config_has_local_discovery_on_and_the_setter_switches_it() {
+fn a_new_config_has_local_discovery_off_and_the_setter_switches_it() {
+    // Off: the first announcement makes iOS and macOS ask for the Local Network permission, which
+    // must come when the user starts a local-network feature, not at launch.
     let config = IrohConfig::create(AzString::from_const_str("app/1"));
-    assert!(config.local_discovery, "local discovery is on by default");
+    assert!(!config.local_discovery, "local discovery is off by default");
 
-    let off = config.clone().with_local_discovery(false);
-    assert!(!off.local_discovery);
-    assert!(off.clone().with_local_discovery(true).local_discovery);
+    let on = config.clone().with_local_discovery(true);
+    assert!(on.local_discovery);
+    assert!(!on.clone().with_local_discovery(false).local_discovery);
 
     // the setter changes that field and nothing else
     assert_eq!(
         IrohConfig {
-            local_discovery: true,
-            ..off
+            local_discovery: false,
+            ..on
         },
         config
     );

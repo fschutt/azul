@@ -99,6 +99,8 @@ pub mod style_discovery;
 pub mod thread_handover;
 /// Which presses may start a text selection by dragging (a finger scrolls).
 pub mod touch_selection;
+/// What counts as a user gesture (a click, a tap, a key press): a permission that may ask the user goes out only after one.
+pub mod user_gesture;
 pub mod transient;
 /// `<webview>`: the backend trait every platform's native web view
 /// implements, the headless one, and the pump that runs them.
