@@ -3547,6 +3547,31 @@ pub enum DebugEvent {
         #[serde(default)]
         open_with: bool,
     },
+    /// `{ "op": "simulate_open", "action": "view", "files": ["/path/a.md"], "urls": ["mailto:a@b.c"], "texts": ["a line"],
+    /// "launched_app": false }` - what the system asks the app to open, as a phone's shell reports it: `action` is `view`, `edit` or
+    /// `send`; every path of `files` is an EXISTING file (the working copy the shell would have made: its name, type and size are
+    /// taken from it; `mime` and `uri` (optional) override the type and name where it came from); `urls` are links, `texts` are
+    /// shared texts. The request is queued into the app's open queue (`AppServices::open`); the dll's event pass runs the handler the
+    /// app set with `CallbackInfo::set_open_handler`, which reads it with `CallbackInfo::get_open_request`, before the next
+    /// `wait_frame` completes (an app without a handler keeps it until it installs one). Needs the dll's event pass: the in-crate
+    /// runner has none, so there the request only waits in the queue. An error for an unknown `action`, a file that does not exist
+    /// or a request with nothing in it.
+    SimulateOpen {
+        #[serde(default)]
+        action: Option<String>,
+        #[serde(default)]
+        files: Vec<String>,
+        #[serde(default)]
+        urls: Vec<String>,
+        #[serde(default)]
+        texts: Vec<String>,
+        #[serde(default)]
+        mime: Option<String>,
+        #[serde(default)]
+        uri: Option<String>,
+        #[serde(default)]
+        launched_app: bool,
+    },
     /// `{ "op": "simulate_lifecycle", "event": "paused" }` - the app's life, as a phone's shell reports
     /// it: `paused` (sent to the background), `resumed`, `low_memory` or `will_terminate`. The event is
     /// queued into the app's lifecycle mailbox (`AppServices::lifecycle`); the dll's event pass runs the
@@ -6749,6 +6774,58 @@ fn notification_event_from_op(
 
 /// The names `simulate_lifecycle` takes for its `event`.
 const LIFECYCLE_EVENT_NAMES: &str = "paused, resumed, low_memory, will_terminate";
+
+/// The open request a `simulate_open` step describes: the working copies are the files it names (they must exist), the links and
+/// texts ride along as items of their own.
+fn open_request_from_op(
+    action: Option<&str>,
+    files: &[String],
+    urls: &[String],
+    texts: &[String],
+    mime: Option<&str>,
+    uri: Option<&str>,
+    launched_app: bool,
+) -> Result<azul_core::open_files::OpenRequest, String> {
+    use azul_core::open_files::{OpenAction, OpenRequest, OpenedItem, OpenedItemVec};
+    use azul_css::{AzString, OptionU64};
+
+    let action = match action.map(|a| a.trim().to_ascii_lowercase()).as_deref() {
+        None | Some("" | "view") => OpenAction::View,
+        Some("edit") => OpenAction::Edit,
+        Some("send") => OpenAction::Send,
+        Some(other) => return Err(format!("unknown action {other:?} (view, edit, send)")),
+    };
+    let mut items = Vec::new();
+    for path in files {
+        let meta = std::fs::metadata(path).map_err(|e| format!("{path}: {e}"))?;
+        if !meta.is_file() {
+            return Err(format!("{path} is not a file"));
+        }
+        let name = std::path::Path::new(path)
+            .file_name()
+            .map_or_else(String::new, |n| n.to_string_lossy().into_owned());
+        let kind = mime.map_or_else(|| azul_layout::mime::for_file_name(&name).to_string(), str::to_string);
+        items.push(OpenedItem::file(
+            AzString::from(name),
+            AzString::from(kind),
+            OptionU64::Some(meta.len()),
+            AzString::from(path.as_str()),
+            AzString::from(uri.unwrap_or("")),
+            false,
+        ));
+    }
+    items.extend(urls.iter().map(|u| OpenedItem::url(AzString::from(u.as_str()))));
+    items.extend(texts.iter().map(|t| OpenedItem::text(AzString::from(t.as_str()))));
+    if items.is_empty() {
+        return Err("nothing to open: give files, urls or texts".to_string());
+    }
+    Ok(OpenRequest {
+        action,
+        items: OpenedItemVec::from_vec(items),
+        launched_app,
+        skipped: 0,
+    })
+}
 
 /// The lifecycle event a scenario named, in any case and with `-` or `_` between the words.
 fn lifecycle_event_from_op(name: &str) -> Result<azul_core::lifecycle::LifecycleEvent, String> {
@@ -11830,6 +11907,13 @@ static UNOBSERVABLE_MANAGERS: &[(&str, &str)] = &[
          about them",
     ),
     (
+        "open_files",
+        "owns no window state: the open requests of the APP (`AppServices::open`: the requests a platform thread parks until \
+         the app's handler exists, the handler, the request a delivery runs for), shared by every window and keyed by \
+         nothing a DOM has. The queue's only reader drains it, so measuring it would swallow the request the app was \
+         about to see. A scenario plays the system with `simulate_open`",
+    ),
+    (
         "share",
         "owns no window state: the share sheet's slot of the APP (`AppServices::share`: the platform's backend, the \
          limits, and the recorder of a scripted run), shared by every window and keyed by nothing a DOM has. What the \
@@ -12995,6 +13079,12 @@ fn not_fingerprintable() -> Vec<(&'static str, &'static str)> {
         (
             "shared_queue",
             "not a manager — a queue type; see the matching entry in UNOBSERVABLE_MANAGERS",
+        ),
+        (
+            "open_files",
+            "nothing on the WINDOW to hash: the queue and its handler are the app's (see the matching entry in \
+             UNOBSERVABLE_MANAGERS) and its only reader drains what it returns, so measuring it would swallow the \
+             request the app was about to receive",
         ),
         (
             "share",
@@ -19565,6 +19655,41 @@ fn serve_debug_event(
                 }
             }
         }
+
+        // ==== E2E open requests (`simulate_open`) ====
+        DebugEvent::SimulateOpen {
+            action,
+            files,
+            urls,
+            texts,
+            mime,
+            uri,
+            launched_app,
+        } => match open_request_from_op(
+            action.as_deref(),
+            files,
+            urls,
+            texts,
+            mime.as_deref(),
+            uri.as_deref(),
+            *launched_app,
+        ) {
+            Err(e) => send_err(request, format!("simulate_open: {e}")),
+            Ok(open) => {
+                if callback_info
+                    .get_layout_window()
+                    .app_services
+                    .open
+                    .push(open)
+                {
+                    // Wake the loop: the event pass runs the app's handler, not this op.
+                    needs_update = true;
+                    send_ok(request, None, None);
+                } else {
+                    send_err(request, "simulate_open: the open queue refused the request".to_string());
+                }
+            }
+        },
 
         DebugEvent::SimulateLifecycle { event } => match lifecycle_event_from_op(event) {
             Err(e) => send_err(request, format!("simulate_lifecycle: {e}")),

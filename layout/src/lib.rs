@@ -389,6 +389,11 @@ pub use fluent::{
 
 /// MIME types and file-name extensions, both ways (what a share tells a receiver a file is, what a file dialog filters by).
 pub mod mime;
+/// What an Android intent asks of the app (files to copy, links, texts, what the sender wants done), decided without the platform.
+pub mod open_intent;
+/// The folder the working copies of what the system opened the app with live in, and the limits of making them.
+#[cfg(feature = "text_layout")]
+pub mod open_inbox;
 
 /// File system operations (C-compatible wrappers for `std::fs`).
 // Scoped (was crate-wide): `///` doc comments before `impl_vec!`/`impl_option!`

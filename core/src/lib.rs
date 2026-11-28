@@ -529,6 +529,9 @@ pub mod lifecycle;
 /// The slot of the platform's backend and the checks live in `azul-layout` (`managers::share`), the OS plumbing in
 /// `azul-dll` (`desktop/extra/share`) - the notifications' split.
 pub mod share;
+/// What the system asks the app to open (`OpenRequest`: a file shared to the app or opened with it, a link of a declared scheme, a
+/// text): the POD types; the queue and the handler live in `azul-layout` (`managers::open_files`).
+pub mod open_files;
 /// Built-in user-agent default stylesheet.
 pub mod ua_css;
 /// Default font/text constants and small geometry helpers for layout.

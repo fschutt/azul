@@ -478,6 +478,11 @@ const OP_POLICY: &[(&str, Option<DenyReason>)] = &[
     // in-crate runner shows no sheet (it records the request for `assert_shared`); hand-written AZ_E2E scenarios use it.
     ("share",                     Some("needs a file on disk to hand over; the in-crate runner only records it - \
                                         hand-written scenarios use it with `assert_shared`")),
+    // DENY: what the system asks the app to open (a file shared to it, "Open with"), queued into the app's open queue. Only the dll's
+    // event pass runs the app's handler (`CallbackInfo::set_open_handler`) and the op needs files on disk; hand-written AZ_E2E scenarios
+    // use it.
+    ("simulate_open",             Some("delivered by the dll's event pass and needs files on disk; the in-crate runner has none, \
+                                        so the app's handler never runs - red on arrival")),
     // DENY: the app's lifecycle event (paused, resumed, ...) queued into the mailbox. Only the dll's event
     // pass runs the app's handler (`CallbackInfo::set_lifecycle_handler`); the in-crate runner generated tests run
     // in has none, so nothing a generated scenario asserts afterwards can see it. Hand-written AZ_E2E scenarios use

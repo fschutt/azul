@@ -60,6 +60,9 @@ pub mod media_player;
 /// Native notifications: the request queue, the event mailbox, the routing
 /// of an event to its notification's callback, and the headless recorder.
 pub mod notification;
+/// What the system asks the app to open (a file shared to it, "Open with", a link of a declared scheme): the held requests, the
+/// app's handler and the request a delivery runs for.
+pub mod open_files;
 pub mod permission;
 pub mod scroll_into_view;
 pub mod scroll_registration;
