@@ -7,7 +7,7 @@ set -uo pipefail
 target=aarch64-apple-ios-sim
 rustup target add "$target"
 mkdir -p demo-out/libs demo-out/apps demo-out/results
-python3 scripts/demo_apps.py plan > demo-out/plan.txt
+python3 scripts/demo_apps.py plan --e2e > demo-out/plan.txt
 features="$(python3 scripts/ci/plan_lib_features.py demo-out/plan.txt libs_ios mobile ios-sim)" || exit 3
 echo "FEATURES: $features"
 bash scripts/demo_lib.sh ios "$target" "$features" "demo-out/libs/demolib-ios-sim-mobile" || { echo "LIB FAILED"; exit 3; }
