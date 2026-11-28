@@ -896,7 +896,7 @@ fn history_list(s: &CalcApp, app: &RefAny) -> Dom {
         list.add_child(
             Dom::create_div()
                 .with_class(ids::HISTORY_ENTRY)
-                .with_css(look::TAPE_ENTRY)
+                .with_css(tape_entry_css(s.phone))
                 .with_accessibility_info(AccessibilityInfo::named(
                     format!("{} = {}", e.expr, e.result),
                     AccessibilityRole::ListItem,
@@ -943,7 +943,7 @@ fn memory_list(s: &CalcApp, app: &RefAny) -> Dom {
         list.add_child(
             Dom::create_div()
                 .with_class(ids::MEMORY_ENTRY)
-                .with_css(look::TAPE_ENTRY)
+                .with_css(tape_entry_css(s.phone))
                 .with_child(Dom::create_div_with_text(AzString::from(shown)).with_css(look::TAPE_RESULT))
                 .with_callback(
                     EventFilter::Hover(HoverEventFilter::Click),
@@ -953,6 +953,15 @@ fn memory_list(s: &CalcApp, app: &RefAny) -> Dom {
         );
     }
     list
+}
+
+/// One entry of the history tape or of the memory list: a touch target (48 px) on a phone.
+fn tape_entry_css(phone: bool) -> String {
+    if phone {
+        format!("{} min-height: 48px; box-sizing: border-box; justify-content: center;", look::TAPE_ENTRY)
+    } else {
+        look::TAPE_ENTRY.to_string()
+    }
 }
 
 /// The history tape (and the memory, its second tab).
