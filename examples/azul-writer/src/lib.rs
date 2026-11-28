@@ -36,10 +36,13 @@ pub mod storage;
 
 use azul::{
     app::App,
-    callbacks::{CallbackInfo, LayoutCallbackInfo, RefAny, TimerCallbackInfo, TimerCallbackReturn, Update},
+    callbacks::{
+        CallbackInfo, LayoutCallbackInfo, RefAny, TimerCallbackInfo, TimerCallbackReturn, Update,
+    },
     css::EventFilter,
-    dom::{Dom, VirtualKeyCode},
+    dom::{Dom, LifecycleEvent, VirtualKeyCode},
     font::FontCacheSnapshot,
+    option::OptionLifecycleEvent,
     shells::{DocumentShell, ShellThemeAccent, ShellThemeScope},
     str::String as AzString,
     task::{Timer, TimerId},
@@ -317,7 +320,29 @@ extern "C" fn on_window_created(mut data: RefAny, mut info: CallbackInfo) -> Upd
     let timer = Timer::create(app.clone(), pagination_tick, info.get_system_time_fn())
         .with_interval(Duration::System(SystemTimeDiff::from_millis(400)));
     info.add_timer(TimerId::unique(), timer);
+    // The app's life: the open document is written when the app leaves the foreground.
+    info.set_lifecycle_handler(app.clone(), on_lifecycle);
     println!("AZWRITER_READY");
+    Update::DoNothing
+}
+
+/// The app's life (`CallbackInfo::set_lifecycle_handler`): a phone ends a background process without another word,
+/// so the open document is written when the app leaves the foreground, and once more when it is about to end, if it
+/// has changes (the file job `Save` runs on a Thread, as before).
+extern "C" fn on_lifecycle(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let leaving = matches!(
+        info.get_lifecycle_event(),
+        OptionLifecycleEvent::Some(LifecycleEvent::Paused | LifecycleEvent::WillTerminate)
+    );
+    if !leaving {
+        return Update::DoNothing;
+    }
+    let app = data.clone();
+    let Some(mut guard) = data.downcast_mut::<AppState>() else {
+        return Update::DoNothing;
+    };
+    let st = &mut *guard;
+    commands::save_on_pause(st, &mut info, &app);
     Update::DoNothing
 }
 
