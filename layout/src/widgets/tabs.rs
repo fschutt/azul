@@ -3504,13 +3504,13 @@ pub enum TabSlide {
 pub struct TabContent {
     /// The DOM subtree shown as the tab's content area.
     pub content: Dom,
-    /// The reveal its `TabHeader` was built with (`with_reveal`): the panel
-    /// is the other half of its hover area, and it closes to no height.
-    pub reveal: crate::widgets::tab_reveal::OptionTabReveal,
     /// Told of a flip as the bar's `on_click` is told of a tap, set with `flip`.
     pub on_flip: OptionTabOnClick,
     /// The names of the bar's tabs, for the hint ("Next: Share"), set with `flip`.
     pub flip_tabs: StringVec,
+    /// The reveal its `TabHeader` was built with (`with_reveal`): the panel
+    /// is the other half of its hover area, and it closes to no height.
+    pub reveal: crate::widgets::tab_reveal::OptionTabReveal,
     /// The tab the content belongs to, set with `slide`: it keys the content
     /// group, so a switch to another tab replaces the group (the old one
     /// fades out, the new one slides in) while a rebuild for the same tab
