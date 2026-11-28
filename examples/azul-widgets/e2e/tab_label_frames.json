@@ -1,7 +1,7 @@
 [
   {
     "name": "azul_widgets_a_button_that_changes_kind_reads_at_every_frame_of_the_change",
-    "description": "QA's phone frames (Android 2026-11-28: shot 000 of tab_touch_phone) show the NEW label colour on the OLD face right after a click on 'Pixel 8': 'No phone' (a stone becoming paper) a dark label on navy, 'Pixel 8' (paper becoming a stone) a white label on cream. Every step runs whatever the one before said; the pictures (AZ_E2E_SHOT_DIR) are, in order: at rest before, the first frame after the click, +100 ms, +250 ms, +550 ms, +1350 ms, at rest after. The diagnosis steps (get_node_css_properties of #phone-pixel-8 and #phone-no-phone before the click and after its first frame, get_animations: how many CSS transitions are in flight) say whether the rebuild seeded the label's step at all.",
+    "description": "QA's phone frames (Android 2026-11-28: shot 000 of tab_touch_phone) show the NEW label colour on the OLD face right after a click on 'Pixel 8': 'No phone' (a stone becoming paper) a dark label on navy, 'Pixel 8' (paper becoming a stone) a white label on cream. Every step runs whatever the one before said; the pictures (AZ_E2E_SHOT_DIR) are, in order: at rest before, the first frame after the click, +100 ms, +250 ms, +550 ms, +1350 ms, at rest after. The diagnosis steps (get_node_css_properties of #phone-pixel-8 and #phone-no-phone before the click and after its first frame, get_animations: how many CSS transitions are in flight) say whether the rebuild seeded the label's step at all. get_display_list after the first frame and at rest says what the list holds for the faces and the labels (QA's settled frames show the OLD face with the NEW label, which no transition table explains).",
     "config": {
       "continue_on_failure": true
     },
@@ -49,6 +49,9 @@
       },
       {
         "op": "get_animations"
+      },
+      {
+        "op": "get_display_list"
       },
       {
         "op": "get_node_css_properties",
@@ -106,6 +109,12 @@
       },
       {
         "op": "take_screenshot"
+      },
+      {
+        "op": "get_animations"
+      },
+      {
+        "op": "get_display_list"
       }
     ]
   }
