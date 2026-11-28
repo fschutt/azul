@@ -3429,6 +3429,23 @@ impl Device {
         pixel
     }
 
+    /// EXPERIMENT (the Android GPU root-cause hunt, never for master): all pixels of an RGBA8 texture, through a framebuffer that is made for
+    /// the read and deleted again.
+    pub fn debug_read_texture_rgba8(&mut self, texture: &Texture) -> Vec<u8> {
+        let size = texture.get_dimensions();
+        let fbo = self.create_fbo_for_external_texture(texture.id);
+        self.bind_read_target_impl(fbo, DeviceIntPoint::zero());
+        let rect = FramebufferIntRect::from_origin_and_size(
+            FramebufferIntPoint::new(0, 0),
+            FramebufferIntSize::new(size.width, size.height),
+        );
+        let mut pixels = vec![0_u8; (size.width.max(0) * size.height.max(0) * 4) as usize];
+        self.read_pixels_into(rect, ImageFormat::RGBA8, &mut pixels);
+        self.reset_read_target();
+        self.delete_fbo(fbo);
+        pixels
+    }
+
     /// Get texels of a texture into the specified output slice.
     pub fn get_tex_image_into(
         &mut self,

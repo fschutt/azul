@@ -16,18 +16,22 @@ use crate::GenericGlContext;
 static LEVEL: AtomicU8 = AtomicU8::new(0);
 static SEQ: AtomicU64 = AtomicU64::new(0);
 static ERRORS: AtomicU64 = AtomicU64::new(0);
-static SINK: Mutex<Sink> = Mutex::new(Sink { file: None, buf: String::new(), errors_to_stdout: true });
+static SINK: Mutex<Sink> = Mutex::new(Sink { file: None, buf: String::new(), errors_to_stdout: true, echo: false });
 
 struct Sink {
     file: Option<std::fs::File>,
     buf: String,
     errors_to_stdout: bool,
+    /// Every line goes to stdout (logcat on a phone) as it is made, not to a file.
+    echo: bool,
 }
 
 /// Starts the trace at `level` (see `LEVEL`), writing to `path` when given. Errors are also printed to stdout (logcat on a phone).
 pub fn start(level: u8, path: Option<&str>) {
     if let Ok(mut sink) = SINK.lock() {
-        if let Some(path) = path {
+        if path == Some("stdout") {
+            sink.echo = true;
+        } else if let Some(path) = path {
             sink.file = std::fs::OpenOptions::new().create(true).append(true).open(path).ok();
             if sink.file.is_none() {
                 println!("GLTRACE: cannot open {path}");
@@ -77,6 +81,10 @@ pub fn flush() {
 
 fn push(line: &str) {
     if let Ok(mut sink) = SINK.lock() {
+        if sink.echo {
+            print!("GLT {line}");
+            return;
+        }
         sink.buf.push_str(line);
         if sink.buf.len() > (256 << 10) {
             let Sink { file, buf, .. } = &mut *sink;
@@ -155,7 +163,7 @@ impl Guard {
         if error != 0 {
             ERRORS.fetch_add(1, Ordering::Relaxed);
             line.push_str(&format!(" !! GL ERROR 0x{error:x}"));
-            if SINK.lock().map(|s| s.errors_to_stdout).unwrap_or(true) {
+            if SINK.lock().map(|s| s.errors_to_stdout && !s.echo).unwrap_or(true) {
                 println!("GLTRACE {line}");
             }
         }

@@ -110,6 +110,13 @@ fn draw_probe_requested() -> bool {
         .is_some_and(|value| !value.is_empty() && value != "0")
 }
 
+/// EXPERIMENT: `AZ_GPU_PICTURES=1` writes, after each of the first two frames, pictures of the picture cache tiles and of the window's
+/// framebuffer (shrunk by 8) into the log (`gles_trace::picture_lines`).
+fn pictures_requested() -> bool {
+    azul_css::env::EnvSource::var(&crate::env::ProcessEnv::new(), "AZ_GPU_PICTURES")
+        .is_some_and(|value| !value.is_empty() && value != "0")
+}
+
 /// How long the control ladder holds each picture on the window after a swap.
 const CONTROL_HOLD: std::time::Duration = std::time::Duration::from_millis(700);
 
@@ -957,6 +964,26 @@ impl GlesGpu {
         if self.presents >= DESCRIBED_PRESENTS {
             // After the first frames only the calls that left a GL error are kept.
             gl_context_loader::trace::set_level(gl_context_loader::trace::level().min(1));
+        }
+        if self.presents < 2 && pictures_requested() {
+            if let Some(functions) = self.functions.as_ref() {
+                functions.context.bind_buffer(azul_core::glconst::PIXEL_PACK_BUFFER, 0);
+                functions.context.bind_framebuffer(azul_core::glconst::FRAMEBUFFER, 0);
+                let (w, h) = (size.0 as usize, size.1 as usize);
+                let pixels = gles_trace::read_framebuffer(&functions.context, size.0, size.1);
+                let (sw, sh, small) = gles_trace::shrink_rgba(w, h, &pixels, 8);
+                for line in gles_trace::picture_lines(&format!("frame{}-window", self.presents + 1), sw, sh, &small) {
+                    log_info!(LogCategory::Rendering, "[render] {}", line);
+                }
+            }
+            if let Some(renderer) = ctx.common.renderer.as_mut() {
+                for (name, w, h, pixels) in renderer.debug_tile_pictures(24) {
+                    let (sw, sh, small) = gles_trace::shrink_rgba(w as usize, h as usize, &pixels, 8);
+                    for line in gles_trace::picture_lines(&format!("frame{}-{}", self.presents + 1, name), sw, sh, &small) {
+                        log_info!(LogCategory::Rendering, "[render] {}", line);
+                    }
+                }
+            }
         }
         if self.presents < DESCRIBED_PRESENTS {
             if let Some(renderer) = ctx.common.renderer.as_mut() {

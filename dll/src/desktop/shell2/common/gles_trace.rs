@@ -125,3 +125,78 @@ pub const DEVICE_USED_NAMES: &[&str] = &[
     "glUniform1f", "glUniform1i", "glUniform2f", "glUniform4f", "glUniformMatrix4fv", "glUnmapBuffer",
     "glUseProgram", "glVertexAttribDivisor", "glVertexAttribIPointer", "glVertexAttribPointer", "glViewport",
 ];
+
+/// EXPERIMENT (the Android GPU root-cause hunt): RGBA pixels shrunk by the integer factor `factor` (a box average per channel), as
+/// `(width, height, pixels)`.
+#[must_use]
+pub fn shrink_rgba(width: usize, height: usize, pixels: &[u8], factor: usize) -> (usize, usize, Vec<u8>) {
+    let factor = factor.max(1);
+    let (w, h) = (width / factor, height / factor);
+    let mut out = Vec::with_capacity(w * h * 4);
+    for y in 0..h {
+        for x in 0..w {
+            let mut sum = [0_u32; 4];
+            for dy in 0..factor {
+                for dx in 0..factor {
+                    let at = ((y * factor + dy) * width + (x * factor + dx)) * 4;
+                    for (c, total) in sum.iter_mut().enumerate() {
+                        *total += u32::from(pixels.get(at + c).copied().unwrap_or(0));
+                    }
+                }
+            }
+            let n = u32::try_from(factor * factor).unwrap_or(1);
+            for total in sum {
+                out.push(u8::try_from(total / n).unwrap_or(255));
+            }
+        }
+    }
+    (w, h, out)
+}
+
+/// Standard base64 of `bytes`.
+#[must_use]
+pub fn base64(bytes: &[u8]) -> String {
+    const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut out = String::with_capacity(bytes.len().div_ceil(3) * 4);
+    for chunk in bytes.chunks(3) {
+        let n = (u32::from(chunk[0]) << 16)
+            | (u32::from(chunk.get(1).copied().unwrap_or(0)) << 8)
+            | u32::from(chunk.get(2).copied().unwrap_or(0));
+        out.push(char::from(ALPHABET[((n >> 18) & 63) as usize]));
+        out.push(char::from(ALPHABET[((n >> 12) & 63) as usize]));
+        out.push(if chunk.len() > 1 { char::from(ALPHABET[((n >> 6) & 63) as usize]) } else { '=' });
+        out.push(if chunk.len() > 2 { char::from(ALPHABET[(n & 63) as usize]) } else { '=' });
+    }
+    out
+}
+
+/// The lines that carry a picture through the log: `pic <label> <width>x<height> <part>/<parts> <base64 of the RGBA bytes>`, 3000
+/// characters of base64 a line. The analysis script of the probe run puts them together again.
+#[must_use]
+pub fn picture_lines(label: &str, width: usize, height: usize, pixels: &[u8]) -> Vec<String> {
+    let encoded = base64(pixels);
+    let parts = encoded.len().div_ceil(3000).max(1);
+    (0..parts)
+        .map(|i| {
+            let from = i * 3000;
+            let to = (from + 3000).min(encoded.len());
+            format!("pic {label} {width}x{height} {}/{parts} {}", i + 1, &encoded[from..to])
+        })
+        .collect()
+}
+
+/// The pixels of the framebuffer bound for reading, `width` x `height`, bottom row first, as RGBA.
+#[must_use]
+pub fn read_framebuffer(gl: &GenericGlContext, width: u32, height: u32) -> Vec<u8> {
+    let mut pixels = vec![0_u8; width as usize * height as usize * 4];
+    gl.read_pixels_into_buffer(
+        0,
+        0,
+        i32::try_from(width).unwrap_or(0),
+        i32::try_from(height).unwrap_or(0),
+        glconst::RGBA,
+        glconst::UNSIGNED_BYTE,
+        &mut pixels,
+    );
+    pixels
+}

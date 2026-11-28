@@ -72,8 +72,9 @@ act="$(echo "$badging" | sed -n "s/^launchable-activity: name='\([^']*\)'.*/\1/p
 echo "apk: $apk package=$pkg activity=${act:-?}"
 
 modes="${AZ_PROBE_MODES:-swiftshader_indirect,swangle_indirect}"
-variants="${AZ_PROBE_VARIANTS:-control=AZ_BACKEND=gpu;AZ_GPU_CONTROL=1|plain=AZ_BACKEND=gpu|trace=AZ_BACKEND=gpu;AZ_GL_TRACE=2:/data/data/@PKG@/files/gltrace.txt|cpu=AZ_BACKEND=cpu}"
+variants="${AZ_PROBE_VARIANTS:-control=AZ_BACKEND=gpu;AZ_GPU_CONTROL=1|draws=AZ_BACKEND=gpu;AZ_GPU_DRAWS=1;AZ_GPU_PICTURES=1|trace=AZ_BACKEND=gpu;AZ_GL_TRACE=2:stdout|tracefile=AZ_BACKEND=gpu;AZ_GL_TRACE=2:/data/data/@PKG@/files/gltrace.txt|scatteroff=AZ_BACKEND=gpu;AZ_GPU_EXPERIMENT=scatter_off|markersoff=AZ_BACKEND=gpu;AZ_GPU_EXPERIMENT=markers_off}"
 seconds="${AZ_PROBE_SECONDS:-45}"
+interval="${AZ_PROBE_INTERVAL:-0.7}"
 
 IFS=',' read -r -a mode_list <<<"$modes"
 for mode in "${mode_list[@]}"; do
@@ -123,7 +124,10 @@ for mode in "${mode_list[@]}"; do
     adb shell input keyevent KEYCODE_WAKEUP
     adb shell am start -n "$pkg/${act:-.MainActivity}" >"$d/logs/start-$name.txt" 2>&1
     t0=$(date +%s); i=0
-    while [ $(( $(date +%s) - t0 )) -lt "$seconds" ]; do
+    # the control ladder runs 22 s before WebRender's first frame is made
+    limit="$seconds"; case "$name" in control|draws) limit=$((seconds + 40));; esac
+    while [ $(( $(date +%s) - t0 )) -lt "$limit" ]; do
+      sleep "$interval"
       ts="$(adb shell date +%H%M%S 2>/dev/null | tr -d '\r')"
       adb exec-out screencap -p >"$d/shots/$name-$(printf %03d "$i")-$ts.png" 2>/dev/null || true
       i=$((i+1))

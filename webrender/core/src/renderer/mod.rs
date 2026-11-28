@@ -988,6 +988,26 @@ impl Renderer {
         )
     }
 
+    /// EXPERIMENT (the Android GPU root-cause hunt, never for master): the whole content of up to `limit` picture cache tile textures
+    /// (RGBA8 only), as `(name, width, height, pixels)`: what the passes of a frame left in the tiles the composite reads.
+    pub fn debug_tile_pictures(&mut self, limit: usize) -> Vec<(String, i32, i32, Vec<u8>)> {
+        let _ = self.device.begin_frame();
+        let mut pictures = Vec::new();
+        for (id, item) in self.texture_resolver.texture_cache_map.iter() {
+            if pictures.len() >= limit
+                || item.category != TextureCacheCategory::PictureTile
+                || item.texture.get_format() != ImageFormat::RGBA8
+            {
+                continue;
+            }
+            let size = item.texture.get_dimensions();
+            let pixels = self.device.debug_read_texture_rgba8(&item.texture);
+            pictures.push((format!("tile{id:?}"), size.width, size.height, pixels));
+        }
+        self.device.end_frame();
+        pictures
+    }
+
     /// EXPERIMENT: switches the device's per-draw read-back on or off.
     pub fn debug_set_draw_probe(&mut self, on: bool) {
         self.device.set_draw_probe(on);
