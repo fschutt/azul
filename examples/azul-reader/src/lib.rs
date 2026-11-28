@@ -64,7 +64,7 @@ use azul::{
 use azul_appkit::{
     about::AboutInfo,
     args::{AppArgs, AppSpec, LanguagePref},
-    insets::{phone_window, SafeInsets},
+    phone::phone_window,
     l10n::begin_layout,
     shortcuts::Shortcut,
     ui as kit,
@@ -192,7 +192,6 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
     let mode = info.get_mode();
     let theme = info.get_theme();
     let size = (info.get_window_width(), info.get_window_height());
-    let safe = SafeInsets::of(&info);
     let phone = phone_window(&info);
     let app = data.clone();
     if let Some(mut st) = data.downcast_mut::<AppState>() {
@@ -237,12 +236,9 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
             Screen::Reader => ui_reader::screen(&app, st),
         }
     };
-    // The room the system keeps at the window's edges (a camera cutout, the home indicator).
+    // (The engine lays the root out in the window minus the safe area: nothing to pad here.)
     let root = Dom::create_div()
-        .with_css(format!(
-            "display: flex; flex-direction: column; flex-grow: 1; min-height: 0px; {}",
-            safe.padding()
-        ))
+        .with_css("display: flex; flex-direction: column; flex-grow: 1; min-height: 0px;")
         .with_child(content);
     Dom::create_body()
         .with_css("display: flex; flex-direction: column; margin: 0px; padding: 0px; height: 100%;")

@@ -1493,12 +1493,11 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
     // flips one builds the window again).
     let by_size = view_of_window(&info);
     let narrow = info.window_width_less_than(STACK_MODES_BELOW);
-    let phone = azul_appkit::insets::phone_window(&info);
+    let phone = azul_appkit::phone::phone_window(&info);
     // A phone's three tabs and two buttons fit one row; the default desktop window's controls
     // (the traffic lights) leave no room for them, so the tabs get a row of their own there.
     let stacked = narrow && !phone;
     let touch = cfg!(any(target_os = "android", target_os = "ios"));
-    let safe = azul_appkit::insets::SafeInsets::of(&info);
     // The room the window's controls take at the top (a desktop's: the traffic lights, the
     // caption buttons); nothing on a phone.
     let controls = if touch { None } else { Some(kit::title_insets(&info)) };
@@ -1536,10 +1535,7 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
         shell = shell.with_modes(modes_row(s, &app, view, controls, stacked));
     }
     let column = Dom::create_div()
-        .with_css(format!(
-            "display: flex; flex-direction: column; flex-grow: 1; min-height: 0px; {}",
-            safe.padding()
-        ))
+        .with_css("display: flex; flex-direction: column; flex-grow: 1; min-height: 0px;")
         .with_child(shell.dom());
     // The scope as the window's body: no UA margin, the full window height.
     // Focusable (not a Tab stop): a click on the mode row's background focuses at least the

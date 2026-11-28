@@ -120,11 +120,6 @@ const BIG_TIME: &str = "font-size: 72px; font-weight: 300; line-height: 1.05; \
 /// What the window knows about the screen it is on, from the layout pass.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Env {
-    /// The room the system keeps at the window's four edges (a cutout, the home indicator), px.
-    pub top: f32,
-    pub right: f32,
-    pub bottom: f32,
-    pub left: f32,
     /// A phone: no window controls to leave room for, no window to drag.
     pub phone: bool,
 }
@@ -164,7 +159,7 @@ fn fab(s: &ClockApp, app: &RefAny) -> Option<Dom> {
 pub fn window(s: &ClockApp, app: &RefAny, now: DateTime<Utc>, env: &Env) -> Dom {
     let body = match s.ringing.first() {
         Some(r) => ring_page(s, r, app, now),
-        None => shell(s, app, now, env),
+        None => shell(s, app, now),
     };
     let mut column = Dom::create_div()
         .with_css(format!(
@@ -185,19 +180,16 @@ pub fn window(s: &ClockApp, app: &RefAny, now: DateTime<Utc>, env: &Env) -> Dom 
     for overlay in overlays(s, app) {
         column.add_child(overlay);
     }
-    // The column, centred; the system's room at the edges around it.
+    // The column, centred (the engine keeps the system's room at the edges free).
     Dom::create_div()
-        .with_css(format!(
-            "{FILL} flex-direction: row; justify-content: center; padding: 0px {}px {}px {}px;",
-            env.right, env.bottom, env.left
-        ))
+        .with_css(format!("{FILL} flex-direction: row; justify-content: center;"))
         .with_child(column)
 }
 
 /// The shell of the places: the list page with the four places in the bottom bar and the
 /// floating button, or - while an alarm is edited or a city searched - that page alone, with a
 /// Back button, over where it came from.
-fn shell(s: &ClockApp, app: &RefAny, now: DateTime<Utc>, env: &Env) -> Dom {
+fn shell(s: &ClockApp, app: &RefAny, now: DateTime<Utc>) -> Dom {
     let title = if let Some(d) = s.editor.as_ref() {
         label(if d.id.is_some() { "azclock-edit-alarm" } else { "azclock-new-alarm" })
     } else if s.city_search.is_some() {
@@ -206,7 +198,6 @@ fn shell(s: &ClockApp, app: &RefAny, now: DateTime<Utc>, env: &Env) -> Dom {
         AzString::from("")
     };
     let shell = MobileShell::create(title)
-        .with_top_inset(env.top)
         .with_on_back(act(app, Action::Back), actions::on_act as ButtonOnClickCallbackType);
     if let Some(d) = s.editor.as_ref() {
         return shell

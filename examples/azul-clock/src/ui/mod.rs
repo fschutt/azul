@@ -1032,7 +1032,7 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
     azul_appkit::l10n::begin_layout(&info);
     // Reading the mode makes a light / dark switch rebuild the window.
     let _mode = info.get_mode();
-    let env = env_of(&info);
+    let env = env_of();
     let app = data.clone();
     let Some(guard) = data.downcast_ref::<ClockApp>() else {
         return Dom::create_body();
@@ -1040,12 +1040,9 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
     let s = &*guard;
     let now = Utc::now();
     let content = if kit::settings_open(&s.kit) {
-        // The settings page keeps the window's own title row (a phone has none to draw), and the
-        // room the system keeps at the edges free.
-        let mut page = Dom::create_div().with_css(format!(
-            "display: flex; flex-direction: column; flex-grow: 1; min-height: 0px; padding: {}px {}px {}px {}px;",
-            env.top, env.right, env.bottom, env.left
-        ));
+        // The settings page keeps the window's own title row (a phone has none to draw).
+        let mut page = Dom::create_div()
+            .with_css("display: flex; flex-direction: column; flex-grow: 1; min-height: 0px;");
         if !env.phone {
             page.add_child(kit::title_row(SPEC.name));
         }
@@ -1069,15 +1066,10 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
         )
 }
 
-/// What the window knows about its screen: the room the system keeps at the edges, and whether
-/// it is a phone.
-fn env_of(info: &LayoutCallbackInfo) -> views::Env {
-    let safe = azul_appkit::insets::SafeInsets::of(info);
+/// What the window knows about its screen: whether it is a phone (the engine lays the root out in
+/// the window minus the safe area, so the room at the edges needs nothing here).
+fn env_of() -> views::Env {
     views::Env {
-        top: safe.top,
-        right: safe.right,
-        bottom: safe.bottom,
-        left: safe.left,
         phone: cfg!(any(target_os = "android", target_os = "ios")),
     }
 }
