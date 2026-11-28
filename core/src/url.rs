@@ -242,6 +242,9 @@ fn opener_command<'a>(
             alloc::vec!["url.dll,FileProtocolHandler", target],
         )),
         "macos" => Some(("open", alloc::vec![target])),
+        // iOS starts no process: the platform opens a URL (`UIApplication`), through the hook the shell provides. A
+        // path has no file manager to be shown in.
+        "ios" if !is_path => Some((IOS_OPEN_PROGRAM, alloc::vec![target])),
         "linux" | "freebsd" | "openbsd" | "netbsd" | "dragonfly" => {
             Some(("xdg-open", alloc::vec![target]))
         }
@@ -271,6 +274,19 @@ fn open_with(
     opener_command(target, is_path, os).is_some_and(|(program, args)| spawn(program, &args))
 }
 
+/// The "program" [`opener_command`] names for iOS: not a process but the platform's own opener.
+#[cfg(feature = "std")]
+const IOS_OPEN_PROGRAM: &str = "ios:open-url";
+
+/// The iOS shell's opener (`UIApplication openURL:options:completionHandler:` on the main thread, which the shell
+/// provides: `dll/src/desktop/shell2/ios/open_url.rs`). `true` once the system was asked. The settings page of the app
+/// is the URL `app-settings:` (`UIApplicationOpenSettingsURLString`): what an app opens after the user refused a
+/// permission.
+#[cfg(all(feature = "std", target_os = "ios"))]
+extern "Rust" {
+    fn azul_ios_open_url(url: &str) -> bool;
+}
+
 /// Spawns [`opener_command`] for this platform; `true` once it started ([`open_with`] of this
 /// process's hooks).
 #[cfg(feature = "std")]
@@ -281,6 +297,11 @@ fn spawn_opener(target: &str, is_path: bool) -> bool {
         is_path,
         std::env::consts::OS,
         &mut |program, args| {
+            #[cfg(target_os = "ios")]
+            if program == IOS_OPEN_PROGRAM {
+                // SAFETY: the shell defines the symbol (a safe `fn(&str) -> bool` of the same build).
+                return args.first().is_some_and(|url| unsafe { azul_ios_open_url(url) });
+            }
             std::process::Command::new(program)
                 .args(args)
                 .spawn()

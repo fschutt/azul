@@ -30,6 +30,7 @@ fn made(package: &str, platforms: &[Platform]) -> App {
         needs: Vec::new(),
         known_failing: BTreeMap::new(),
         mobile_lib: None,
+        qa_only: false,
     }
 }
 
@@ -1454,4 +1455,46 @@ fn the_release_page_and_the_deploy_keep_no_list_of_apps_of_their_own() {
             && deploy_source.contains("{demos_section}"),
         "the release page does not take its Demos section from the manifest"
     );
+}
+
+/// The real manifest with one more `[[app]]` that says `qa_only = true`, what AzSelfTest is: built only as a QA build, never a page row.
+fn manifest_text_with_a_qa_only_app() -> String {
+    format!(
+        "{MANIFEST_TOML}\n[[app]]\npackage = \"AzSelfTestStandIn\"\ndir = \"examples/azul-selftest\"\n\
+         description = \"every device capability, one probe each\"\nplatforms = [\"android\", \"ios\"]\n\
+         mobile_lib = \"mobile-e2e\"\nqa_only = true\n"
+    )
+}
+
+#[test]
+fn a_qa_only_app_is_no_app_of_the_page() {
+    let with = Manifest::parse(&manifest_text_with_a_qa_only_app())
+        .expect("the manifest with a QA-only app parses");
+    let without = manifest();
+    // not listed, not found, not counted, not rendered: the page is the page of the manifest without it
+    assert!(with.app("AzSelfTestStandIn").is_none());
+    assert_eq!(with.apps.len(), without.apps.len());
+    assert_eq!(numbers(&with).to_string(), numbers(&without).to_string());
+    assert_eq!(section(&with), section(&without));
+    assert!(!section(&with).contains("AzSelfTestStandIn"));
+    assert_eq!(dockerfile_copies(&with), dockerfile_copies(&without));
+    assert_eq!(with.problems(), without.problems());
+}
+
+#[test]
+fn no_qa_only_app_of_the_real_manifest_is_on_the_page() {
+    // whichever apps the file marks `qa_only = true` (AzSelfTest, once its crate is in the workspace): none is a row, a link or a count
+    let table: toml::Table = toml::from_str(MANIFEST_TOML).expect("the manifest parses as toml");
+    let page = section(&manifest());
+    let mut qa_only = 0;
+    for app in table["app"].as_array().expect("[[app]] tables") {
+        if app.get("qa_only").and_then(toml::Value::as_bool) == Some(true) {
+            qa_only += 1;
+            let package = app["package"].as_str().expect("a package");
+            assert!(!page.contains(package), "the page names the QA-only app {package}");
+            assert!(manifest().app(package).is_none(), "{package} is an app of the page");
+        }
+    }
+    let listed = table["app"].as_array().map_or(0, Vec::len);
+    assert_eq!(manifest().apps.len() + qa_only, listed);
 }

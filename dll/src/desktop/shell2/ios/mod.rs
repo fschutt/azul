@@ -50,7 +50,7 @@ use crate::{
         common::{
             debug_server::LogCategory,
             event::{self, CommonWindowState, HitTestNode, PlatformWindow},
-            ios_logic::{mouse_plan, CursorPlan, HitPlan, TouchPhase, TOUCH_SLOP_POINTS},
+            ios_logic::{mouse_plan, CursorPlan, HitPlan, TouchPhase, UIKIT_GESTURES},
             WindowError,
         },
         headless::CpuBackend,
@@ -66,6 +66,10 @@ mod gl;
 mod gpu;
 /// The phone's language (`NSLocale.preferredLanguages`).
 mod locale;
+/// `Url::open`: the iOS hook of the core crate's opener (`UIApplication openURL:options:completionHandler:`).
+mod open_url;
+/// The system UI font (San Francisco): CoreText's AvailableFonts, which the font scan reads, does not hold it.
+mod system_font;
 mod text_input;
 /// `<webview>`: `WKWebView`s, `WebKit.framework` loaded at the first one.
 mod webview;
@@ -716,7 +720,7 @@ fn handle_touch(this: &Object, touches: *mut Object, event: *mut Object, phase: 
                     .and_then(|id| touch_types.iter().find(|(touch, _)| *touch == id))
                     .is_none_or(|(_, kind)| *kind == 0);
                 match primary_pos {
-                    Some(at) => window.tap.down(applies, at, TOUCH_SLOP_POINTS),
+                    Some(at) => window.tap.down(applies, at, UIKIT_GESTURES.pan_threshold_points),
                     None => window.tap.cancel(),
                 }
             }
@@ -1990,6 +1994,11 @@ extern "C" fn app_did_enter_background(_this: &Object, _cmd: Sel, _app: *mut Obj
     // then glFinish); after it every GL path of the shell asks the lifecycle machine first.
     if let Some(window) = unsafe { azul_ios_window() } {
         window.gpu_event(gpu_lifecycle::Event::Backgrounded);
+        // The motion sensors and the proximity monitoring cost battery for nothing in the background (and the
+        // proximity monitoring blanks the screen): stopped here, started again by the pump when the app reads them.
+        if let Some(lw) = window.common.layout_window.as_ref() {
+            crate::desktop::extra::sensors::pause(&lw.app_services.sensors);
+        }
     }
 }
 
@@ -2240,7 +2249,7 @@ pub struct IOSWindow {
     /// down, and the next primary is born only once every finger has lifted.
     pub primary_touch_id: Option<u64>,
     /// The touch slop of the primary finger (`android_core::slop`): a tap candidate until it has moved more than
-    /// [`TOUCH_SLOP_POINTS`], then a pan for good.
+    /// `UIKIT_GESTURES.pan_threshold_points`, then a pan for good.
     pub tap: TapSlop,
     /// The finger driving the one-finger PAN, which unlike the mouse pipe
     /// transfers to a remaining finger when it lifts (`UIScrollView` keeps
@@ -2294,6 +2303,15 @@ impl IOSWindow {
         layout_window.current_window_state = full_window_state.clone();
         layout_window.routes = config.routes.clone();
         app_shared.seed_window(&mut layout_window, &config);
+        // The engine's gesture detection reads the numbers UIKit's own recognizers use (one table: `UIKIT_GESTURES`),
+        // not its desktop defaults.
+        layout_window.gesture_drag_manager.config = azul_layout::managers::gesture::GestureDetectionConfig {
+            drag_distance_threshold: UIKIT_GESTURES.pan_threshold_points,
+            double_click_time_threshold_ms: UIKIT_GESTURES.double_tap_ms,
+            long_press_time_threshold_ms: UIKIT_GESTURES.long_press_ms,
+            long_press_distance_threshold: UIKIT_GESTURES.long_press_movement_points,
+            ..azul_layout::managers::gesture::GestureDetectionConfig::default()
+        };
         // The faces the app ships (`AppConfig::add_font`): this shell has no app-level font
         // manager to take them from, so the window registers them itself.
         layout_window
@@ -2303,6 +2321,11 @@ impl IOSWindow {
         layout_window
             .webviews
             .set_platform(azul_layout::managers::webview::WebViewPlatform::Backend);
+        // The system UI font: the scan of an iOS app does not list it (`system_font`), so the family the `system-ui`
+        // chain starts with is registered here when the registry does not know it.
+        if let Some(registry) = font_registry.as_ref() {
+            system_font::ensure_system_ui_font(registry);
+        }
 
         // The editable `UITextInteraction`, made below and attached while a node is being edited.
         let mut text_interaction: *mut Object = ptr::null_mut();
@@ -2550,6 +2573,11 @@ impl IOSWindow {
                     dpi,
                 );
             }
+            // The frame goes on the window's frame report (`CpuBackend::record_last_frame_on`): the e2e
+            // counters read it, not the backend.
+            if let Some(lw) = self.common.layout_window.as_mut() {
+                self.cpu_backend.record_last_frame_on(lw);
+            }
         }
     }
 
@@ -2791,6 +2819,10 @@ impl IOSWindow {
                     height,
                     dpi,
                 );
+            }
+            // As in `rerender_cpu`: the frame goes on the window's frame report.
+            if let Some(lw) = self.common.layout_window.as_mut() {
+                self.cpu_backend.record_last_frame_on(lw);
             }
         }
 
