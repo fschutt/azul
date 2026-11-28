@@ -576,6 +576,8 @@ pub use font::parsed::{
 // Re-export hyphenation for external crates (like printpdf)
 #[cfg(feature = "text_layout_hyphenation")]
 pub use hyphenation;
+/// The touch hit-slop: which box a finger beside a small control is for.
+pub mod hit_slop;
 /// Hit-testing: maps screen coordinates to DOM nodes.
 #[cfg(feature = "text_layout")]
 pub mod hit_test;
