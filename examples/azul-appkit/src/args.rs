@@ -19,9 +19,8 @@ use std::path::PathBuf;
 /// the liturgical set of the design system (`flora:green` Ordinary,
 /// `flora:red` Pentecost, `flora:purple` Advent, `flora:gold` Easter,
 /// `flora:rose` Gaudete; azul's `widgets::themes::spin`).
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Theme {
-    #[default]
     Flat,
     Flora,
     FloraGreen,
@@ -29,6 +28,17 @@ pub enum Theme {
     FloraPurple,
     FloraGold,
     FloraRose,
+}
+
+impl Default for Theme {
+    /// The look a user who chose none gets: flora on a phone (Android, iOS), flat elsewhere.
+    fn default() -> Self {
+        if cfg!(any(target_os = "android", target_os = "ios")) {
+            Self::Flora
+        } else {
+            Self::Flat
+        }
+    }
 }
 
 impl Theme {

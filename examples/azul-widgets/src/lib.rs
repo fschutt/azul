@@ -1511,7 +1511,11 @@ pub fn start() {
     });
     // `None` follows the desktop - the default, spelled out: an app that
     // starts pinned passes `OptionDarkLightMode::Some(DarkLightMode::Dark)`.
-    let config = AppConfig::create().with_mode(OptionDarkLightMode::None);
+    let mut config = AppConfig::create().with_mode(OptionDarkLightMode::None);
+    // A phone shows flora's look unless the toolbar's Flat / Flora switch says otherwise.
+    if cfg!(any(target_os = "android", target_os = "ios")) {
+        config = config.with_theme(azul::str::String::from("flora"));
+    }
     let app = App::create(data, config);
     let mut window = WindowCreateOptions::create(layout);
     window.window_state.title = "Azul Widget Showcase".into();
