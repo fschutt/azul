@@ -35,6 +35,8 @@
 //!   network); only the number may ever travel, never its parts.
 //! - [`files`]: file jobs (put / get / get-all / delete) on an azul-storage drive.
 //! - [`history`]: undo / redo of whole-state snapshots ([`UndoHistory`]).
+//! - [`insets`]: the room a phone's system keeps for itself (status bar, cutout, home indicator,
+//!   keyboard), as cleaned px for a layout.
 //! - [`migrate`]: the one-time move of an app's folder from the data folders
 //!   older builds used (`azul/`, `Azul/`, `AzNotes/`) into the data root.
 //! - [`qr`]: QR codes for paper (byte mode, level M, versions 1 to 10): the
@@ -88,6 +90,7 @@ pub mod data;
 pub mod files;
 pub mod find;
 pub mod history;
+pub mod insets;
 pub mod l10n_check;
 pub mod migrate;
 pub mod oauth_clients;

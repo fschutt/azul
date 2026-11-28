@@ -373,6 +373,7 @@ class E2eVariantTest(unittest.TestCase):
         self.assertEqual(sorted(a["package"] for a in self.m["app"] if a.get("e2e")),
                          ["AzCalculator",
                           "AzClock",
+                          "AzCode",
                           "AzCompanion",
                           "AzMaps",
                           "AzMeet",

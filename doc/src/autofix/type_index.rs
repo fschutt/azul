@@ -2183,7 +2183,10 @@ fn infer_module_path(crate_name: &str, file_path: &Path) -> String {
     // Extract path components after "src/"
     let path_str = file_path.to_string_lossy();
 
-    let after_src = if let Some(idx) = path_str.find("/src/") {
+    // The LAST `/src/`: the crate's own. A checkout that itself lives under a folder named `src`
+    // (`.../slot2/src/layout/src/widgets/x.rs`) has an earlier one, which made every module path of
+    // such a checkout `layout::src::widgets::x` and every new widget type land in `misc`.
+    let after_src = if let Some(idx) = path_str.rfind("/src/") {
         &path_str[idx + 5..]
     } else {
         return String::new();
@@ -5907,3 +5910,7 @@ mod opaque_handle_fields {
 #[cfg(test)]
 #[path = "type_index_custom_impls_test.rs"]
 mod type_index_custom_impls_test;
+
+#[cfg(test)]
+#[path = "type_index_paths_test.rs"]
+mod type_index_paths_test;

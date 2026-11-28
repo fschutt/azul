@@ -1351,6 +1351,14 @@ pub struct FrameReport {
     /// display list every frame), and a callback-API mutation runs a full
     /// relayout while the counter stays `0`.
     pub layout_passes: u32,
+    /// Layouts that went ON WITHOUT waiting for the font scan since the last counter reset: the registry's scan of the
+    /// system's fonts was not complete (a font cache MISS: the first start after an install, an OS update or a changed
+    /// font) and the faces registered in memory - the ones azul bundles, the ones the app ships - drew every character of
+    /// the DOM's text, so the layout needed nothing the scan was still looking for.
+    pub font_waits_skipped: u32,
+    /// Layouts that BLOCKED for the font scan since the last counter reset (the DOM named a system family, or held a
+    /// character no face in memory draws).
+    pub font_waits_blocked: u32,
     /// Number of FULL display-list builds through
     /// `regenerate_display_list_for_dom` since the last counter reset — the
     /// per-tick cost a paint-only transition avoids by PATCHING the DL in
@@ -1475,6 +1483,8 @@ impl FrameReport {
         self.relayout_iterations = 0;
         self.dom_regenerations = 0;
         self.layout_passes = 0;
+        self.font_waits_skipped = 0;
+        self.font_waits_blocked = 0;
         self.dl_rebuilds = 0;
         self.dl_node_patches = 0;
         self.font_shape_deficit = 0;
@@ -10559,6 +10569,7 @@ impl LayoutWindow {
                                 &self.font_manager.fc_cache,
                                 self.font_manager.registry.as_deref(),
                                 &loaded,
+                                self.font_manager.system_fonts_gate.as_deref(),
                             );
                             for (key, faces) in additions {
                                 if let Some(chain) =
