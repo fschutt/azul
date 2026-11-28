@@ -21361,6 +21361,91 @@
                                     "type": "SettingsOpened"
                                 },
                                 "fn_body": "object.open_app_settings(capability)"
+                            },
+                            "play_system_sound": {
+                                "doc": [
+                                    "Play the system sound that stands for this MEANING.",
+                                    "",
+                                    "What plays is the platform's own sound for it, never a file of the app's: Android",
+                                    "plays its `AudioManager` UI effects (`TabChange` and `Click` are the \"Touch sounds\" click)",
+                                    "and the user's notification tone, iOS answers with its haptic idiom, and a platform",
+                                    "with no system sound for the meaning plays nothing. `get_sound_route` says which.",
+                                    "",
+                                    "Queued like a haptic: the call costs one push, and the shell plays at the end of the",
+                                    "outermost event pass. The same sound asked for twice in one pass plays once, and a",
+                                    "sound asked for again within its minimum interval (40 ms for `Tick` and `TabChange`,",
+                                    "100 ms for the others) is dropped, so a callback that fires per page of a fling or per",
+                                    "frame of a drag ticks once per page, not once per frame. Every request is recorded",
+                                    "(`get_sound_log`), played or not, with the reason it was not.",
+                                    "",
+                                    "The OS stays in charge: Android's \"Touch sounds\" switch, the ringer mode and Do Not",
+                                    "Disturb silence what they silence, and `set_sounds_muted` is for kiosks and tests."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "sound": "SystemSound"
+                                    }
+                                ],
+                                "fn_body": "object.play_system_sound(sound)"
+                            },
+                            "set_sounds_muted": {
+                                "doc": [
+                                    "Mute (`true`) or unmute every sound the app asks for with `play_system_sound`.",
+                                    "",
+                                    "A switch for kiosks, tests and screen recordings: the OS's own settings are the user's",
+                                    "control, and an app should not put a second one in front of them. On Android the camera",
+                                    "shutter still plays where the region requires it."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "muted": "bool"
+                                    }
+                                ],
+                                "fn_body": "object.set_sounds_muted(muted)"
+                            },
+                            "get_sound_route": {
+                                "doc": [
+                                    "What `play_system_sound` would do with this sound right now, as one word of text:",
+                                    "`system:android:FX_KEY_CLICK`, `ringtone:android:notification`,",
+                                    "`media-action:android:SHUTTER_CLICK`, `haptic:Selection` or `none:<why>`",
+                                    "(`none:no-system-route`, `none:app-muted`, `none:os:input-feedback-sounds-off`)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "sound": "SystemSound"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "String"
+                                },
+                                "fn_body": "object.get_sound_route(sound).into()"
+                            },
+                            "get_sound_log": {
+                                "doc": [
+                                    "The last (up to 32) sound requests of this window, oldest first, one line each:",
+                                    "`#3 TabChange [input] route=system:android:FX_KEY_CLICK suppressed_by=- outcome=played`.",
+                                    "",
+                                    "The outcome is `pending` until the shell has handed the sound to the platform, at the",
+                                    "end of the pass; read it from the next callback."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "StringVec"
+                                },
+                                "fn_body": "object.get_sound_log()"
                             }
                         },
                         "repr": "C"
@@ -206743,6 +206828,49 @@
                                 "has_output": {
                                     "type": "bool"
                                 }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "SystemSound": {
+                        "external": "azul_core::sound::SystemSound",
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Click": {},
+                                "Tick": {},
+                                "ToggleOn": {},
+                                "ToggleOff": {},
+                                "MenuOpen": {},
+                                "MenuClose": {},
+                                "Expand": {},
+                                "Collapse": {},
+                                "TabChange": {},
+                                "Back": {},
+                                "DragStart": {},
+                                "DropAccept": {},
+                                "DropReject": {},
+                                "Notification": {},
+                                "Success": {},
+                                "Info": {},
+                                "Question": {},
+                                "Warning": {},
+                                "Error": {},
+                                "Bell": {},
+                                "Delete": {},
+                                "TrashEmpty": {},
+                                "Send": {},
+                                "CameraShutter": {},
+                                "ScreenCapture": {}
                             }
                         ],
                         "repr": "C"
