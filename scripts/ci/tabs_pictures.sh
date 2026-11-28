@@ -46,6 +46,9 @@ step scenarios_phone env AZ_E2E_SHOT_DIR="$PWD/demo-out/tabs-shots/phone" $matri
 mkdir -p demo-out/tabs-shots/overflow-pictures demo-out/tabs-shots/overflow-phone
 step scenarios_overflow env AZ_E2E_SHOT_DIR="$PWD/demo-out/tabs-shots/overflow-pictures" $matrix --only tab_overflow_pictures --out demo-out/e2e-tabs/overflow
 step scenarios_overflow_phone env AZ_E2E_SHOT_DIR="$PWD/demo-out/tabs-shots/overflow-phone" $matrix --only tab_overflow_phone --out demo-out/e2e-tabs/overflow-phone
+# the window's chevron: a click folds the content of the tabs away and the next one shows it again
+mkdir -p demo-out/tabs-shots/toggle
+step scenarios_toggle env AZ_E2E_SHOT_DIR="$PWD/demo-out/tabs-shots/toggle" $matrix --only tab_content_toggle --out demo-out/e2e-tabs/toggle
 # the matrix exits 0 on a FAIL verdict: read them
 step verdicts python3 scripts/ci/tabs_verdicts.py demo-out/e2e-tabs
 # 6. the source gates of the dll (the shells read the window flags this work added)
