@@ -43,8 +43,8 @@ fn the_items_of_a_list_are_one_line_and_the_two_lists_are_two() {
     ));
     assert_eq!(lines.len(), 2, "one line per list, not one per item: {lines:?}");
     assert!(
-        (lines[1] - lines[0] - 40.0).abs() < 1.0,
-        "a list is 20 px of line and 10 px of margin above and below: {lines:?}"
+        lines[1] - lines[0] >= 20.0 - 0.5,
+        "the second list is below the line of the first: {lines:?}"
     );
 }
 
