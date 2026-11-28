@@ -50,7 +50,9 @@ TYPES = json.dumps({"devicetypes": [
 ]})
 RUNTIMES = json.dumps({"runtimes": [
     {"identifier": "com.apple.CoreSimulator.SimRuntime.iOS-17-5", "name": "iOS 17.5", "version": "17.5", "isAvailable": True},
-    {"identifier": "com.apple.CoreSimulator.SimRuntime.iOS-26-2", "name": "iOS 26.2", "version": "26.2", "isAvailable": True},
+    {"identifier": "com.apple.CoreSimulator.SimRuntime.iOS-26-2", "name": "iOS 26.2", "version": "26.2", "isAvailable": True,
+     "supportedDeviceTypes": [{"identifier": "com.apple.CoreSimulator.SimDeviceType.iPhone-SE-3rd-generation"},
+                              {"identifier": "com.apple.CoreSimulator.SimDeviceType.iPhone-16-Pro"}]},
     {"identifier": "com.apple.CoreSimulator.SimRuntime.iOS-18-0", "name": "iOS 18.0", "version": "18.0", "isAvailable": False},
     {"identifier": "com.apple.CoreSimulator.SimRuntime.watchOS-11-0", "name": "watchOS 11.0", "version": "11.0", "isAvailable": True},
 ]})
@@ -71,6 +73,14 @@ class Resolve(unittest.TestCase):
         self.assertEqual(value, ("AzSelfTest iPhone SE (3rd generation)", "com.apple.CoreSimulator.SimDeviceType.iPhone-SE-3rd-generation",
                                  "com.apple.CoreSimulator.SimRuntime.iOS-26-2"))
         self.assertIn("device type", note)
+
+    def test_a_type_the_newest_runtime_cannot_run_goes_to_an_older_runtime_that_can(self):
+        types = [{"name": "iPhone 8", "identifier": "com.apple.CoreSimulator.SimDeviceType.iPhone-8"}]
+        runtimes = [{"identifier": "new", "version": "26.2", "supported": {"x"}}, {"identifier": "old", "version": "17.5", "supported": {"com.apple.CoreSimulator.SimDeviceType.iPhone-8"}}]
+        action, value, _ = sim.resolve_device("iPhone 8", [], types, runtimes)
+        self.assertEqual((action, value[2]), ("create", "old"))
+        # and when no runtime can run it, the device is not made
+        self.assertEqual(sim.resolve_device("iPhone 8", [], types, [runtimes[0]])[0], "none")
 
     def test_a_model_this_machine_does_not_have_falls_back_to_the_newest_plain_iphone_and_says_so(self):
         devices = sim.parse_devices(json.dumps({"devices": {"com.apple.CoreSimulator.SimRuntime.iOS-26-2": [
