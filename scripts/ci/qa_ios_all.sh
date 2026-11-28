@@ -44,8 +44,8 @@ echo "=== 1. libraries and the six apps"
 build_lib mobile || { echo "LIB mobile FAILED"; exit 3; }
 iroh=1
 build_lib mobile-iroh || { echo "LIB mobile-iroh FAILED: AzCompanion is skipped"; iroh=0; }
-apps="AzWidgets AzMaps AzPaint AzMeet AzWriter"
-[ "$iroh" = 1 ] && apps="$apps AzCompanion"
+apps="AzWidgets AzMaps AzPaint AzWriter"
+[ "$iroh" = 1 ] && apps="$apps AzMeet AzCompanion"     # AzMeet and AzCompanion link the iroh library (azul.iroh)
 start=$(date +%s)
 python3 scripts/demo_build.py ios --target "$target" --apps "$apps" --libs demo-out/libs --out demo-out/apps --results demo-out/results --variant "" \
   || echo "demo_build.py ios returned non-zero: apps that did not build are skipped below"

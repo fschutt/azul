@@ -1060,6 +1060,124 @@ def whiteboard(args, logs, out, binary):
     app.log("PASS: the whiteboard: a loop is armed with its words and key, its grip carried to the panel is a cutout with its source and its picture, a double click goes back to the lines, the key sends one and opens the panel, the board comes back, a loop that is not taken is let go of")
 
 
+def scrolled_rect(app, strip, number):
+    """The window box (x, y, width, height) of the text of line `number` of the pages as drawn now: the rect of a node of the strip's own DOM
+    is local to it, so how far the strip is scrolled (the state says: `strip_scroll`) is taken off."""
+    r = app.rect("__azreview_line-%d-text" % number, every_dom=True)
+    if r is None:
+        return None
+    sx, sy = state(app)["strip_scroll"]
+    return (strip["x"] + r["x"] - sx, strip["y"] + r["y"] - sy, r["width"], r["height"])
+
+
+def visible_lines(app, strip, count):
+    """The first of `count` lines in a row that are all inside the page strip's viewport."""
+    inside = []
+    for number in range(1, 47):
+        box = scrolled_rect(app, strip, number)
+        if box is None:
+            continue
+        x, y, w, h = box
+        if y >= strip["y"] + 4 and y + h <= strip["y"] + strip["height"] - 4 and x >= strip["x"] and x + w <= strip["x"] + strip["width"]:
+            inside.append(number)
+    for i in range(len(inside) - count + 1):
+        run = inside[i:i + count]
+        if run[-1] - run[0] == count - 1:
+            return run[0]
+    raise Failure("no %d lines in a row are inside the window (the lines inside: %s)" % (count, inside))
+
+
+def scrolled_line_box(app, strip, first, last):
+    """The box round lines `first` to `last` in the window, as `line_box` gives it where the strip is not scrolled."""
+    boxes = [scrolled_rect(app, strip, n) for n in range(first, last + 1)]
+    if any(b is None for b in boxes):
+        raise Failure("lines %d to %d are not all on the screen" % (first, last))
+    left = min(b[0] for b in boxes)
+    top = min(b[1] for b in boxes)
+    right = max(b[0] + b[2] for b in boxes)
+    bottom = max(b[1] + b[3] for b in boxes)
+    return left, top, right - left, bottom - top
+
+
+def viewport_op(app, **op):
+    """A viewport command of the phone, played by the debug op (no phone, no network); the answer says where the window is."""
+    answer = app.must("azreview_companion_viewport", **op)["data"]["value"]["result"]
+    if not answer.get("success"):
+        raise Failure("azreview_companion_viewport %s: %s" % (op, answer))
+    return answer
+
+
+def companion_view(args, logs, out, binary):
+    """The pages as the phone's pad moves them, with no phone: the companion is OFF (nothing listens), and the commands a phone makes
+    (a page key, a pinch about the pen, a fit, a reset) are played by the debug op through the executor the phone's commands use. The
+    pages are laid out at the zoom, the strip goes to the page the model says, and a loop drawn at that zoom is round the lines it was
+    drawn round (the pointer's px are the page's own px whatever the zoom)."""
+    data_dir = os.path.join(logs, "data-cv")
+    folder = os.path.join(logs, "folder-cv")
+    os.makedirs(os.path.join(data_dir, "review"), exist_ok=True)
+    fixture(folder)
+    argv = [folder, "--data-dir", data_dir, "--size", "%dx%d" % (WIDTH, HEIGHT), "--language", "en", "--dwell-input", "off",
+            "--standby", "off", "--agent", "mock", "--agent-auto", "off"]
+    app = e2e.App("review-cv", binary, argv, args.debug_port + 13, logs, args.timeout)
+    try:
+        app.until("AzReview's window", lambda: app.has_id(STRIP))
+        show_files(app)
+        pick(app, "src", "lib.rs")
+        app.until("lib.rs open", lambda: state(app)["tree"]["open"] == os.path.join("src", "lib.rs"))
+        app.frame(5)
+        # 0. off by default: nothing listens, nothing is bound, no key is made
+        companion = state(app)["companion"]
+        if companion["enabled"] or companion["status"] != "off" or companion["has_key"]:
+            raise Failure("the companion is not off at a first start: %s" % companion)
+        if state(app)["zoom"] != 1.0:
+            raise Failure("the pages are not drawn at 1 at a start: %s" % state(app)["zoom"])
+
+        # 1. a page key: the window goes to the head of the second page
+        viewport_op(app, op="page_step", steps=1)
+        app.until("the second page is in view", lambda: state(app)["visible_page"] == 1)
+        app.frame(4)
+        app.screenshot(os.path.join(out, "35-cv-second-page.png"))
+        viewport_op(app, op="page_step", steps=-1)
+        app.until("the first page is in view again", lambda: state(app)["visible_page"] == 0)
+
+        # 2. a pinch about the middle: the pages are drawn at 1.5 times what they were
+        viewport_op(app, op="gesture", id=1, phase="begin", focus="center")
+        viewport_op(app, op="gesture", id=1, phase="update", zoom=1.5, focus="center")
+        viewport_op(app, op="gesture", id=1, phase="end", zoom=1.5, focus="center")
+        app.until("the pages are drawn at 1.5", lambda: abs(state(app)["zoom"] - 1.5) < 0.02)
+        app.frame(10)
+        app.screenshot(os.path.join(out, "35-cv-zoomed.png"))
+        strip = app.rect(STRIP)
+
+        # 3. a loop drawn at that zoom is round the lines it was drawn round
+        first = visible_lines(app, strip, 3)
+        draw_loop(app, scrolled_line_box(app, strip, first, first + 2))
+        app.until("the loop is armed", lambda: len(board_of(app)["armed"]) == 1)
+        armed = board_of(app)["armed"][0]
+        if (armed["first"], armed["last"]) != (first, first + 2):
+            raise Failure("a loop drawn round lines %d to %d at zoom 1.5 is armed round %s" % (first, first + 2, armed))
+        app.screenshot(os.path.join(out, "35-cv-loop.png"))
+
+        # 4. a fit: a sheet's width is the window's; a reset: the head of the page
+        viewport_op(app, op="fit")
+        app.frame(10)
+        z = state(app)["zoom"]
+        if not 0.5 <= z <= 2.0:
+            raise Failure("a fit made the zoom %s" % z)
+        viewport_op(app, op="reset")
+        app.frame(10)
+        app.screenshot(os.path.join(out, "35-cv-reset.png"))
+        if state(app)["companion"]["status"] != "off":
+            raise Failure("playing the commands turned the companion on: %s" % state(app)["companion"])
+        no_lint(app, "the companion's view run")
+    except Failure:
+        print("---- stdout ----\n%s---- stderr ----\n%s" % (e2e.tail(app.out_path), e2e.tail(app.err_path)))
+        raise
+    finally:
+        app.stop()
+    app.log("PASS: the pages as the phone's pad moves them: a page key, a pinch drawn at 1.5 times the size, a loop drawn at that zoom round the lines it was drawn round, a fit and a reset; the companion stays off")
+
+
 def restore(args, logs, out, binary):
     """A second AzReview on the folder and the data folder of the first: the saved session comes back
     when its file is opened (`AZREVIEW_LOADED 1 0`: the stroke), and a stroke drawn now is added to it -
@@ -1743,7 +1861,7 @@ def notes_in(path):
 
 def run_all(args, logs, out):
     binary = e2e.find_binary("AzReview", args.bin, "AZREVIEW_BIN")
-    # AZREVIEW_E2E_ONLY=slash, progress, growth, ink, whiteboard, dictation, stream, mic (by hand: it opens the microphone) or conversations runs that step alone (the others each take minutes).
+    # AZREVIEW_E2E_ONLY=slash, progress, growth, ink, whiteboard, companion, dictation, stream, mic (by hand: it opens the microphone) or conversations runs that step alone (the others each take minutes).
     only = os.environ.get("AZREVIEW_E2E_ONLY", "")
     if only == "slash":
         slash(args, logs, out, binary)
@@ -1762,6 +1880,9 @@ def run_all(args, logs, out):
         return True
     if only == "growth":
         page_growth(args, logs, out, binary)
+        return True
+    if only == "companion":
+        companion_view(args, logs, out, binary)
         return True
     if only == "dictation":
         if not fake_speech():
@@ -1802,6 +1923,7 @@ def run_all(args, logs, out):
     page_growth(args, logs, out, binary)
     ink_to_agent(args, logs, out, binary)
     whiteboard(args, logs, out, binary)
+    companion_view(args, logs, out, binary)
     restore(args, logs, out, binary)
     return True
 

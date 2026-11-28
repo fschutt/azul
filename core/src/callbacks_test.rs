@@ -73,6 +73,7 @@ mod autotest_generated {
                 gl_context: &self.gl,
                 system_fonts: &self.fonts,
                 registered_fonts: None,
+                localizer: None,
                 system_style: self.style.clone(),
                 active_route: self.route.as_ref(),
                 monitors: crate::window::MonitorVec::from_const_slice(&[]),
@@ -144,6 +145,30 @@ mod autotest_generated {
                 .is_some_and(|any| any.downcast_ref::<Arc<u64>>().is_none()),
             "a handle of another type is no registry of the layout crate"
         );
+    }
+
+    /// The window's Fluent localizer rides the ref data the same way (the layout crate downcasts
+    /// it: `fluent_localizer_of`): the info hands out the value the host put in, as the type the
+    /// layout crate asks for or none, and nothing where the host has none (a web page, a test).
+    #[test]
+    fn an_info_hands_out_the_localizer_its_ref_data_holds() {
+        let fixture = Fixture::new();
+        let plain = fixture.ref_data();
+        let info = LayoutCallbackInfo::new(&plain, WindowSize::default(), DarkLightMode::Light);
+        assert!(info.localizer().is_none(), "the host has none to hand over");
+
+        let handle: Arc<u32> = Arc::new(9);
+        let erased: &(dyn core::any::Any + Send + Sync) = &handle;
+        let mut rd = fixture.ref_data();
+        rd.localizer = Some(erased);
+        let info = LayoutCallbackInfo::new(&rd, WindowSize::default(), DarkLightMode::Light);
+        let held = info.localizer().and_then(|any| any.downcast_ref::<Arc<u32>>());
+        assert!(held.is_some_and(|held| Arc::ptr_eq(held, &handle)), "the value the host handed in");
+        assert!(
+            info.localizer().is_some_and(|any| any.downcast_ref::<Arc<u64>>().is_none()),
+            "a handle of another type is no localizer of the layout crate"
+        );
+        assert!(info.registered_fonts().is_none(), "the fonts are another slot");
     }
 
     /// `/user/:id` with a plain and a non-ASCII parameter.
@@ -1429,6 +1454,7 @@ mod size_query_tests {
                 gl_context: &self.gl,
                 system_fonts: &self.fonts,
                 registered_fonts: None,
+                localizer: None,
                 system_style: self.style.clone(),
                 active_route: None,
                 monitors: crate::window::MonitorVec::from_const_slice(&[]),
@@ -1615,6 +1641,7 @@ mod system_style_dependency_tests {
                 gl_context: &self.gl,
                 system_fonts: &self.fonts,
                 registered_fonts: None,
+                localizer: None,
                 system_style: alloc::sync::Arc::clone(&self.style),
                 active_route: None,
                 monitors: crate::window::MonitorVec::from_const_slice(&[]),
@@ -1838,6 +1865,7 @@ mod global_hotkey_recorder_tests {
                 gl_context: &self.gl,
                 system_fonts: &self.fonts,
                 registered_fonts: None,
+                localizer: None,
                 system_style: alloc::sync::Arc::clone(&self.style),
                 active_route: None,
                 monitors: crate::window::MonitorVec::from_const_slice(&[]),
@@ -2127,6 +2155,7 @@ mod app_theme_tests {
                 gl_context: &self.gl,
                 system_fonts: &self.fonts,
                 registered_fonts: None,
+                localizer: None,
                 system_style: alloc::sync::Arc::clone(&self.style),
                 active_route: None,
                 monitors: crate::window::MonitorVec::from_const_slice(&[]),
