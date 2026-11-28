@@ -140,8 +140,9 @@ pub fn pump(lw: &mut LayoutWindow) -> bool {
     // until the reply folds back), then fold parked outcomes. A completion
     // always counts as a change — even a repeat outcome answers a fresh
     // request and must dispatch a BiometricResult event.
-    lw.biometric_manager
-        .set_availability(crate::desktop::extra::biometric::availability_cached());
+    lw.biometric_manager.set_availability(crate::desktop::extra::biometric::availability_for(
+        &lw.app_services.biometric.user,
+    ));
     let bio_requests = lw.app_services.biometric.requests.drain();
     if !bio_requests.is_empty() {
         lw.biometric_manager
@@ -149,7 +150,11 @@ pub fn pump(lw: &mut LayoutWindow) -> bool {
         changed = true;
     }
     for prompt in &bio_requests {
-        crate::desktop::extra::biometric::request(prompt, &lw.app_services.biometric.results);
+        crate::desktop::extra::biometric::request(
+            prompt,
+            &lw.app_services.biometric.results,
+            &lw.app_services.biometric.user,
+        );
     }
     for result in lw.app_services.biometric.results.drain() {
         lw.biometric_manager.set_last_result(result);
@@ -164,7 +169,12 @@ pub fn pump(lw: &mut LayoutWindow) -> bool {
         changed = true;
     }
     for (namespace, req) in &keyring_requests {
-        crate::desktop::extra::keyring::request(namespace, req, &lw.app_services.keyring.results);
+        crate::desktop::extra::keyring::request(
+            namespace,
+            req,
+            &lw.app_services.keyring.results,
+            &lw.app_services.biometric.user,
+        );
     }
     // Only the answers this window waits for: another window's pass leaves them for it.
     let awaited = usize::try_from(lw.keyring_manager.in_flight).unwrap_or(usize::MAX);
