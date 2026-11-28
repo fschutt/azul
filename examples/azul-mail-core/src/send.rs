@@ -101,10 +101,38 @@ pub enum SendRoute {
     Submission,
 }
 
-/// How a sending connection is encrypted: azul-core's one policy of every mail client (TLS
+/// How a sending connection is encrypted: the one policy of every mail client of the tree (TLS
 /// required by default, `off` the explicit opt-out). The routes through micromail, which speaks
 /// STARTTLS only, take `implicit` as required STARTTLS.
-pub use azul_core::tls::MailTls as TlsPolicy;
+///
+/// The same three words, in the same settings-file form, as azul-core's `tls::MailTls` (the crash
+/// reporter's mail connects by that one); a test pins that the two cannot drift. It is defined HERE
+/// and not re-exported from azul-core so that a mail client does not compile azul-core: an app that
+/// links the prebuilt libazul and compiles azul-core has every `AzApp_*` C ABI symbol twice, and the
+/// link stops with duplicate symbols (Linux, Windows, and the static libraries of the phones).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum TlsPolicy {
+    /// STARTTLS that must succeed, or TLS from the first byte where the port is a TLS port (465).
+    /// The default. A setting written as `opportunistic` (the default of before, which went on in
+    /// plaintext when the server offered no STARTTLS) reads as this.
+    #[default]
+    #[serde(alias = "opportunistic")]
+    Required,
+    /// TLS from the first byte on any port.
+    Implicit,
+    /// No encryption: the explicit opt-out of an account whose server speaks no TLS (a legacy
+    /// server, a test server on this computer).
+    Off,
+}
+
+impl TlsPolicy {
+    /// Whether the connection may go on without encryption: only when the account opted out.
+    #[must_use]
+    pub const fn allows_plaintext(self) -> bool {
+        matches!(self, Self::Off)
+    }
+}
 
 /// DKIM signing: the key's public half is published at `<selector>._domainkey.<domain>`.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -3677,12 +3705,25 @@ mod tests {
 
     // ---- the real client against a sink on this computer ----
 
-    /// Every mail client of the tree connects by the one policy of azul-core: the crash
-    /// reporter's mail and AzMail's sending alike.
+    /// Every mail client of the tree connects by the one policy: the crash reporter's mail (azul-core's
+    /// `MailTls`) and AzMail's sending (`TlsPolicy`, defined here so that the app does not compile
+    /// azul-core) are the same three words in the same settings form.
     #[test]
     fn the_sending_policy_is_the_one_every_mail_client_connects_by() {
-        let policy: azul_core::tls::MailTls = TlsPolicy::Required;
-        assert_eq!(policy, azul_core::tls::MailTls::default());
+        use azul_core::tls::MailTls;
+        for (ours, theirs) in [
+            (TlsPolicy::Required, MailTls::Required),
+            (TlsPolicy::Implicit, MailTls::Implicit),
+            (TlsPolicy::Off, MailTls::Off),
+        ] {
+            assert_eq!(serde_json::to_string(&ours).unwrap(), serde_json::to_string(&theirs).unwrap());
+            assert_eq!(ours.allows_plaintext(), theirs.allows_plaintext());
+        }
+        assert_eq!(
+            serde_json::to_string(&TlsPolicy::default()).unwrap(),
+            serde_json::to_string(&MailTls::default()).unwrap()
+        );
+        assert_eq!(serde_json::from_str::<MailTls>(r#""opportunistic""#).unwrap(), MailTls::Required);
         // a file written when STARTTLS was opportunistic by default asks for TLS now
         let old: SendSettings = serde_json::from_str(r#"{"tls": "opportunistic"}"#).unwrap();
         assert_eq!(old.tls, TlsPolicy::Required);
