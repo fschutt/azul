@@ -2,6 +2,7 @@
 """Tests of scripts/ci/startup_lab.py: the pure analysis of the cold-start lab (python3 -I scripts/ci/test_startup_lab.py)."""
 import sys
 import unittest
+import unittest.mock
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -225,6 +226,77 @@ class RealRowsTests(unittest.TestCase):
     def test_home_and_back_is_recorded_once_per_app_in_the_light_mode(self):
         rows = lab.real_rows(["AzWidgets"])
         self.assertEqual([r["resume"] for r in rows], [True, False])
+
+
+class FakeDevice:
+    """The commands of a start, in order, with the pid answers `pidof` gives."""
+
+    def __init__(self, pids, fail_on=None):
+        self.calls, self.pids, self.fail_on = [], list(pids), fail_on
+
+    def sh(self, command, timeout=90):
+        self.calls.append(command)
+        return (self.pids.pop(0) + "\n") if command.startswith("pidof") else ""
+
+    def adb(self, *args, timeout=90, binary=False):
+        self.calls.append("adb " + " ".join(args))
+        return ""
+
+    def record_start(self, remote="/sdcard/lab.mp4"):
+        self.calls.append("record_start")
+        return None, remote
+
+    def record_stop(self, proc, remote, local):
+        self.calls.append("record_stop")
+
+    def wait_front(self, package, timeout=25.0):
+        self.calls.append("wait_front")
+        if self.fail_on == "wait_front":
+            raise RuntimeError("the device went away")
+        return True
+
+
+class WarmStartTests(unittest.TestCase):
+    def setUp(self):
+        self.no_sleep = unittest.mock.patch.object(lab.time, "sleep", lambda s: None)
+        self.no_frames = unittest.mock.patch.object(lab.fa, "cut_frames", lambda v: None)
+        self.no_sleep.start()
+        self.no_frames.start()
+        self.addCleanup(self.no_sleep.stop)
+        self.addCleanup(self.no_frames.stop)
+
+    def run_warm(self, dev, tmp="/tmp/never-written"):
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            return lab.warm_start(dev, "com.azul.AzWidgets", "com.azul.app.AzulActivity", {"settle": 1.0}, Path(d))
+
+    def test_the_activity_is_destroyed_by_leaving_it_and_the_process_stays_and_the_next_start_is_recorded(self):
+        dev = FakeDevice(["4242", "4242"])
+        record = self.run_warm(dev)
+        calls = dev.calls
+        order = [calls.index(c) for c in ("settings put global always_finish_activities 1", "input keyevent KEYCODE_HOME", "pidof com.azul.AzWidgets",
+                                          "record_start", "am start -n com.azul.AzWidgets/com.azul.app.AzulActivity", "record_stop")]
+        self.assertEqual(order, sorted(order), "destroy-on-leave, home, the pid, the recording, the start, the end of the recording")
+        self.assertEqual(calls[-1], "settings put global always_finish_activities 0", "the developer setting is put back")
+        self.assertTrue(record["same_process"])
+
+    def test_a_process_the_system_killed_is_not_a_warm_start(self):
+        self.assertFalse(self.run_warm(FakeDevice(["4242", "5151"]))["same_process"], "another pid: a cold start")
+        self.assertFalse(self.run_warm(FakeDevice(["", "5151"]))["same_process"], "no process before the start: a cold start")
+
+    def test_the_developer_setting_is_put_back_when_the_device_goes_away(self):
+        dev = FakeDevice(["4242", "4242"], fail_on="wait_front")
+        with self.assertRaises(RuntimeError):
+            self.run_warm(dev)
+        self.assertEqual(dev.calls[-1], "settings put global always_finish_activities 0")
+
+    def test_the_report_says_whether_it_was_the_same_process(self):
+        text = lab.warm_text({"same_process": False, "runs": "L5 S3 2x9", "summary": {"black": 0, "splash": 3, "wrong": 0}})
+        self.assertIn("NOT the same process", text)
+        self.assertIn("L5 S3 2x9", text)
+
+    def test_every_real_row_also_asks_for_a_warm_start(self):
+        self.assertTrue(all(r["warm"] for r in lab.real_rows(["AzWidgets", "AzWriter"])))
 
 
 class EngineEventsTests(unittest.TestCase):
