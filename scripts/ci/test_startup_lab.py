@@ -67,6 +67,23 @@ DARK_PAGE = sig((18, 20, 22), (36, 40, 44))
 LIGHT_PAGE = sig((238, 233, 220), (255, 255, 255))
 
 
+class MovedTests(unittest.TestCase):
+    def test_a_first_picture_that_stood_before_the_page_moved_is_a_jump(self):
+        sigs = [SPLASH] * 4 + [FIRST] * 6 + [SETTLED] * 6
+        labels = lab.label_frames(sigs)
+        s = lab.summarize_start(labels, sigs)
+        self.assertEqual(s["moved"], 6)
+        self.assertTrue(s["jump"])
+
+    def test_the_frames_of_a_fade_are_no_picture_that_stood(self):
+        fade = [sig((int(255 - 17 * k), int(255 - 12 * k), int(255 - 5 * k)), (31, 90, 107)) for k in range(6)]
+        sigs = [SPLASH] * 4 + fade + [SETTLED] * 8
+        labels = lab.label_frames(sigs)
+        s = lab.summarize_start(labels, sigs)
+        self.assertLess(s["moved"], lab.MOVED_FRAMES)
+        self.assertFalse(s["jump"], "a cross-fade into the settled page is not a page that moved")
+
+
 class NightTests(unittest.TestCase):
     def test_a_dark_window_with_an_icon_is_the_starting_window_and_one_without_is_the_gap(self):
         self.assertEqual(lab.dark_kind(DARK_SPLASH_WITH_ICON), "S")

@@ -131,6 +131,24 @@ def run_lengths(labels):
     return [(c, n) for c, n in runs]
 
 
+STABLE_DIFF = 0.01       # two frames of a still picture differ less than this; the frames of a fade (the system's exit animation) differ more
+MOVED_FRAMES = 3        # a picture that stood this many frames and was not the settled one is a page that MOVED
+
+
+def stable_intermediate(labels, sigs):
+    """The longest run of frames labelled `1` (a picture that is not the settled one) that look alike: a picture that STOOD before the page changed (the first
+    layout's picture before a second layout moved the page). The frames of the system's exit animation are `1` too, but each differs from the next (a fade),
+    so they are no run."""
+    best, run = 0, 0
+    for i, c in enumerate(labels):
+        if c == "1" and i + 1 < len(labels) and labels[i + 1] == "1" and q.sig_diff(sigs[i], sigs[i + 1]) < STABLE_DIFF:
+            run += 1
+            best = max(best, run + 1)
+        else:
+            run = 0
+    return best
+
+
 def runs_text(labels):
     """The run lengths as the lab prints them: `L63 S14 B33 1x5 2x30` (a digit label is written `1x5` so that it reads as a letter and a count)."""
     return " ".join(f"{c}{'x' if c.isdigit() else ''}{n}" for c, n in run_lengths(labels))
@@ -145,17 +163,19 @@ def count_after_first(labels, letter, start="S"):
     return sum(1 for c in labels[first:] if c == letter)
 
 
-def summarize_start(labels):
-    """{splash, black, first, settled, jump, wrong}: the frames of the starting window (S), of black (B) from the first frame of the app phase on, of a first
-    picture shown before the settled one, of the settled one, whether a first picture was shown at all (a page that moved), and the light pictures of a
-    night-mode start (W: the wrong colour)."""
+def summarize_start(labels, sigs=None):
+    """{splash, black, first, settled, jump, moved, wrong}: the frames of the starting window (S), of black (B) from the first frame of the app phase on, of
+    pictures shown before the settled one (the exit animation's fade included), of the settled one, whether a picture STOOD before the page moved (`moved`
+    frames of it; needs the signatures, else any `1` before a `2` counts), and the light pictures of a night-mode start (W: the wrong colour)."""
     app = next((i for i, c in enumerate(labels) if c != "L"), len(labels))
+    moved = stable_intermediate(labels, sigs) if sigs is not None else None
     return {
         "splash": labels[app:].count("S"),
         "black": labels[app:].count("B"),
         "first": labels.count("1"),
         "settled": labels.count("2"),
-        "jump": "1" in labels and "2" in labels,
+        "jump": (moved >= MOVED_FRAMES) if moved is not None else ("1" in labels and "2" in labels),
+        "moved": moved,
         "wrong": labels.count("W"),
     }
 
@@ -333,8 +353,9 @@ def one_start(dev, package, activity, row, out_dir, keep_video):
     record = {"displayed": displayed_ms(log), "events": log_events(log)}
     frames = fa.cut_frames(video)
     if frames:
-        labels = label_frames([fa.signature_of(f) for f in frames], night=bool(row.get("night")))
-        record.update({"runs": runs_text(labels), "summary": summarize_start(labels), "frames": len(frames)})
+        sigs = [fa.signature_of(f) for f in frames]
+        labels = label_frames(sigs, night=bool(row.get("night")))
+        record.update({"runs": runs_text(labels), "summary": summarize_start(labels, sigs), "frames": len(frames)})
         record["_frames"] = frames
         record["_labels"] = labels
     if row.get("resume"):
