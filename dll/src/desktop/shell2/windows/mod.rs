@@ -3382,6 +3382,8 @@ impl Win32Window {
             DWMWA_SYSTEMBACKDROP_TYPE, DWM_BB_BLURREGION, DWM_BB_ENABLE, DWM_BLURBEHIND,
             DWM_SYSTEMBACKDROP_TYPE, MARGINS,
         };
+        // `Opaque` while the user has the transparency effects off
+        let material = self.common.effective_background_material(material);
 
         let dwmapi = match self.win32.dwmapi_funcs.as_ref() {
             Some(d) => d,
@@ -7717,6 +7719,13 @@ impl Win32Window {
 // PlatformWindow Trait Implementation
 
 impl PlatformWindow for Win32Window {
+    /// The transparency effects were switched: the window's material is the one it asked for, or
+    /// `Opaque` (`CommonWindowState::effective_background_material`).
+    fn reapply_background_material(&mut self) {
+        let requested = self.common.current_window_state().flags.background_material;
+        self.apply_background_material(requested);
+    }
+
     /// Microsoft Edge WebView2 (`webview::WebView2Views`), made at the first
     /// call.
     fn webview_backend(

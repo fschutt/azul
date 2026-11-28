@@ -1621,6 +1621,13 @@ fn apply_input_region_from_shape(
 }
 
 impl PlatformWindow for WaylandWindow {
+    /// The transparency effects were switched: the window's material is the one it asked for, or
+    /// `Opaque` (`CommonWindowState::effective_background_material`).
+    fn reapply_background_material(&mut self) {
+        let requested = self.common.current_window_state().flags.background_material;
+        self.apply_background_material(requested);
+    }
+
     /// WPE WebKit, composited (`linux::webview`), made at the first call.
     fn webview_backend(
         &mut self,
@@ -7284,6 +7291,8 @@ impl WaylandWindow {
     ///   - Other compositors: Falls back to transparency without blur
     fn apply_background_material(&mut self, material: azul_core::window::WindowBackgroundMaterial) {
         use azul_core::window::WindowBackgroundMaterial;
+        // `Opaque` while the user has the transparency effects off
+        let material = self.common.effective_background_material(material);
 
         if self.surface.is_null() || self.compositor.is_null() {
             log_debug!(

@@ -3915,6 +3915,21 @@ impl CommonWindowState {
         self.pinned_style(Arc::new(base))
     }
 
+    /// The window background material a window gets when `requested` is what the app asked for: the
+    /// requested one, and `Opaque` while the user has the transparency effects off (Mica, acrylic,
+    /// vibrancy and the like are exactly those). The shells apply it where they apply the material.
+    #[must_use]
+    pub fn effective_background_material(
+        &self,
+        requested: azul_core::window::WindowBackgroundMaterial,
+    ) -> azul_core::window::WindowBackgroundMaterial {
+        if self.system_style.preferences.reduced_transparency.is_on() {
+            azul_core::window::WindowBackgroundMaterial::Opaque
+        } else {
+            requested
+        }
+    }
+
     /// Write the light / dark this window SHOWS, and move a background the
     /// mode derived along with it ([`Self::move_mode_background`]).
     ///
@@ -11698,6 +11713,13 @@ pub trait PlatformWindow {
         Some(self.process_window_events(0))
     }
 
+    /// The window background material has to be applied again: the user switched the transparency
+    /// effects on or off, and the material a window shows is the requested one or `Opaque`
+    /// ([`CommonWindowState::effective_background_material`]). A shell that has such a material
+    /// (macOS vibrancy, Windows Mica and acrylic, a Wayland blur) overrides it; the others have
+    /// nothing to apply.
+    fn reapply_background_material(&mut self) {}
+
     /// Adopt a style that already carries the pins, choosing between a full DOM
     /// rebuild and a restyle of the existing one.
     ///
@@ -11760,6 +11782,10 @@ pub trait PlatformWindow {
         });
 
         self.get_common_mut().system_style = Arc::clone(&new_style);
+        // The transparency effects switched: the window's own material is the requested one or opaque.
+        if old_style.preferences.reduced_transparency != new_style.preferences.reduced_transparency {
+            self.reapply_background_material();
+        }
 
         // A background the mode derived (the creation seed, or the app's
         // per-mode one) is re-derived for the mode the window shows, from the

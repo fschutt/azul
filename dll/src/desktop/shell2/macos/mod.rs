@@ -6218,6 +6218,13 @@ unsafe extern "C" {
 }
 
 impl PlatformWindow for MacOSWindow {
+    /// The transparency effects were switched: the window's material is the one it asked for, or
+    /// `Opaque` (`CommonWindowState::effective_background_material`).
+    fn reapply_background_material(&mut self) {
+        let requested = self.common.current_window_state().flags.background_material;
+        self.apply_background_material(requested);
+    }
+
     fn start_native_eyedropper(
         &mut self,
         request_id: u64,
@@ -9530,12 +9537,13 @@ impl MacOSWindow {
         objc2::runtime::AnyClass::get(c"NSVisualEffectView").is_some()
     }
 
-    /// Apply window background material
+    /// Apply window background material (`Opaque` while the user has the transparency effects off)
     fn apply_background_material(&mut self, material: WindowBackgroundMaterial) {
         use objc2_app_kit::{
             NSVisualEffectBlendingMode, NSVisualEffectMaterial, NSVisualEffectState,
             NSVisualEffectView,
         };
+        let material = self.common.effective_background_material(material);
 
         match material {
             WindowBackgroundMaterial::Opaque => {
