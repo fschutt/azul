@@ -209284,7 +209284,7 @@
                                 "returns": {
                                     "type": "bool"
                                 },
-                                "fn_body": "azul_dll::unified::url_opener::open(object)"
+                                "fn_body": "object.open()"
                             },
                             "open_path": {
                                 "doc": [
