@@ -220,3 +220,81 @@ fn a_track_that_loops_forever_is_not_motion_to_wait_for_but_one_that_ends_is() {
         "only the one that ends is counted: {moving}"
     );
 }
+
+/// A button that changes kind fades its face (a paper that becomes a stone takes 420 ms, a stone that becomes paper
+/// 1200 ms): the window is MOVING for all of it, not only while the label's step waits - the transitions a rebuild starts
+/// are the window's own clock, and `wait_settled` answers when the last has run out, not before (WP-E1's ledger E10: a
+/// picture taken right after a tab or a button changed kind showed the new label on the old face; the scenarios advanced
+/// the clock 800 ms by hand).
+#[test]
+fn a_button_that_changes_kind_is_motion_to_wait_for_until_its_face_has_faded() {
+    use azul_core::{
+        app_theme::ThemeScope,
+        dom::{Dom, DomId},
+        geom::LogicalSize,
+        resources::RendererResources,
+        task::Instant,
+    };
+    use azul_css::AzString;
+
+    use crate::{
+        callbacks::ExternalSystemCallbacks,
+        widgets::{
+            button::{Button, ButtonType},
+            themes::UiTheme,
+        },
+        window::LayoutWindow,
+        window_state::FullWindowState,
+    };
+
+    let page = |kind: ButtonType| {
+        let _scope = ThemeScope::enter(AzString::from(UiTheme::Flora.name()));
+        Dom::create_body()
+            .with_css("margin: 0;")
+            .with_child(Button::with_type(AzString::from("Go"), kind).dom())
+    };
+    let mut lw = LayoutWindow::new(rust_fontconfig::FcFontCache::default()).expect("a layout window");
+    let mut ws = FullWindowState::default();
+    ws.size.dimensions = LogicalSize::new(400.0, 100.0);
+    lw.current_window_state = ws.clone();
+    let first = lw.style_user_dom(page(ButtonType::Default));
+    lw.layout_and_generate_display_list(
+        first,
+        &ws,
+        &RendererResources::default(),
+        &ExternalSystemCallbacks::rust_internal(),
+        &mut None,
+    )
+    .expect("the page lays out");
+    assert_eq!(super::window_still_moving(&lw), None, "a page at rest has settled");
+
+    // The app rebuilds it with the button as the primary one, as the shells install a rebuild.
+    let mut next = lw.style_user_dom(page(ButtonType::Primary));
+    let pending = lw.begin_reconciliation(DomId::ROOT_ID, &mut next, Instant::now());
+    lw.layout_new_generation(
+        next,
+        &ws,
+        &RendererResources::default(),
+        &ExternalSystemCallbacks::rust_internal(),
+        &mut None,
+    )
+    .expect("the next page lays out");
+    lw.finish_reconciliation(DomId::ROOT_ID, &pending);
+    let moving = super::window_still_moving(&lw).expect("the face of the rebuilt button is fading");
+    assert!(moving.contains("CSS transition"), "what moves is its transitions: {moving}");
+
+    // 300 ms on: the label stepped at 247 ms and its transition is over, the face (420 ms) is not.
+    for _ in 0..18 {
+        let _ = lw.tick_animations(1.0 / 60.0);
+        let _ = lw.take_animation_frame_work();
+    }
+    let moving = super::window_still_moving(&lw).expect("the face is still fading at 300 ms of 420");
+    assert!(moving.contains("CSS transition"), "{moving}");
+
+    // 600 ms on: everything has run out, and the window has settled.
+    for _ in 0..18 {
+        let _ = lw.tick_animations(1.0 / 60.0);
+        let _ = lw.take_animation_frame_work();
+    }
+    assert_eq!(super::window_still_moving(&lw), None, "the fade is over: the window is at rest");
+}

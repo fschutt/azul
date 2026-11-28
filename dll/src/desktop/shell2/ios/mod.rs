@@ -1001,6 +1001,25 @@ fn handle_touch(this: &Object, touches: *mut Object, event: *mut Object, phase: 
     // The pass's result at the weight it was classified, not a rebuild of the DOM for everything.
     let r = window.process_window_events(0);
     settle(window, r);
+    // TOUCH HAS NO HOVER. The finger that tapped is gone and leaves nothing under it, so the control it tapped must not
+    // keep its hover face: the click has been delivered, the pointer leaves now (out of the window at its last position,
+    // the hover chain cleared as for a cancelled gesture) and a pass of its own delivers the leave and its restyle.
+    if plan.leaves_after {
+        {
+            let ms = window.common.mouse_state_mut();
+            if let CursorPosition::InWindow(p) = ms.cursor_position {
+                ms.cursor_position = CursorPosition::OutOfWindow(p);
+            }
+        }
+        if let Some(lw) = window.common.layout_window.as_mut() {
+            lw.hover_manager.push_hit_test(
+                azul_layout::managers::hover::InputPointId::Mouse,
+                azul_core::hit_test::FullHitTest::empty(None),
+            );
+        }
+        let r = window.process_window_events(0);
+        settle(window, r);
+    }
     if let Some(lw) = window.common.layout_window.as_mut() {
         lw.gesture_drag_manager.clear_native_gesture();
         lw.gesture_drag_manager.note_pinch_dispatched();
