@@ -4376,7 +4376,7 @@ impl CommonWindowState {
             // platform has a touch floor) a touch that lands on no interactive box's own pixels
             // is for the nearest one within the floor's reach (`azul_layout::hit_slop`). A mouse
             // never gets here with a floor: a desktop window has none.
-            let nodes = lw
+            let meant = lw
                 .system_style
                 .as_ref()
                 .and_then(|style| azul_layout::hit_slop::touch_floor(&style.platform))
@@ -4389,8 +4389,17 @@ impl CommonWindowState {
                         &resolve_tf,
                         Some(&frame_stamps),
                     )
-                })
-                .map_or(nodes, |hit| vec![hit]);
+                });
+            // The box the finger meant first, then what the point is in (its scrollers and the
+            // rest stay hit, as they are without the slop).
+            let nodes = match meant {
+                Some(hit) => {
+                    let mut hits = vec![hit];
+                    hits.extend(nodes);
+                    hits
+                }
+                None => nodes,
+            };
             return crate::desktop::wr_translate2::convert_cpu_hit_test_to_full(
                 cpu_ht,
                 &nodes,
