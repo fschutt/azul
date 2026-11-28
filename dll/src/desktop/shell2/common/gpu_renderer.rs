@@ -303,6 +303,7 @@ fn apply_experiment(options: &mut webrender::WebRenderOptions) {
             "disable_clip" => options.debug_flags |= webrender::DebugFlags::DISABLE_CLIP_MASKS,
             "disable_text" => options.debug_flags |= webrender::DebugFlags::DISABLE_TEXT_PRIMS,
             "disable_gradient" => options.debug_flags |= webrender::DebugFlags::DISABLE_GRADIENT_PRIMS,
+            "shared_1024" => options.max_shared_surface_size = 1024,
             "tile256" => options.picture_tile_size = Some(webrender::api::units::DeviceIntSize::new(256, 256)),
             "tile512" => options.picture_tile_size = Some(webrender::api::units::DeviceIntSize::new(512, 512)),
             "none" => {}

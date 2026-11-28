@@ -10,6 +10,7 @@
 //!    attribute, divisor 1), drawn with `glDrawElementsInstanced`, sampling the same texture: `composite` of WebRender;
 //! 4b. `flat_lowp`: the quad pipeline's varyings, `flat lowp ivec4` carrying values that need more than eight bits and a `flat mediump vec4`;
 //! 4c. `quad_u8norm`: the same draw with WebRender's own unit quad, normalized unsigned bytes with a stride of two;
+//! 4e. `big_texture`: render targets of 4 to 16 MB (WebRender's shared render targets are 2048 x 2048 RGBA8) sampled over the whole window;
 //! 4d. `texture_size`: `textureSize()` in the vertex stage, for render targets and uploaded textures of several sizes and formats;
 //! 5. `data_textures`: an RGBA32F and an RGBA32I texture fetched with `texelFetch`: WebRender's GPU cache and prim headers;
 //! 5d. `pbo_upload`: the same two textures filled through a pixel unpack buffer (`glMapBufferRange`, `glUnmapBuffer`, `glTexSubImage2D` from an
@@ -701,6 +702,83 @@ fn flags_phase(gl: &GenericGlContext, target: Target, programs: &Programs, name:
     gl.delete_vertex_arrays(&[vao]);
     gl.delete_buffers(&[corners, indices, instances]);
     result
+}
+
+/// 4e. Big render targets: WebRender's shared render targets are 2048 x 2048 RGBA8 (16 MB, 2^24 bytes). A texture of each size is given four
+/// coloured quadrants by scissored clears in its framebuffer and sampled over the window with the plain texture shader: a sampler that cannot
+/// address the far end of such a texture reads zero there.
+fn phase_big_texture(gl: &GenericGlContext, target: Target, programs: &Programs) -> Row {
+    let program = match &programs.texture {
+        Ok(program) => *program,
+        Err(why) => return failed("big_texture", format!("the program did not build: {why}")),
+    };
+    let size = target.size;
+    let cases: [(&str, i32, i32); 4] = [
+        ("RGBA8 1024x1024 (4 MB)", 1024, 1024),
+        ("RGBA8 2048x1024 (8 MB)", 2048, 1024),
+        ("RGBA8 2048x2048 (16 MB)", 2048, 2048),
+        ("RGBA8 4096x1024 (16 MB)", 4096, 1024),
+    ];
+    let max = {
+        let mut value = [0_i32];
+        // SAFETY: a query that writes one integer into a slice of one.
+        unsafe { gl.get_integer_v(glconst::MAX_TEXTURE_SIZE, &mut value) };
+        value[0]
+    };
+    let mut owned: Vec<(String, [u8; 4], [u8; 4])> = Vec::new();
+    for (name, width, height) in cases {
+        if width > max || height > max {
+            continue;
+        }
+        let texture = gl.gen_textures(1).first().copied().unwrap_or(0);
+        gl.active_texture(glconst::TEXTURE0);
+        bind_2d(gl, target, texture);
+        gl.tex_parameter_i(glconst::TEXTURE_2D, glconst::TEXTURE_MIN_FILTER, glconst::NEAREST as i32);
+        gl.tex_parameter_i(glconst::TEXTURE_2D, glconst::TEXTURE_MAG_FILTER, glconst::NEAREST as i32);
+        gl.tex_parameter_i(glconst::TEXTURE_2D, glconst::TEXTURE_WRAP_S, glconst::CLAMP_TO_EDGE as i32);
+        gl.tex_parameter_i(glconst::TEXTURE_2D, glconst::TEXTURE_WRAP_T, glconst::CLAMP_TO_EDGE as i32);
+        gl.tex_storage_2d(glconst::TEXTURE_2D, 1, glconst::RGBA8, width, height);
+        let framebuffer = gl.gen_framebuffers(1).first().copied().unwrap_or(0);
+        gl.bind_framebuffer(draw_target(target), framebuffer);
+        gl.framebuffer_texture_2d(draw_target(target), glconst::COLOR_ATTACHMENT0, glconst::TEXTURE_2D, texture, 0);
+        gl.viewport(0, 0, width, height);
+        gl.enable(glconst::SCISSOR_TEST);
+        let (half_w, half_h) = (width / 2, height / 2);
+        for (x, y, colour) in [
+            (0, 0, [1.0, 0.0, 0.0, 1.0]),
+            (half_w, 0, [0.0, 1.0, 0.0, 1.0]),
+            (0, half_h, [0.0, 0.0, 1.0, 1.0]),
+            (half_w, half_h, [1.0, 1.0, 0.0, 1.0]),
+        ] {
+            gl.scissor(x, y, half_w, half_h);
+            gl.clear_color(colour[0], colour[1], colour[2], colour[3]);
+            gl.clear(glconst::COLOR_BUFFER_BIT);
+        }
+        gl.disable(glconst::SCISSOR_TEST);
+        gl.bind_framebuffer(draw_target(target), target.window);
+        window_target(gl, target);
+        gl.clear_color(0.2, 0.2, 0.2, 1.0);
+        gl.clear(glconst::COLOR_BUFFER_BIT);
+        gl.active_texture(glconst::TEXTURE0);
+        bind_2d(gl, target, texture);
+        gl.use_program(program);
+        let sampler = gl.get_uniform_location(program, "sTex");
+        gl.uniform_1i(sampler, 0);
+        full_screen(gl, program, 0.0);
+        gl.finish();
+        let (w, h) = (size.0.max(8), size.1.max(8));
+        let points = [(w / 4, h / 4), (3 * w / 4, h / 4), (w / 4, 3 * h / 4), (3 * w / 4, 3 * h / 4)];
+        let corners = ["bottom left", "bottom right", "top left", "top right"];
+        for (i, corner) in corners.into_iter().enumerate() {
+            owned.push((format!("{name} {corner}"), QUADRANTS[i], px(gl, points[i].0, points[i].1)));
+        }
+        gl.bind_texture(glconst::TEXTURE_2D, 0);
+        gl.delete_framebuffers(&[framebuffer]);
+        gl.delete_textures(&[texture]);
+    }
+    let checks: Vec<(&str, [u8; 4], [u8; 4])> = owned.iter().map(|(name, expected, found)| (name.as_str(), *expected, *found)).collect();
+    let error = gl.get_error();
+    row("big_texture", &checks, error, &format!("MAX_TEXTURE_SIZE {max}"))
 }
 
 /// 4d. `textureSize()` in the VERTEX stage (every textured shader of WebRender normalises its UV rectangle by it: `vs_init_sample_color0`, `brush_image`):
@@ -1466,7 +1544,7 @@ fn phase_shared_depth(gl: &GenericGlContext, target: Target, programs: &Programs
 }
 
 /// The phases, by name, in the order the ladder runs them.
-pub const PHASES: [&str; 15] = [
+pub const PHASES: [&str; 16] = [
     "clear",
     "shader",
     "dummy_texture",
@@ -1474,6 +1552,7 @@ pub const PHASES: [&str; 15] = [
     "instanced",
     "flat_lowp",
     "quad_u8norm",
+    "big_texture",
     "texture_size",
     "data_textures",
     "pbo_upload",
@@ -1508,6 +1587,7 @@ pub fn run_ladder(gl: &GenericGlContext, target: Target, show: &mut dyn FnMut(&'
             "instanced" => phase_instanced(gl, target, &programs),
             "flat_lowp" => phase_flat_lowp(gl, target, &programs),
             "quad_u8norm" => phase_quad_u8norm(gl, target, &programs),
+            "big_texture" => phase_big_texture(gl, target, &programs),
             "texture_size" => phase_texture_size(gl, target, &programs),
             "data_textures" => phase_data_textures(gl, target, &programs),
             "pbo_upload" => phase_pbo_upload(gl, target, &programs),

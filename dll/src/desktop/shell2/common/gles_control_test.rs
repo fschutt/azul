@@ -28,6 +28,7 @@ fn the_phases_have_the_names_the_log_and_the_report_use() {
             "instanced",
             "flat_lowp",
             "quad_u8norm",
+            "big_texture",
             "texture_size",
             "data_textures",
             "pbo_upload",
