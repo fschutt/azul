@@ -34,15 +34,33 @@ use crate::{
     library::Sort,
 };
 
-/// The title in the toolbar: one line, cut with an ellipsis when it does not fit.
-fn title_label(title: &str) -> Dom {
+/// The title in the toolbar: one line in a box `width` px wide (the width the tool is counted
+/// with), cut with an ellipsis when it does not fit.
+fn title_label(title: &str, width: f32) -> Dom {
     Dom::create_div()
-        .with_css(
-            "overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 14px; \
-             font-weight: 600; padding: 0px 8px;",
-        )
+        .with_css(format!(
+            "box-sizing: border-box; width: {width}px; overflow: hidden; white-space: nowrap; \
+             text-overflow: ellipsis; font-size: 14px; font-weight: 600; padding: 0px 8px;"
+        ))
         .with_child(Dom::create_span_with_text(title))
 }
+
+/// The title's width on a desktop's bar, px.
+const TITLE_DESKTOP_PX: f32 = 260.0;
+
+/// The title's width on a phone's bar: what the window leaves after the five tools (each a
+/// finger's width and its margin), at least a few letters and at most the desktop's.
+#[must_use]
+pub fn phone_title_width(window_width: f32) -> f32 {
+    (window_width - PHONE_TOOLS * PHONE_TOOL_PX - PHONE_BAR_PAD_PX).clamp(48.0, TITLE_DESKTOP_PX)
+}
+
+/// The tools of a phone's bar around the title: back, smaller, larger, bookmark, Settings.
+const PHONE_TOOLS: f32 = 5.0;
+/// One tool of a phone's bar with its margin: 48 dp and the gap after it, px.
+const PHONE_TOOL_PX: f32 = 50.0;
+/// What the phone's bar keeps for its own padding and the title's room, px.
+const PHONE_BAR_PAD_PX: f32 = 16.0;
 
 /// The page field: the page on screen, Return goes to the page typed.
 fn page_field(app: &RefAny, page: usize) -> Dom {
@@ -141,7 +159,7 @@ fn reader_items_desktop(app: &RefAny, st: &AppState) -> Vec<ToolbarItem> {
     );
     vec![
         ToolbarItem::create_toggle(ids::TB_STRIP, t("azreader-strip"), "menu", st.pane != Pane::None),
-        ToolbarItem::create_custom(ids::TB_TITLE, t("azreader-title"), title_label(&book_title(st)), 260.0),
+        ToolbarItem::create_custom(ids::TB_TITLE, t("azreader-title"), title_label(&book_title(st), TITLE_DESKTOP_PX), TITLE_DESKTOP_PX),
         ToolbarItem::create_spacer(),
         prev,
         ToolbarItem::create_custom(ids::TB_PAGE, t("azreader-page"), page_field(app, page), 56.0),
@@ -164,6 +182,7 @@ fn reader_items_desktop(app: &RefAny, st: &AppState) -> Vec<ToolbarItem> {
 /// The tools of a phone's reader bar: back to the library, the title, the zoom, a bookmark,
 /// Settings. They all fit a phone's width, so none is moved into a menu.
 fn reader_items_phone(st: &AppState) -> Vec<ToolbarItem> {
+    let title = phone_title_width(st.window.0);
     let (low, high) = chrome::zoom_range();
     let zoom = chrome::zoom_percent(st.settings.font_px);
     let mut zoom_out = ToolbarItem::create_button(ids::TB_ZOOM_OUT, t("azreader-zoom-out"), "remove");
@@ -176,7 +195,7 @@ fn reader_items_phone(st: &AppState) -> Vec<ToolbarItem> {
     }
     vec![
         ToolbarItem::create_button(ids::TB_LIBRARY, t("azreader-library"), "arrow_back").with_never_overflow(true),
-        ToolbarItem::create_custom(ids::TB_TITLE, t("azreader-title"), title_label(&book_title(st)), 120.0),
+        ToolbarItem::create_custom(ids::TB_TITLE, t("azreader-title"), title_label(&book_title(st), title), title),
         ToolbarItem::create_spacer(),
         zoom_out.with_never_overflow(true),
         zoom_in.with_never_overflow(true),

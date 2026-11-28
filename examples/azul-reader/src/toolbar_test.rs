@@ -98,3 +98,22 @@ fn an_unknown_tool_runs_nothing() {
     assert_eq!(command_of(ids::TB_TITLE.as_str(), Pane::None, Sort::Recent), None, "the title is a label");
     assert_eq!(command_of(ids::TB_PAGE.as_str(), Pane::None, Sort::Recent), None, "the page field has its own key handler");
 }
+
+#[test]
+fn a_phones_title_gets_what_the_five_tools_leave_and_never_pushes_them_out() {
+    // 360 dp is the narrowest common phone: the title is what is left after back, smaller,
+    // larger, bookmark and Settings (48 dp and a gap each) and the bar's padding.
+    let narrow = phone_title_width(360.0);
+    assert!((narrow - 94.0).abs() < 0.5, "{narrow}");
+    assert!(phone_title_width(412.0) > narrow, "a wider phone gives the title more");
+    for width in [320.0, 360.0, 393.0, 412.0, 600.0] {
+        let title = phone_title_width(width);
+        assert!(
+            title + PHONE_TOOLS * PHONE_TOOL_PX + PHONE_BAR_PAD_PX <= width,
+            "{width}: the title ({title}) and five tools fit the bar"
+        );
+    }
+    // A window too narrow for anything keeps a few letters; a wide one never exceeds the desktop's.
+    assert!((phone_title_width(100.0) - 48.0).abs() < f32::EPSILON);
+    assert!((phone_title_width(2000.0) - TITLE_DESKTOP_PX).abs() < f32::EPSILON);
+}
