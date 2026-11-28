@@ -67,3 +67,16 @@ fn tab_completes_the_names_that_start_with_the_text() {
     assert_eq!(colon_complete("zzz"), Vec::<&str>::new());
     assert!(colon_complete("").len() >= 5, "nothing typed: every name");
 }
+
+/// A line holds a query when anything stands after the question mark: Escape empties a query
+/// first and closes the view only when there is none.
+#[test]
+fn a_search_line_holds_a_query_when_something_follows_the_question_mark() {
+    use crate::ui_command_bar::search_has_query;
+    assert!(search_has_query("?notes"));
+    assert!(search_has_query(" ? notes "));
+    assert!(!search_has_query("?"));
+    assert!(!search_has_query("?   "));
+    assert!(!search_has_query("notes"), "no question mark: no search");
+    assert!(!search_has_query(""));
+}

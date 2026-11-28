@@ -4323,6 +4323,18 @@ pub fn start() {
     if settings.preview_pane && settings.details_pane {
         settings.details_pane = false;
     }
+    // A pane size from the file is capped, never trusted: a number that is no size is the widget's
+    // default, one beyond the limit is the limit (the widget keeps the pane inside the window).
+    for (name, size) in [
+        ("preview_width", &mut settings.preview_width),
+        ("preview_height", &mut settings.preview_height),
+    ] {
+        let kept = model::clamped_preview_size(*size);
+        if kept.to_bits() != size.to_bits() {
+            eprintln!("[azdrive] the setting {name} ({size}) is out of range: {kept} is used");
+            *size = kept;
+        }
+    }
 
     let mut slots = vec![
         Slot::new(DriveEntry {

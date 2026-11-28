@@ -309,6 +309,7 @@ dir = "examples/azul-drive"
 description = "an Explorer-like file browser for local folders and S3 drives"
 platforms = ["linux", "macos-arm64", "macos-intel", "windows"]
 weight = 3
+e2e = true   # the QA variant too (desktop-e2e: linux, macos-arm64): the scenarios of examples/azul-drive/e2e/redesign*.json run in it (examples/azul-drive/scripts/e2e_redesign.sh)
 
 [[app]]
 package = "AzERP"

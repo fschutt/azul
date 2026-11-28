@@ -8,7 +8,8 @@
 //! ([`command_line::classify`]):
 //!
 //! - `?text` searches the open folder and everything below it for `text` - while it is typed:
-//!   the search view takes the folder's place, Escape empties the line and then closes the view;
+//!   the search view takes the folder's place, Escape empties the query (the view stays on the
+//!   recent searches) and Escape again closes the view;
 //! - `:name` is a command of the window - `:options`, `:new window`, `:about`, `:sign in`,
 //!   `:exit` - and Tab completes its name;
 //! - a path (`Home/Documents`, `This PC`, `~/Pictures`) goes there;
@@ -423,6 +424,12 @@ fn apply_search(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState, query
     s.selection.retain(&order);
     // Other rows are in view now: their sizes, counts and thumbnails.
     actions::request_view_work(info, app, s);
+}
+
+/// Whether the line `?query` holds a query (anything after the question mark).
+#[must_use]
+pub(crate) fn search_has_query(line: &str) -> bool {
+    matches!(classify(line), Line::Search(query) if !query.is_empty())
 }
 
 /// The line stopped being a search (a letter other than `?` first, or nothing): the search ends
@@ -1297,13 +1304,20 @@ extern "C" fn on_input_key(
         Some(VirtualKeyCode::Escape) => {
             info.stop_propagation();
             with_state(&mut data, &mut info, |info, app, s| {
-                if s.command_bar.searching {
-                    // A search in the line: Escape empties it and the folder shows again.
+                if !s.command_bar.searching {
+                    s.command_bar.expanded = false;
+                } else if search_has_query(&s.command_bar.input) {
+                    // A search in the line: the first Escape empties its query (the view stays
+                    // on the recent searches), ...
+                    s.command_bar.input = String::from("?");
+                    set_input_text(info, "?");
+                    s.search.clear();
+                    crate::start_find(info, app, s);
+                } else {
+                    // ... the second closes the view: the line empties and the folder shows again.
                     s.command_bar.input.clear();
                     set_input_text(info, "");
                     end_search(info, app, s);
-                } else {
-                    s.command_bar.expanded = false;
                 }
             })
         }
