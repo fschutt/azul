@@ -10,6 +10,9 @@ const IOS_TEXT_INPUT_RS: &str = include_str!("ios/text_input.rs");
 const IOS_CLIPBOARD_RS: &str = include_str!("ios/clipboard.rs");
 const IOS_WEBVIEW_RS: &str = include_str!("ios/webview.rs");
 const IOS_SYSTEM_FONT_RS: &str = include_str!("ios/system_font.rs");
+const GAMEPAD_APPLE_RS: &str = include_str!("../extra/gamepad/apple.rs");
+const GEOLOCATION_IOS_RS: &str = include_str!("../extra/geolocation/ios.rs");
+const MIC_APPLE_RS: &str = include_str!("../extra/audio/avfoundation_mic.rs");
 const FILE_PICKER_RS: &str = include_str!("../extra/file_picker/ios.rs");
 const CAMERA_RS: &str = include_str!("../extra/camera/avfoundation.rs");
 const AVF_AUTH_RS: &str = include_str!("../extra/camera/avf_auth.rs");
@@ -684,4 +687,60 @@ fn the_ios_window_registers_the_system_ui_font_the_scan_does_not_list() {
     let known = font.find("registry.query(&wanted).is_some()").expect("asks the registry first");
     let read = font.find("std::fs::read(").expect("reads the file");
     assert!(known < read, "the file is read only when the registry does not know the family");
+}
+
+/// GameController.framework is not linked into the iOS app: `class!(GCController)` is a PANIC (an abort in a phone app)
+/// when nothing has loaded the framework. Every lookup goes through the helper that `dlopen`s it first and answers
+/// `None` for a missing class.
+#[test]
+fn the_gamepad_backend_loads_game_controller_before_it_looks_up_its_class() {
+    let code = code_of(GAMEPAD_APPLE_RS);
+    assert!(!code.contains("class!(GCController)"), "a panic in a phone app is an abort");
+    assert_eq!(
+        code.matches("Class::get(\"GCController\")").count(),
+        1,
+        "one lookup, in `game_controller_class`"
+    );
+    let helper = body(GAMEPAD_APPLE_RS, "fn game_controller_class(");
+    in_order(helper, "game_controller()?", "Class::get(\"GCController\")", "game_controller_class");
+}
+
+/// What CoreLocation says must reach the app: a failure (`didFailWithError:` was not implemented: a denied grant and a
+/// failed lookup were swallowed), the moment the fix was MEASURED (`CLLocation.timestamp`: the callback's own clock made a
+/// cached first fix look fresh), an invalid fix (negative horizontal accuracy) dropped, and a request that cannot show
+/// (no purpose string) said out loud instead of a silent no-op.
+#[test]
+fn the_ios_location_delegate_reports_failures_and_the_fixs_own_time() {
+    let code = code_of(GEOLOCATION_IOS_RS);
+    for needed in [
+        "sel!(locationManager:didFailWithError:)",
+        "push_error(",
+        "msg_send![loc, timestamp]",
+        "timeIntervalSince1970",
+        "if h_acc < 0.0",
+        "missing_key_message(",
+        "keys::LOCATION_WHEN_IN_USE",
+    ] {
+        assert!(code.contains(needed), "extra/geolocation/ios.rs: `{needed}` is missing");
+    }
+}
+
+/// An iPhone's `AVCaptureAudioDataOutput` delivers 16-bit signed integer PCM unless asked otherwise, the macOS HAL
+/// Float32: the converter reads the format of EVERY sample buffer from its description (`read_asbd`), and on iOS that
+/// read used to answer `None` (the Float32 assumption), so each sample was read as the wrong type.
+#[test]
+fn the_microphone_reads_the_format_of_its_samples_on_ios_too() {
+    let code = code_of(MIC_APPLE_RS);
+    let ios_reader = code
+        .split("fn read_asbd(")
+        .nth(2)
+        .expect("a second read_asbd: the one that is not macOS's");
+    assert!(
+        ios_reader.contains("CMAudioFormatDescriptionGetStreamBasicDescription("),
+        "the non-macOS read_asbd must ask CoreMedia, not answer None"
+    );
+    assert!(
+        !ios_reader.trim_start().starts_with("_sample_buffer: &CMSampleBuffer) -> Option<Asbd> {\n    None"),
+        "the stub that answered None is gone"
+    );
 }

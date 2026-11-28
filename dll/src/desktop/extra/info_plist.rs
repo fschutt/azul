@@ -20,6 +20,13 @@ pub mod keys {
     pub const CAMERA: &str = "NSCameraUsageDescription";
     /// `AVCaptureDevice requestAccess` for audio.
     pub const MICROPHONE: &str = "NSMicrophoneUsageDescription";
+    /// `CLLocationManager requestWhenInUseAuthorization`: without it the request shows nothing and the status never
+    /// leaves "not determined" (no crash).
+    pub const LOCATION_WHEN_IN_USE: &str = "NSLocationWhenInUseUsageDescription";
+    /// `LAContext` with Face ID: without it Face ID is not used.
+    pub const FACE_ID: &str = "NSFaceIDUsageDescription";
+    /// `SFSpeechRecognizer requestAuthorization`: a missing key terminates the app at the request.
+    pub const SPEECH_RECOGNITION: &str = "NSSpeechRecognitionUsageDescription";
 }
 
 /// Must the request NOT be made: the process is a bundle (`bundled`) and its `Info.plist` lacks the
@@ -84,6 +91,57 @@ pub fn has_key(key: &str) -> bool {
         let value = CFBundleGetValueForInfoDictionaryKey(bundle, name);
         CFRelease(name);
         !value.is_null()
+    }
+}
+
+/// The text value of `key` in the main bundle's `Info.plist` (a string; `None` for another type, an absent key and
+/// an unbundled binary): `CFBundleDisplayName`, `CFBundleName`, a purpose string.
+#[cfg(any(target_os = "macos", target_os = "ios"))]
+#[must_use]
+pub fn string_value(key: &str) -> Option<String> {
+    use core::ffi::{c_char, c_void};
+
+    #[link(name = "CoreFoundation", kind = "framework")]
+    extern "C" {
+        fn CFBundleGetMainBundle() -> *const c_void;
+        fn CFBundleGetValueForInfoDictionaryKey(bundle: *const c_void, key: *const c_void) -> *const c_void;
+        fn CFStringCreateWithBytes(
+            allocator: *const c_void,
+            bytes: *const u8,
+            length: isize,
+            encoding: u32,
+            is_external_representation: u8,
+        ) -> *const c_void;
+        fn CFGetTypeID(object: *const c_void) -> usize;
+        fn CFStringGetTypeID() -> usize;
+        fn CFStringGetCString(string: *const c_void, buffer: *mut c_char, buffer_size: isize, encoding: u32) -> u8;
+        fn CFRelease(object: *const c_void);
+    }
+    /// `kCFStringEncodingUTF8`.
+    const UTF8: u32 = 0x0800_0100;
+
+    // SAFETY: as `has_key`: a name made and released here; the bundle and the value are not owned (the Get rule); the
+    // value is only read when it is a CFString, into a buffer of the length given.
+    unsafe {
+        let bundle = CFBundleGetMainBundle();
+        if bundle.is_null() {
+            return None;
+        }
+        let name = CFStringCreateWithBytes(core::ptr::null(), key.as_ptr(), key.len() as isize, UTF8, 0);
+        if name.is_null() {
+            return None;
+        }
+        let value = CFBundleGetValueForInfoDictionaryKey(bundle, name);
+        CFRelease(name);
+        if value.is_null() || CFGetTypeID(value) != CFStringGetTypeID() {
+            return None;
+        }
+        let mut buffer = [0 as c_char; 1024];
+        if CFStringGetCString(value, buffer.as_mut_ptr(), buffer.len() as isize, UTF8) == 0 {
+            return None;
+        }
+        let text = core::ffi::CStr::from_ptr(buffer.as_ptr()).to_str().ok()?.to_string();
+        (!text.is_empty()).then_some(text)
     }
 }
 

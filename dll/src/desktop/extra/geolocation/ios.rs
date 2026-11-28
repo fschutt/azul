@@ -107,14 +107,34 @@ unsafe fn manager() -> *mut Object {
     mgr
 }
 
+/// `NSLocationAlwaysAndWhenInUseUsageDescription`: what a request for the background grant shows.
+#[cfg(target_os = "ios")]
+const LOCATION_ALWAYS_KEY: &str = "NSLocationAlwaysAndWhenInUseUsageDescription";
+
 #[cfg(target_os = "ios")]
 unsafe fn subscribe(high_accuracy: bool, background: bool) {
+    use crate::desktop::extra::info_plist::{has_key, is_bundled, keys, missing_key_message};
+
     let mgr = manager();
     if mgr.is_null() {
+        crate::log_error!(
+            crate::desktop::shell2::common::debug_server::LogCategory::Platform,
+            "[geolocation] CoreLocation is not available: no location updates"
+        );
         return;
     }
     set_accuracy(high_accuracy);
-    if background {
+    // The request is made only when the system can show it: without the purpose string it shows NOTHING and the status
+    // never leaves "not determined" - a silent no-op, which this says out loud (the app is not stopped, as it is for a
+    // camera or a motion request).
+    let key = if background { LOCATION_ALWAYS_KEY } else { keys::LOCATION_WHEN_IN_USE };
+    if is_bundled() && !has_key(key) {
+        crate::log_error!(
+            crate::desktop::shell2::common::debug_server::LogCategory::Platform,
+            "[geolocation] {}",
+            missing_key_message("the location request", key)
+        );
+    } else if background {
         let _: () = msg_send![mgr, requestAlwaysAuthorization];
     } else {
         let _: () = msg_send![mgr, requestWhenInUseAuthorization];
@@ -162,6 +182,12 @@ fn get_or_create_delegate_class() -> &'static Class {
                 sel!(locationManagerDidChangeAuthorization:),
                 location_manager_did_change_auth as extern "C" fn(&Object, Sel, *mut Object),
             );
+            // `locationManager:didFailWithError:`: a denied grant and a failed lookup were swallowed, so the app saw
+            // a fix that never came and could not tell why.
+            decl.add_method(
+                sel!(locationManager:didFailWithError:),
+                location_manager_did_fail as extern "C" fn(&Object, Sel, *mut Object, *mut Object),
+            );
             CLS = decl.register();
         });
         &*CLS
@@ -194,6 +220,20 @@ extern "C" fn location_manager_did_update(
         let course: f64 = msg_send![loc, course];
         let speed: f64 = msg_send![loc, speed];
 
+        // "A negative value indicates that the latitude and longitude are invalid" (CLLocation.horizontalAccuracy):
+        // such a fix is no position.
+        if h_acc < 0.0 {
+            return;
+        }
+        // The moment CoreLocation measured it (`CLLocation.timestamp`), not the moment this callback ran: a cached
+        // first fix is older than the callback that delivers it.
+        let timestamp: *mut Object = msg_send![loc, timestamp];
+        let measured_ms = if timestamp.is_null() {
+            None
+        } else {
+            let seconds: f64 = msg_send![timestamp, timeIntervalSince1970];
+            (seconds.is_finite() && seconds >= 0.0).then(|| (seconds * 1000.0) as u64)
+        };
         let valid_alt = v_acc > 0.0;
         // The delegate has no context: the App's services are where `App::run` put them.
         let Some(services) = crate::desktop::process_app::services() else {
@@ -211,10 +251,12 @@ extern "C" fn location_manager_did_update(
                 f32::NAN
             },
             speed_mps: if speed >= 0.0 { speed as f32 } else { f32::NAN },
-            timestamp_ms: std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map(|d| d.as_millis() as u64)
-                .unwrap_or(0), // MWA-C-geolocation: was hardcoded 0,
+            timestamp_ms: measured_ms.unwrap_or_else(|| {
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_millis() as u64)
+                    .unwrap_or(0)
+            }),
         });
     }
 }
@@ -236,6 +278,48 @@ extern "C" fn location_manager_did_change_auth(_this: &Object, _cmd: Sel, manage
             services
                 .permission
                 .push((Capability::Geolocation, auth_status_to_state(status)));
+        }
+    }
+}
+
+/// `locationManager:didFailWithError:`. `kCLErrorLocationUnknown` (0) is "no fix yet, still trying": not an error. Every
+/// other code is delivered to the app through the manager's error channel, and `kCLErrorDenied` (1: the user refused,
+/// or Location Services are off) also tells the permission manager.
+#[cfg(target_os = "ios")]
+extern "C" fn location_manager_did_fail(_this: &Object, _cmd: Sel, _manager: *mut Object, error: *mut Object) {
+    unsafe {
+        if error.is_null() {
+            return;
+        }
+        let code: isize = msg_send![error, code];
+        if code == 0 {
+            return;
+        }
+        let description: *mut Object = msg_send![error, localizedDescription];
+        let message = if description.is_null() {
+            String::new()
+        } else {
+            let utf8: *const std::os::raw::c_char = msg_send![description, UTF8String];
+            if utf8.is_null() {
+                String::new()
+            } else {
+                std::ffi::CStr::from_ptr(utf8).to_string_lossy().into_owned()
+            }
+        };
+        crate::log_warn!(
+            crate::desktop::shell2::common::debug_server::LogCategory::Platform,
+            "[geolocation] CoreLocation failed: CLError {} ({})",
+            code,
+            message
+        );
+        if let Some(services) = crate::desktop::process_app::services() {
+            services.geolocation.push_error(azul_layout::managers::geolocation::LocationError {
+                code: u32::try_from(code).unwrap_or(u32::MAX),
+                message,
+            });
+            if code == 1 {
+                services.permission.push((Capability::Geolocation, PermissionState::Denied));
+            }
         }
     }
 }
