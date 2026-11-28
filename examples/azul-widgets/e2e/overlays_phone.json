@@ -90,16 +90,16 @@
       },
       {
         "op": "scroll_into_view",
-        "selector": ".__azul-native-dropdown",
         "block": "center",
-        "behavior": "instant"
+        "behavior": "instant",
+        "text": "Blue"
       },
       {
         "op": "wait_frame"
       },
       {
         "op": "click",
-        "selector": ".__azul-native-dropdown"
+        "text": "Blue"
       },
       {
         "op": "wait_frame"
@@ -350,16 +350,16 @@
       },
       {
         "op": "scroll_into_view",
-        "selector": ".__azul-native-dropdown",
         "block": "center",
-        "behavior": "instant"
+        "behavior": "instant",
+        "text": "Blue"
       },
       {
         "op": "wait_frame"
       },
       {
         "op": "click",
-        "selector": ".__azul-native-dropdown"
+        "text": "Blue"
       },
       {
         "op": "wait_frame"
@@ -490,6 +490,389 @@
       {
         "op": "click",
         "text": "Overlays"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "list_popups"
+      },
+      {
+        "op": "assert_response",
+        "contains": "\"popup_count\":0"
+      }
+    ],
+    "only_on": [
+      "linux",
+      "windows",
+      "macos"
+    ]
+  },
+  {
+    "name": "azul_widgets_overlays_on_a_tablet_display_of_a_desktop_window",
+    "description": "The same window one size up: from 600 dp of width a titled dialog is a CENTRED CARD over its scrim, not a bottom sheet (the picture the phone's sheet is compared with), and a drop-down's menu is as wide as its control: the window is an iPad mini (744 x 1133 dp) put on the Pixel 8's display, light, flora.",
+    "only_on": [
+      "linux",
+      "windows",
+      "macos"
+    ],
+    "config": {
+      "continue_on_failure": true
+    },
+    "steps": [
+      {
+        "op": "resize",
+        "width": 744,
+        "height": 1133
+      },
+      {
+        "op": "set_display_preset",
+        "preset": "pixel8"
+      },
+      {
+        "op": "set_mode",
+        "mode": "light"
+      },
+      {
+        "op": "set_theme",
+        "theme": "flora"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "scroll_into_view",
+        "text": "Delete file…",
+        "block": "center",
+        "behavior": "instant"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "click",
+        "text": "Delete file…"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_settled"
+      },
+      {
+        "op": "list_popups"
+      },
+      {
+        "op": "assert_response",
+        "contains": "\"shown\":\"overlay\""
+      },
+      {
+        "op": "take_screenshot"
+      },
+      {
+        "op": "key_down",
+        "key": "Escape"
+      },
+      {
+        "op": "key_up",
+        "key": "Escape"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "scroll_into_view",
+        "block": "center",
+        "behavior": "instant",
+        "text": "Blue"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "click",
+        "text": "Blue"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_settled"
+      },
+      {
+        "op": "list_popups"
+      },
+      {
+        "op": "assert_response",
+        "contains": "\"is_menu\":true"
+      },
+      {
+        "op": "take_screenshot"
+      },
+      {
+        "op": "key_down",
+        "key": "Escape"
+      },
+      {
+        "op": "key_up",
+        "key": "Escape"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "list_popups"
+      },
+      {
+        "op": "assert_response",
+        "contains": "\"popup_count\":0"
+      }
+    ]
+  },
+  {
+    "name": "azul_widgets_a_dialog_with_a_text_field_on_a_phone",
+    "description": "The modal Dialog 'Rename file...' (a title, a text field, two buttons) of a window with ONE surface (a phone, the emulator or the Simulator): shown as a bottom sheet over its scrim; a press on the text field puts the soft keyboard up and the sheet stands ON it, not behind it (the scrim's bottom padding is the keyboard's height); Escape closes it. The first picture is the sheet at rest, the second the sheet over the keyboard (the engine's frame has the room the keyboard takes; the recording of the run has the keyboard itself).",
+    "config": {
+      "continue_on_failure": true
+    },
+    "steps": [
+      {
+        "op": "set_mode",
+        "mode": "light"
+      },
+      {
+        "op": "set_theme",
+        "theme": "flora"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "scroll_into_view",
+        "text": "Rename file…",
+        "block": "center",
+        "behavior": "instant"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "click",
+        "text": "Rename file…"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_settled"
+      },
+      {
+        "op": "list_popups"
+      },
+      {
+        "op": "assert_response",
+        "contains": "\"shown\":\"overlay\""
+      },
+      {
+        "op": "assert_response",
+        "contains": "\"covers_window\":true"
+      },
+      {
+        "op": "assert_response",
+        "contains": "\"top\":true"
+      },
+      {
+        "op": "take_screenshot"
+      },
+      {
+        "op": "click",
+        "selector": "#rename-field"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait",
+        "ms": 1500,
+        "real": true
+      },
+      {
+        "op": "wait_settled"
+      },
+      {
+        "op": "list_popups"
+      },
+      {
+        "op": "assert_response",
+        "contains": "\"popup_count\":1"
+      },
+      {
+        "op": "assert_response",
+        "contains": "\"top\":true"
+      },
+      {
+        "op": "take_screenshot"
+      },
+      {
+        "op": "key_down",
+        "key": "Escape"
+      },
+      {
+        "op": "key_up",
+        "key": "Escape"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "list_popups"
+      },
+      {
+        "op": "assert_response",
+        "contains": "\"popup_count\":0"
+      }
+    ],
+    "only_on": [
+      "android",
+      "ios"
+    ]
+  },
+  {
+    "name": "azul_widgets_a_dialog_with_a_text_field_on_a_phone_display_of_a_desktop_window",
+    "description": "The same dialog on the host: the window is resized to a Pixel 8 (411 x 914 dp) and put on its display, so the engine shows the sheet INSIDE it as a phone does (the host has no soft keyboard: the second picture is the sheet with the field focused).",
+    "config": {
+      "continue_on_failure": true
+    },
+    "steps": [
+      {
+        "op": "resize",
+        "width": 411,
+        "height": 914
+      },
+      {
+        "op": "set_display_preset",
+        "preset": "pixel8"
+      },
+      {
+        "op": "set_mode",
+        "mode": "light"
+      },
+      {
+        "op": "set_theme",
+        "theme": "flora"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "scroll_into_view",
+        "text": "Rename file…",
+        "block": "center",
+        "behavior": "instant"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "click",
+        "text": "Rename file…"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_settled"
+      },
+      {
+        "op": "list_popups"
+      },
+      {
+        "op": "assert_response",
+        "contains": "\"shown\":\"overlay\""
+      },
+      {
+        "op": "assert_response",
+        "contains": "\"covers_window\":true"
+      },
+      {
+        "op": "assert_response",
+        "contains": "\"top\":true"
+      },
+      {
+        "op": "take_screenshot"
+      },
+      {
+        "op": "click",
+        "selector": "#rename-field"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait",
+        "ms": 1500,
+        "real": true
+      },
+      {
+        "op": "wait_settled"
+      },
+      {
+        "op": "list_popups"
+      },
+      {
+        "op": "assert_response",
+        "contains": "\"popup_count\":1"
+      },
+      {
+        "op": "assert_response",
+        "contains": "\"top\":true"
+      },
+      {
+        "op": "take_screenshot"
+      },
+      {
+        "op": "key_down",
+        "key": "Escape"
+      },
+      {
+        "op": "key_up",
+        "key": "Escape"
       },
       {
         "op": "wait_frame"
