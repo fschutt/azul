@@ -50,6 +50,8 @@ pub struct SelfTest {
     queue: VecDeque<usize>,
     running: Option<Running>,
     unattended: bool,
+    /// A harness answers the `AZ_SELFTEST_AWAIT` lines (`AZ_SELFTEST_FED=1`): the rows of [`probes::FEEDABLE`] run.
+    fed: bool,
     started: Instant,
     report_due: bool,
     exit_code: i32,
@@ -77,6 +79,7 @@ impl SelfTest {
             queue: VecDeque::new(),
             running: None,
             unattended,
+            fed: unattended && std::env::var("AZ_SELFTEST_FED").is_ok_and(|v| !v.is_empty() && v != "0"),
             started: Instant::now(),
             report_due: false,
             exit_code: 0,
@@ -140,7 +143,9 @@ impl SelfTest {
                 return false;
             };
             let def = self.rows[idx].0;
-            if let (true, Some(what)) = (self.unattended, def.human) {
+            // A row a harness feeds (`AZ_SELFTEST_FED=1`) runs: the probe says what it waits for on stdout.
+            let fed = self.fed && probes::FEEDABLE.contains(&def.id);
+            if let (true, Some(what)) = (self.unattended && !fed, def.human) {
                 self.finish(idx, Verdict::NeedsHuman(what.to_string()), 0);
                 return true;
             }

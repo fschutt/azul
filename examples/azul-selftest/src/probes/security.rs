@@ -102,6 +102,8 @@ fn biometric_prompt(ctx: &mut Ctx<'_>) -> Step {
             allow_device_credential: false,
         });
         ctx.phase = 1;
+        // A harness that feeds the platform answers this line (iOS Simulator: a face that matches).
+        super::await_feed("biometric.match");
         return Step::Wait;
     }
     match ctx.info.get_biometric_result().into_option() {

@@ -17,10 +17,26 @@ use crate::report::{RowResult, Verdict};
 
 pub mod device;
 pub mod pending;
+pub mod platform;
 pub mod render;
 pub mod security;
 pub mod sensors;
 pub mod system;
+
+/// Rows a harness can play the person for: it feeds the platform (a finger or face that matches, a location) while the
+/// row waits. They run in an unattended run only when the harness says so with `AZ_SELFTEST_FED=1` (it promises to
+/// answer every `AZ_SELFTEST_AWAIT` line); without it they are listed with their instruction like every other row that
+/// needs a person.
+pub const FEEDABLE: &[&str] = &["security.biometric_prompt"];
+
+/// The harness's turn: prints the ONE line `AZ_SELFTEST_AWAIT <key>` the harness waits for before it feeds the
+/// platform (key `biometric.match`: Android `adb emu finger touch 1`, iOS Simulator
+/// `notifyutil -p com.apple.BiometricKit_Sim.pearl.match`). Call it once, right after the probe started what waits.
+pub fn await_feed(key: &str) {
+    use std::io::Write as _;
+    println!("AZ_SELFTEST_AWAIT {key}");
+    let _ = std::io::stdout().flush();
+}
 
 /// What a probe sees on each tick.
 pub struct Ctx<'a> {
@@ -84,6 +100,7 @@ pub fn all() -> Vec<&'static ProbeDef> {
         sensors::PROBES,
         security::PROBES,
         system::PROBES,
+        platform::PROBES,
         render::PROBES,
         pending::PROBES,
     ]

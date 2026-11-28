@@ -31,28 +31,10 @@ pub static PROBES: &[ProbeDef] = &[
         "CallbackInfo::get_primary_gamepad: NEEDS-HUMAN (press a button on a paired pad); UNAVAILABLE without one",
     ),
     pending(
-        "input.clipboard",
-        "input",
-        "Clipboard round trip",
-        "CallbackInfo::set_clipboard_content then get_clipboard_content returns the same text (Android 10+: only while the app has the focus)",
-    ),
-    pending(
         "input.soft_keyboard",
         "input",
         "Soft keyboard",
         "a tap on a TextInput raises the keyboard exactly once (the harness asks the window system), BACK hides it",
-    ),
-    pending(
-        "system.permission_state",
-        "system",
-        "Permission state without prompting",
-        "CallbackInfo::get_permission_status for every Capability answers NotDetermined / Granted / Denied and never shows a dialog; a fresh install launched with nothing granted shows no dialog at all",
-    ),
-    pending(
-        "system.settings",
-        "system",
-        "Platform settings",
-        "CallbackInfo::get_system_style (dark mode), set_locale, get_safe_area_insets, text scale: the harness flips dark mode (cmd uimode night yes) and the row sees it",
     ),
     pending(
         "system.file_picker",
