@@ -50,14 +50,15 @@ public final class AzulSounds {
     private static MediaActionSound camera;
 
     /**
-     * Whether the user has "Touch sounds" on (Settings > Sound & vibration):
-     * Settings.System.SOUND_EFFECTS_ENABLED. True when it cannot be read: AudioService applies
-     * the switch at the call anyway.
+     * Whether the user has "Touch sounds" on (Settings > Sound & vibration; "Tap & click sounds"
+     * on GrapheneOS): Settings.System.SOUND_EFFECTS_ENABLED. A row that is missing reads as OFF,
+     * as AudioService reads it (it asks with the default 0); true when it cannot be read at all:
+     * AudioService applies the switch at the call anyway.
      */
     public static boolean touchSoundsEnabled(Activity activity) {
         try {
             return Settings.System.getInt(
-                    activity.getContentResolver(), Settings.System.SOUND_EFFECTS_ENABLED, 1) != 0;
+                    activity.getContentResolver(), Settings.System.SOUND_EFFECTS_ENABLED, 0) != 0;
         } catch (Throwable t) {
             return true;
         }
