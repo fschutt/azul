@@ -1,0 +1,131 @@
+#!/usr/bin/env python3
+"""Tests of scripts/ci/ios_sim_selftest.py: the pure parts (device choice, the environment of the launch, the await protocol,
+the expectations of a Simulator run); the Simulator itself is the job's (standard library only).
+
+    python3 scripts/ci/test_ios_sim_selftest.py
+"""
+import json
+import pathlib
+import sys
+import unittest
+
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+import ios_sim_selftest as sim  # noqa: E402
+
+LISTING = json.dumps({
+    "devices": {
+        "com.apple.CoreSimulator.SimRuntime.iOS-17-5": [
+            {"name": "iPhone 16 Pro", "udid": "OLD-PRO", "state": "Shutdown", "isAvailable": True},
+        ],
+        "com.apple.CoreSimulator.SimRuntime.iOS-18-2": [
+            {"name": "iPhone 16 Pro", "udid": "NEW-PRO", "state": "Shutdown", "isAvailable": True},
+            {"name": "iPhone SE (3rd generation)", "udid": "SE", "state": "Booted", "isAvailable": True},
+            {"name": "iPhone 15", "udid": "GONE", "state": "Shutdown", "isAvailable": False},
+        ],
+        "com.apple.CoreSimulator.SimRuntime.watchOS-11-0": [
+            {"name": "Apple Watch", "udid": "WATCH", "state": "Shutdown", "isAvailable": True},
+        ],
+    }
+})
+
+
+class Devices(unittest.TestCase):
+    def test_only_available_ios_devices_are_listed_newest_runtime_first(self):
+        devices = sim.parse_devices(LISTING)
+        self.assertEqual([d["udid"] for d in devices], ["NEW-PRO", "SE", "OLD-PRO"])
+
+    def test_a_name_picks_the_newest_runtime(self):
+        self.assertEqual(sim.pick_device(sim.parse_devices(LISTING), "iPhone 16 Pro")["udid"], "NEW-PRO")
+
+    def test_a_udid_picks_exactly_that_device(self):
+        self.assertEqual(sim.pick_device(sim.parse_devices(LISTING), "OLD-PRO")["runtime"].split(".")[-1], "iOS-17-5")
+
+    def test_an_unknown_device_is_none(self):
+        self.assertIsNone(sim.pick_device(sim.parse_devices(LISTING), "iPhone 99"))
+
+
+class Launch(unittest.TestCase):
+    def test_the_app_environment_goes_through_the_simctl_child_prefix(self):
+        env = sim.launch_env()
+        self.assertEqual(env["SIMCTL_CHILD_AZ_SELFTEST"], "1")
+        self.assertEqual(env["SIMCTL_CHILD_AZ_SELFTEST_FED"], "1")
+        self.assertTrue(all(k.startswith("SIMCTL_CHILD_") for k in env))
+
+    def test_an_unfed_launch_does_not_promise_a_harness(self):
+        self.assertNotIn("SIMCTL_CHILD_AZ_SELFTEST_FED", sim.launch_env(fed=False))
+
+
+class Await(unittest.TestCase):
+    def test_every_await_line_is_answered_once(self):
+        seen = {}
+        console = "noise\nAZ_SELFTEST_AWAIT biometric.match\nmore\n"
+        self.assertEqual(sim.new_awaits(console, seen), ["biometric.match"])
+        self.assertEqual(sim.new_awaits(console, seen), [])
+        console += "AZ_SELFTEST_AWAIT biometric.match\nAZ_SELFTEST_AWAIT biometric.nomatch\n"
+        self.assertEqual(sim.new_awaits(console, seen), ["biometric.match", "biometric.nomatch"])
+
+    def test_a_face_that_matches_and_one_that_does_not(self):
+        self.assertEqual(sim.feed_for("biometric.match", "U")[0][-1], "com.apple.BiometricKit_Sim.pearl.match")
+        self.assertEqual(sim.feed_for("biometric.nomatch", "U")[0][-1], "com.apple.BiometricKit_Sim.pearl.nomatch")
+        self.assertEqual(sim.feed_for("biometric.match", "U", touch=True)[0][-1], "com.apple.BiometricKit_Sim.fingerTouch.match")
+
+    def test_a_location_key_carries_its_coordinates(self):
+        self.assertEqual(sim.feed_for("location.48.5,9.0", "U"), [["xcrun", "simctl", "location", "U", "set", "48.5,9.0"]])
+
+    def test_an_unknown_or_malformed_key_has_no_feed(self):
+        self.assertIsNone(sim.feed_for("shake", "U"))
+        self.assertIsNone(sim.feed_for("location.north", "U"))
+
+
+class Asked(unittest.TestCase):
+    def test_the_lines_that_say_the_app_asked_for_a_permission(self):
+        console = "[avf_auth] requesting video access (async, OS prompt)\nplain line\nrequestWhenInUseAuthorization sent"
+        self.assertEqual(len(sim.asked_lines(console)), 2)
+
+    def test_a_quiet_console_asked_for_nothing(self):
+        self.assertEqual(sim.asked_lines("[avf_auth] video access already granted\nframe 3"), [])
+
+
+def report(**verdicts):
+    return {"rows": [{"id": rid.replace("__", "."), "verdict": v, "detail": "d"} for rid, v in verdicts.items()]}
+
+
+class Expectations(unittest.TestCase):
+    def full(self, **over):
+        base = {
+            "device__capabilities": "PASS", "device__network": "PASS", "security__keyring": "PASS",
+            "security__biometric_kind": "PASS", "security__biometric_prompt": "PASS", "input__clipboard": "PASS",
+            "system__permission_state": "PASS", "system__settings": "PASS", "sensors__accelerometer": "UNAVAILABLE",
+            "sensors__gyroscope": "UNAVAILABLE", "sensors__magnetometer": "UNAVAILABLE", "sensors__barometer": "UNAVAILABLE",
+            "sensors__geolocation": "NEEDS-HUMAN",
+        }
+        base.update(over)
+        return report(**base)
+
+    def test_a_good_fresh_run_has_no_findings(self):
+        self.assertEqual(sim.check_rows(self.full(), "fresh"), [])
+
+    def test_a_fail_anywhere_is_a_finding(self):
+        found = sim.check_rows(self.full(system__haptics="FAIL"), "fresh")
+        self.assertTrue(any("FAIL system.haptics" in f for f in found))
+
+    def test_the_geolocation_row_follows_the_privacy_decision(self):
+        self.assertEqual(sim.check_rows(self.full(sensors__geolocation="PASS"), "granted"), [])
+        self.assertEqual(sim.check_rows(self.full(sensors__geolocation="DENIED"), "revoked"), [])
+        self.assertTrue(sim.check_rows(self.full(sensors__geolocation="PASS"), "revoked"))
+        self.assertTrue(sim.check_rows(self.full(sensors__geolocation="NEEDS-HUMAN"), "granted"))
+
+    def test_a_missing_row_is_named(self):
+        rows = self.full()
+        rows["rows"] = [r for r in rows["rows"] if r["id"] != "input.clipboard"]
+        self.assertTrue(any("MISSING input.clipboard" in f for f in sim.check_rows(rows, "fresh")))
+
+    def test_the_biometric_prompt_must_pass_with_a_face_fed(self):
+        self.assertTrue(sim.check_rows(self.full(security__biometric_prompt="NEEDS-HUMAN"), "fresh"))
+
+    def test_a_sensor_the_simulator_lacks_may_not_fail_or_need_a_person(self):
+        self.assertTrue(sim.check_rows(self.full(sensors__gyroscope="NEEDS-HUMAN"), "fresh"))
+
+
+if __name__ == "__main__":
+    unittest.main()
