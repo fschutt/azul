@@ -9,6 +9,7 @@
 //! 4. `instanced`: a VAO with a vertex buffer, an index buffer and a per-instance buffer holding a `vec4` and an `ivec4` (integer
 //!    attribute, divisor 1), drawn with `glDrawElementsInstanced`, sampling the same texture: `composite` of WebRender;
 //! 4b. `flat_lowp`: the quad pipeline's varyings, `flat lowp ivec4` carrying values that need more than eight bits and a `flat mediump vec4`;
+//! 4c. `quad_u8norm`: the same draw with WebRender's own unit quad, normalized unsigned bytes with a stride of two;
 //! 5. `data_textures`: an RGBA32F and an RGBA32I texture fetched with `texelFetch`: WebRender's GPU cache and prim headers;
 //! 5d. `pbo_upload`: the same two textures filled through a pixel unpack buffer (`glMapBufferRange`, `glUnmapBuffer`, `glTexSubImage2D` from an
 //!     offset with `GL_UNPACK_ROW_LENGTH`, the buffer mapped a second time unsynchronized): WebRender's `TextureUploader`;
@@ -589,15 +590,27 @@ fn phase_instanced(gl: &GenericGlContext, target: Target, programs: &Programs) -
 /// in it) and `flat mediump vec4 v_color`, two instances with integer records that need more than eight bits (1500 and 300). Both halves
 /// of the window must come out green.
 fn phase_flat_lowp(gl: &GenericGlContext, target: Target, programs: &Programs) -> Row {
+    flags_phase(gl, target, programs, "flat_lowp", false)
+}
+
+/// 4c. The quad of every WebRender draw: `glVertexAttribPointer(0, 2, GL_UNSIGNED_BYTE, normalized, stride 2)` (four corners of two bytes, 0 and 255),
+/// the instance's integer record beside it: the shader and the records of `flat_lowp`. The window must come out as green as there.
+fn phase_quad_u8norm(gl: &GenericGlContext, target: Target, programs: &Programs) -> Row {
+    flags_phase(gl, target, programs, "quad_u8norm", true)
+}
+
+fn flags_phase(gl: &GenericGlContext, target: Target, programs: &Programs, name: &'static str, quad_u8: bool) -> Row {
     let program = match &programs.flags {
         Ok(program) => *program,
-        Err(why) => return failed("flat_lowp", format!("the program did not build: {why}")),
+        Err(why) => return failed(name, format!("the program did not build: {why}")),
     };
     let size = target.size;
     window_target(gl, target);
     gl.clear_color(0.2, 0.2, 0.2, 1.0);
     gl.clear(glconst::COLOR_BUFFER_BIT);
 
+    // The order of WebRender's own VAO set-up (the host trace): the VAO, the quad's buffer with its attribute, the instance buffer with its
+    // attributes, the index buffer, and only then the data of the three buffers.
     let vao = gl.gen_vertex_arrays(1).first().copied().unwrap_or(0);
     let buffers = gl.gen_buffers(3);
     let (corners, indices, instances) = (
@@ -606,8 +619,35 @@ fn phase_flat_lowp(gl: &GenericGlContext, target: Target, programs: &Programs) -
         buffers.get(2).copied().unwrap_or(0),
     );
     gl.bind_vertex_array(vao);
-    let quad: [f32; 8] = [0.0, 0.0, 1.0, 0.0, 0.0, 1.0, 1.0, 1.0];
-    let quad_bytes: Vec<u8> = quad.iter().flat_map(|v| v.to_ne_bytes()).collect();
+    gl.bind_buffer(glconst::ARRAY_BUFFER, corners);
+    gl.enable_vertex_attrib_array(0);
+    gl.vertex_attrib_divisor(0, 0);
+    if quad_u8 {
+        gl.vertex_attrib_pointer(0, 2, glconst::UNSIGNED_BYTE, true, 2, 0);
+    } else {
+        gl.vertex_attrib_pointer(0, 2, glconst::FLOAT, false, 8, 0);
+    }
+    gl.bind_buffer(glconst::ARRAY_BUFFER, instances);
+    gl.enable_vertex_attrib_array(1);
+    gl.vertex_attrib_divisor(1, 1);
+    gl.vertex_attrib_pointer(1, 4, glconst::FLOAT, false, 32, 0);
+    gl.enable_vertex_attrib_array(2);
+    gl.vertex_attrib_divisor(2, 1);
+    gl.vertex_attrib_i_pointer(2, 4, glconst::INT, 32, 16);
+    gl.bind_buffer(glconst::ELEMENT_ARRAY_BUFFER, indices);
+    let index_values: [u16; 6] = [0, 1, 2, 2, 1, 3];
+    let index_bytes: Vec<u8> = index_values.iter().flat_map(|v| v.to_ne_bytes()).collect();
+    gl.buffer_data_untyped(
+        glconst::ELEMENT_ARRAY_BUFFER,
+        isize::try_from(index_bytes.len()).unwrap_or(0),
+        index_bytes.as_ptr().cast(),
+        glconst::STATIC_DRAW,
+    );
+    let quad_bytes: Vec<u8> = if quad_u8 {
+        vec![0, 0, 255, 0, 0, 255, 255, 255]
+    } else {
+        [0.0_f32, 0.0, 1.0, 0.0, 0.0, 1.0, 1.0, 1.0].iter().flat_map(|v| v.to_ne_bytes()).collect()
+    };
     gl.bind_buffer(glconst::ARRAY_BUFFER, corners);
     gl.buffer_data_untyped(
         glconst::ARRAY_BUFFER,
@@ -615,8 +655,6 @@ fn phase_flat_lowp(gl: &GenericGlContext, target: Target, programs: &Programs) -
         quad_bytes.as_ptr().cast(),
         glconst::STATIC_DRAW,
     );
-    gl.vertex_attrib_pointer(0, 2, glconst::FLOAT, false, 8, 0);
-    gl.enable_vertex_attrib_array(0);
     let records: [([f32; 4], [i32; 4]); 2] = [
         ([0.0, 0.0, 0.5, 1.0], [1500, 300, 2, 1]),
         ([0.5, 0.0, 0.5, 1.0], [7, 3, 0, 0]),
@@ -631,22 +669,7 @@ fn phase_flat_lowp(gl: &GenericGlContext, target: Target, programs: &Programs) -
         glconst::ARRAY_BUFFER,
         isize::try_from(instance_bytes.len()).unwrap_or(0),
         instance_bytes.as_ptr().cast(),
-        glconst::STATIC_DRAW,
-    );
-    gl.vertex_attrib_pointer(1, 4, glconst::FLOAT, false, 32, 0);
-    gl.enable_vertex_attrib_array(1);
-    gl.vertex_attrib_divisor(1, 1);
-    gl.vertex_attrib_i_pointer(2, 4, glconst::INT, 32, 16);
-    gl.enable_vertex_attrib_array(2);
-    gl.vertex_attrib_divisor(2, 1);
-    let index_values: [u16; 6] = [0, 1, 2, 2, 1, 3];
-    let index_bytes: Vec<u8> = index_values.iter().flat_map(|v| v.to_ne_bytes()).collect();
-    gl.bind_buffer(glconst::ELEMENT_ARRAY_BUFFER, indices);
-    gl.buffer_data_untyped(
-        glconst::ELEMENT_ARRAY_BUFFER,
-        isize::try_from(index_bytes.len()).unwrap_or(0),
-        index_bytes.as_ptr().cast(),
-        glconst::STATIC_DRAW,
+        glconst::STREAM_DRAW,
     );
     gl.use_program(program);
     let transform: [f32; 16] = [
@@ -663,7 +686,7 @@ fn phase_flat_lowp(gl: &GenericGlContext, target: Target, programs: &Programs) -
         ("right instance (7, 3, 0, 0)", GREEN, px(gl, 3 * w / 4, h / 2)),
     ];
     let error = gl.get_error();
-    let result = row("flat_lowp", &checks, error, "red: a flat lowp ivec4 varying lost its value; yellow: the mediump colour did");
+    let result = row(name, &checks, error, "red: a flat lowp ivec4 varying lost its value; yellow: the mediump colour did; nothing: no quad");
 
     gl.use_program(0);
     gl.bind_vertex_array(0);
@@ -1382,13 +1405,14 @@ fn phase_shared_depth(gl: &GenericGlContext, target: Target, programs: &Programs
 }
 
 /// The phases, by name, in the order the ladder runs them.
-pub const PHASES: [&str; 13] = [
+pub const PHASES: [&str; 14] = [
     "clear",
     "shader",
     "dummy_texture",
     "fbo_sample",
     "instanced",
     "flat_lowp",
+    "quad_u8norm",
     "data_textures",
     "pbo_upload",
     "vertex_fetch",
@@ -1421,6 +1445,7 @@ pub fn run_ladder(gl: &GenericGlContext, target: Target, show: &mut dyn FnMut(&'
             "fbo_sample" => phase_fbo_sample(gl, target, &programs),
             "instanced" => phase_instanced(gl, target, &programs),
             "flat_lowp" => phase_flat_lowp(gl, target, &programs),
+            "quad_u8norm" => phase_quad_u8norm(gl, target, &programs),
             "data_textures" => phase_data_textures(gl, target, &programs),
             "pbo_upload" => phase_pbo_upload(gl, target, &programs),
             "vertex_fetch" => phase_vertex_fetch(gl, target, &programs),

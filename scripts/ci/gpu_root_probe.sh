@@ -71,6 +71,7 @@ for img in $(printf '%s\n' $images_needed | sort -u); do
     || { echo "sdkmanager failed for $img:"; tail -n 20 "$out/sdkmanager.log"; [ "$img" = "$image" ] && exit 2; }
 done
 emulator -version 2>&1 | head -n 3 | tee "$out/emulator-version.txt"
+{ emulator -help-gpu 2>&1 | head -n 60; ls "$ANDROID_HOME/emulator/lib64" 2>&1 | head -n 60; } | tee "$out/emulator-gpu-help.txt"
 badging="$("$aapt2" dump badging "$apk" 2>/dev/null || true)"
 pkg="$(echo "$badging" | sed -n "s/^package: name='\([^']*\)'.*/\1/p" | head -n 1)"
 act="$(echo "$badging" | sed -n "s/^launchable-activity: name='\([^']*\)'.*/\1/p" | head -n 1)"
