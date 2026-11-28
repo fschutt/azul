@@ -20,15 +20,13 @@ use azul::{
     window::PlatformCapability,
 };
 
-use super::{describe_capability, Ctx, ProbeDef, Step};
+use super::{describe_capability, Ctx, ProbeDef, Step, SETTLE_MS};
 use crate::{report::Verdict, SelfTest};
 
 /// Frames a row needs before it passes.
 const FRAMES_NEEDED: u64 = 5;
 /// How long a granted capture gets to deliver them (the first frame of a camera takes a second or two to start).
 const FRAME_WAIT_MS: u64 = 12_000;
-/// How long an unattended run waits for the permission state to be read (the engine reads it quietly about once a second).
-const SETTLE_MS: u64 = 2_500;
 
 pub static PROBES: &[ProbeDef] = &[
     ProbeDef {

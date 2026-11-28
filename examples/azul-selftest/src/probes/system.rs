@@ -47,6 +47,7 @@ fn notifications(ctx: &mut Ctx<'_>) -> Step {
         PermissionState::Denied | PermissionState::Restricted => {
             return Step::Done(Verdict::Denied("the notification permission is refused: allow it in the settings".into()));
         }
+        _ if ctx.unattended && ctx.elapsed_ms < super::SETTLE_MS => return Step::Wait,
         _ if ctx.unattended => {
             return Step::Done(Verdict::NeedsHuman(
                 "the notification permission was never granted: grant it (adb shell pm grant <package> android.permission.POST_NOTIFICATIONS) or run this row by hand"
