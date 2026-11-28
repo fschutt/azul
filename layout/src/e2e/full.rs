@@ -9771,7 +9771,7 @@ fn eval_assert_notification(
 
 /// The parameters `assert_sound` and `assert_no_sound` filter the recording with.
 #[cfg(feature = "std")]
-const SOUND_FILTERS: &[&str] = &["sound", "class", "route", "suppressed_by", "played", "since"];
+static SOUND_FILTERS: &[&str] = &["sound", "class", "route", "suppressed_by", "played", "since"];
 
 /// What the filters of `assert_sound` / `assert_no_sound` matched in the window's recording of
 /// system-sound requests: how many records match, and the last few lines of the recording for the
