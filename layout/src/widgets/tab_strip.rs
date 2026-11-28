@@ -335,6 +335,7 @@ pub struct IconPillLayout {
 }
 
 /// How many pills of width `width` with `gap` between them stand in a span of `room` px.
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // a few pills, never negative
 fn pills_in(room: f32, width: f32, gap: f32) -> usize {
     if !(room.is_finite() && room >= width && width > 0.0) {
         return 0;
@@ -388,6 +389,11 @@ fn lane_shares(caps: &[usize], count: usize) -> Option<Vec<usize>> {
 /// Counts above [`MAX_STRIP_PILLS`] are laid out as [`MAX_STRIP_PILLS`] (`capped`), and numbers
 /// that are not numbers make a lane no lane: never a crash.
 #[must_use]
+#[allow(
+    clippy::cast_precision_loss,
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss
+)] // at most MAX_STRIP_PILLS pills, a few px of width
 pub fn icon_pill_layout(lanes: &[(f32, f32)], count: usize, gap: f32) -> IconPillLayout {
     let capped = count > MAX_STRIP_PILLS;
     let count = count.min(MAX_STRIP_PILLS);
@@ -426,8 +432,10 @@ pub fn icon_pill_layout(lanes: &[(f32, f32)], count: usize, gap: f32) -> IconPil
         .iter()
         .map(|&(left, right)| (right - left) - 2.0 * inset(left, right))
         .collect();
-    let (mut width, min) = (ICON_PILL_MAX, ICON_PILL_MIN);
-    while width >= min {
+    // The largest whole number of px first, down to the smallest.
+    let steps = (ICON_PILL_MAX - ICON_PILL_MIN) as u32;
+    for step in 0..=steps {
+        let width = ICON_PILL_MAX - step as f32;
         let caps: Vec<usize> = rooms.iter().map(|&room| pills_in(room, width, gap)).collect();
         if let Some(shares) = lane_shares(&caps, count) {
             let mut positions = Vec::with_capacity(count);
@@ -447,7 +455,6 @@ pub fn icon_pill_layout(lanes: &[(f32, f32)], count: usize, gap: f32) -> IconPil
                 capped,
             };
         }
-        width -= 1.0;
     }
     row(first.0 + inset(first.0, first.1))
 }
@@ -458,6 +465,12 @@ pub fn icon_pill_layout(lanes: &[(f32, f32)], count: usize, gap: f32) -> IconPil
 /// pills with `lead` before the first and after the last and `gap` between them is told to fit by
 /// `fits(total)`, and `true`; [`ICON_PILL_MIN`] and `false` where none does (the row scrolls). Only
 /// the widths of the steps tried are asked, widest first.
+#[must_use]
+#[allow(
+    clippy::cast_precision_loss,
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss
+)] // at most MAX_STRIP_PILLS pills, a few px of width
 pub fn icon_pill_width_where(
     count: usize,
     lead: f32,
@@ -470,13 +483,13 @@ pub fn icon_pill_width_where(
     if count == 0 {
         return (ICON_PILL_MAX, true);
     }
-    let mut width = ICON_PILL_MAX;
-    while width >= ICON_PILL_MIN {
+    let steps = ((ICON_PILL_MAX - ICON_PILL_MIN) / 4.0) as u32;
+    for step in 0..=steps {
+        let width = ICON_PILL_MAX - 4.0 * step as f32;
         let total = 2.0 * lead + count as f32 * width + (count - 1) as f32 * gap;
         if fits(total) {
             return (width, true);
         }
-        width -= 4.0;
     }
     (ICON_PILL_MIN, false)
 }

@@ -2537,7 +2537,7 @@ impl TabHeader {
                 ));
             }
             pill.add_child(match icon_pills.as_ref() {
-                Some(pills) => icon_hit_extender(pills.side, tab_strip::TOUCH_ROW),
+                Some(pills) => icon_hit_extender(pills.side, row),
                 None => hit_extender(),
             });
             // Pills that stand lane by lane have nothing to scroll into view.

@@ -2811,6 +2811,9 @@ pub struct Ribbon {
     /// the rule where every tab names one, or its text. Only the touch pills take it; a desktop's
     /// pills show their text. APPENDED for ABI stability.
     pub labels: crate::widgets::tabs::TabLabels,
+    /// What a command shows of itself ([`Self::with_button_face`]): its icon and its label (the
+    /// default), the label alone or the icon alone. APPENDED for ABI stability.
+    pub button_face: RibbonButtonFace,
 }
 
 /// The application button at the far left of the tab strip ("FILE").
@@ -2985,6 +2988,27 @@ pub enum RibbonArrow {
     /// large one: the icon over the label and ▾; a small one: icon and label
     /// beside the ▾); without it, it renders like `Menu`.
     Split,
+}
+
+/// What a ribbon command shows of itself ([`Ribbon::with_button_face`]): an icon OR a label, never
+/// both (Apple's rule for a control) - or both, the Office look the ribbon has always had.
+///
+/// It applies to every [`RibbonItem::LargeButton`] and [`RibbonItem::SmallButton`] of the shown
+/// tab, the buttons inside columns and rows too; the groups and the band stay exactly as tall
+/// ([`crate::widgets::tabs::TAB_BAND_PX`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+#[repr(C)]
+pub enum RibbonButtonFace {
+    /// The icon and the label: today's look. The default.
+    #[default]
+    Both,
+    /// The label alone, no icon: a large button is one line of text in a button of the same
+    /// height. A button with no label keeps its icon (it has nothing else to show), and so does a
+    /// large split button (its main part is its icon).
+    Text,
+    /// The icon alone: the label is the button's accessible name and its tooltip (on hover and on
+    /// a long press). A button with no icon keeps its label.
+    Icon,
 }
 
 /// In-ribbon gallery: a strip of preview cells plus a 3-button spinner column.
@@ -3616,6 +3640,38 @@ impl Ribbon {
             status_bar: crate::widgets::tab_strip::OptionStatusBarBand::None,
             flip: crate::widgets::tab_flip::TabFlip::AtEdges,
             labels: crate::widgets::tabs::TabLabels::Auto,
+            button_face: RibbonButtonFace::Both,
+        }
+    }
+
+    /// What a command shows of itself: its icon and its label (`Both`, the default), the label
+    /// alone (`Text`) or the icon alone (`Icon`: the label is the accessible name and the
+    /// tooltip). One or the other, never both, is Apple's rule for a control. See
+    /// [`RibbonButtonFace`].
+    pub const fn set_button_face(&mut self, face: RibbonButtonFace) {
+        self.button_face = face;
+    }
+
+    /// [`Self::set_button_face`] for the builder chain.
+    #[must_use]
+    pub const fn with_button_face(mut self, face: RibbonButtonFace) -> Self {
+        self.set_button_face(face);
+        self
+    }
+
+    /// Draws every command of the shown tab as [`Self::button_face`] says (before anything is
+    /// measured: the groups scale by the widths of the faces they will have).
+    fn apply_button_face(&mut self) {
+        let face = self.button_face;
+        if face == RibbonButtonFace::Both {
+            return;
+        }
+        let tabs: &mut [RibbonTab] = self.tabs.as_mut();
+        if let Some(tab) = tabs.get_mut(self.active_tab) {
+            let groups: &mut [RibbonGroup] = tab.groups.as_mut();
+            for group in groups {
+                face_items(group.items.as_mut(), face);
+            }
         }
     }
 
@@ -3863,7 +3919,8 @@ impl Ribbon {
     /// `mode`'s chrome in the ribbon's theme: a pinned theme is that look;
     /// no theme follows the app theme - the look of the theme the DOM is
     /// built for (`UiTheme::current()`), built once.
-    fn themed(self, mode: RibbonChromeMode) -> Dom {
+    fn themed(mut self, mode: RibbonChromeMode) -> Dom {
+        self.apply_button_face();
         let view = RevealView::of(&self.reveal, self.active_tab);
         let theme = crate::widgets::themes::theme_blocks::live_theme(self.theme);
         // A phone's strip (the touch pills) never collapses a group: its band scrolls instead.
@@ -4050,6 +4107,8 @@ impl Ribbon {
             flip,
             // Already turned into `icon_pills` by `build_in`.
             labels: _,
+            // Already applied to the buttons by `themed`.
+            button_face: _,
         } = self;
         // The leather: the desktop pills' one surface and golden line. The touch pills have none.
         let leather = pills && !touch;
@@ -4160,7 +4219,7 @@ impl Ribbon {
                 d = d
                     .with_accessibility_info(AccessibilityInfo {
                         role: AccessibilityRole::PushButton,
-                        accessibility_name: OptionString::Some(label.clone()),
+                        accessibility_name: OptionString::Some(label),
                         ..Default::default()
                     })
                     .with_class(AzString::from_const_str(crate::widgets::tabs::ICON_PILL_CLASS));
@@ -4952,7 +5011,7 @@ fn band_surface(leather: bool, style: &[Cond]) -> Option<(ColorU, ColorU)> {
                 }),
                 _ => None,
             })
-            .last()
+            .next_back()
     };
     let light = face(false).filter(|c| c.a == 255)?;
     Some((light, face(true).filter(|c| c.a == 255).unwrap_or(light)))
@@ -5602,6 +5661,9 @@ fn expand_ribbon_button(rb: RibbonButton, large: bool, s: &RibbonStyle, theme: U
         return split_button_dom(rb, large, s, theme);
     }
     let disabled = rb.is_disabled();
+    // An icon alone (its label is its name): the name is also its tooltip.
+    let tip = (rb.label.as_str().is_empty() && !disabled).then(|| button_name(&rb));
+    let icon_less = rb.icon.as_str().is_empty();
     let base = if large {
         &s.resolved_large_button_style()
     } else {
@@ -5611,6 +5673,14 @@ fn expand_ribbon_button(rb: RibbonButton, large: bool, s: &RibbonStyle, theme: U
         merged_style(base, &s.resolved_checked_style())
     } else {
         base.clone()
+    };
+    // A large button with no icon is one line of text, in the middle of its height.
+    let container = if large && icon_less {
+        let mut declared = container.into_library_owned_vec();
+        declared.push(Cond::simple(P::const_justify_content(LayoutJustifyContent::Center)));
+        CssPropertyWithConditionsVec::from_vec(declared)
+    } else {
+        container
     };
     let has_arrow = rb.arrow != RibbonArrow::None;
     let trailing = if has_arrow {
@@ -5632,7 +5702,7 @@ fn expand_ribbon_button(rb: RibbonButton, large: bool, s: &RibbonStyle, theme: U
     // A large label of two or more words is set on two lines (and its ▾ on
     // the second): the Button carries the icon and label block as its icon
     // DOM, and the label as its name.
-    if large && label_wraps(rb.label.as_str()) {
+    if large && !icon_less && label_wraps(rb.label.as_str()) {
         let name = button_name(&rb);
         let content = large_content(&rb.icon, rb.label.as_str(), has_arrow, s);
         let mut button = styled_button(
@@ -5652,21 +5722,24 @@ fn expand_ribbon_button(rb: RibbonButton, large: bool, s: &RibbonStyle, theme: U
         return finish_button(button, disabled);
     }
     // The Button drops a disabled command's click, dims it and says why.
-    finish_button(
-        styled_button(
-            rb.icon,
-            rb.label,
-            trailing,
-            container,
-            icon_style,
-            label_style,
-            s.resolved_arrow_icon_style(),
-            rb.on_click,
-            rb.disabled_reason,
-            rb.alt,
-            OptionUiTheme::Some(theme),
+    with_name_tip(
+        finish_button(
+            styled_button(
+                rb.icon,
+                rb.label,
+                trailing,
+                container,
+                icon_style,
+                label_style,
+                s.resolved_arrow_icon_style(),
+                rb.on_click,
+                rb.disabled_reason,
+                rb.alt,
+                OptionUiTheme::Some(theme),
+            ),
+            disabled,
         ),
-        disabled,
+        tip,
     )
 }
 
@@ -5678,6 +5751,7 @@ fn expand_ribbon_button(rb: RibbonButton, large: bool, s: &RibbonStyle, theme: U
 fn split_button_dom(rb: RibbonButton, large: bool, s: &RibbonStyle, theme: UiTheme) -> Dom {
     let disabled = rb.is_disabled();
     let name = button_name(&rb);
+    let tip = (rb.label.as_str().is_empty() && !disabled).then(|| name.clone());
     let arrow_name = AzString::from(alloc::format!("{} options", name.as_str()));
     let (base, part_main, part_arrow) = if large {
         (
@@ -5750,14 +5824,17 @@ fn split_button_dom(rb: RibbonButton, large: bool, s: &RibbonStyle, theme: UiThe
     main.root.add_class(AzString::from_const_str(RIBBON_SPLIT_MAIN_CLASS));
     let mut arrow = finish_button(arrow, disabled);
     arrow.root.add_class(AzString::from_const_str(RIBBON_SPLIT_ARROW_CLASS));
-    Dom::create_div()
-        .with_ids_and_classes(IdOrClassVec::from_const_slice(CLS_SPLIT))
-        .with_css_props(CssPropertyWithConditionsVec::from_const_slice(if large {
-            SPLIT_LARGE_STYLE
-        } else {
-            SPLIT_SMALL_STYLE
-        }))
-        .with_children(DomVec::from_vec(vec![main, arrow]))
+    with_name_tip(
+        Dom::create_div()
+            .with_ids_and_classes(IdOrClassVec::from_const_slice(CLS_SPLIT))
+            .with_css_props(CssPropertyWithConditionsVec::from_const_slice(if large {
+                SPLIT_LARGE_STYLE
+            } else {
+                SPLIT_SMALL_STYLE
+            }))
+            .with_children(DomVec::from_vec(vec![main, arrow])),
+        tip,
+    )
 }
 
 /// The application button as a row of the touch chrome's tab picker: the same label, the same click
@@ -6483,7 +6560,13 @@ fn large_button_px(rb: &RibbonButton) -> f32 {
     } else {
         LARGE_ICON_PX
     };
-    let label = large_label_px(rb.label.as_str(), rb.arrow != RibbonArrow::None);
+    let arrow = rb.arrow != RibbonArrow::None;
+    let label = if rb.icon.as_str().is_empty() {
+        // No icon, no stacking: the label is one line (and its ▾ beside it).
+        label_px(rb.label.as_str().trim()) + if arrow { ARROW_PX } else { 0.0 }
+    } else {
+        large_label_px(rb.label.as_str(), arrow)
+    };
     (icon.max(label) + LARGE_BUTTON_FRAME_PX).max(LARGE_BUTTON_MIN_PX) + LARGE_BUTTON_GAP_PX
 }
 
@@ -6904,6 +6987,60 @@ fn icon_only(mut rb: RibbonButton) -> RibbonButton {
     }
     rb.label = AzString::from_const_str("");
     rb
+}
+
+/// `items` with every button drawn as `face` says, the buttons inside columns and rows included.
+fn face_items(items: &mut [RibbonItem], face: RibbonButtonFace) {
+    for item in items {
+        match item {
+            RibbonItem::LargeButton(button) | RibbonItem::SmallButton(button) => {
+                let taken = core::mem::replace(
+                    button,
+                    RibbonButton::new(AzString::from_const_str(""), AzString::from_const_str("")),
+                );
+                *button = faced_button(taken, face);
+            }
+            RibbonItem::Column(column) => face_items(column.items.as_mut(), face),
+            RibbonItem::Row(row) => face_items(row.items.as_mut(), face),
+            _ => {}
+        }
+    }
+}
+
+/// `rb` as `face` says: the label alone (no icon: a button with no label keeps its icon, and so
+/// does a large split button, whose main part is its icon) or the icon alone ([`icon_only`]).
+fn faced_button(mut rb: RibbonButton, face: RibbonButtonFace) -> RibbonButton {
+    match face {
+        RibbonButtonFace::Both => rb,
+        RibbonButtonFace::Icon => icon_only(rb),
+        RibbonButtonFace::Text => {
+            if !rb.label.as_str().is_empty() && !rb.is_split() {
+                rb.icon = AzString::from_const_str("");
+            }
+            rb
+        }
+    }
+}
+
+/// `dom` with `name` for a tooltip: shown while the pointer rests on it and on a long press, hidden
+/// when the pointer leaves (the Button's own tooltip, which it shows for a disabled command).
+fn with_name_tip(mut dom: Dom, name: Option<AzString>) -> Dom {
+    let Some(name) = name.filter(|name| !name.as_str().is_empty()) else {
+        return dom;
+    };
+    for event in [HoverEventFilter::MouseEnter, HoverEventFilter::LongPress] {
+        dom.add_callback(
+            EventFilter::Hover(event),
+            RefAny::new(super::button::DisabledReason(name.clone())),
+            super::button::show_disabled_reason as usize,
+        );
+    }
+    dom.add_callback(
+        EventFilter::Hover(HoverEventFilter::MouseLeave),
+        RefAny::new(super::button::DisabledReason(name)),
+        super::button::hide_disabled_reason as usize,
+    );
+    dom
 }
 
 // -- A collapsed group and its popup --
@@ -10878,3 +11015,7 @@ mod ribbon_touch_test;
 #[cfg(test)]
 #[path = "ribbon_band_test.rs"]
 mod ribbon_band_test;
+
+#[cfg(test)]
+#[path = "ribbon_face_test.rs"]
+mod ribbon_face_test;
