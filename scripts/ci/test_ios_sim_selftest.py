@@ -138,6 +138,18 @@ def font_lines_of(text):
     return sim.font_lines(text)
 
 
+class Ledger(unittest.TestCase):
+    def test_one_line_per_row_with_the_verdict_of_each_run_and_the_real_device_column(self):
+        fresh = {"rows": [{"id": "device.network", "verdict": "PASS"}, {"id": "sensors.gyroscope", "verdict": "UNAVAILABLE"}]}
+        granted = {"rows": [{"id": "device.network", "verdict": "PASS"}, {"id": "sensors.gyroscope", "verdict": "UNAVAILABLE"},
+                            {"id": "sensors.geolocation", "verdict": "PASS"}]}
+        md = sim.ledger_table({"fresh": fresh, "granted": granted}, "iPhone 16 Pro")
+        self.assertIn("| row | fresh | granted | a real iPhone is needed |", md)
+        self.assertIn("| device.network | PASS | PASS | no |", md)
+        self.assertIn("| sensors.gyroscope | UNAVAILABLE | UNAVAILABLE | yes |", md)
+        self.assertIn("| sensors.geolocation | - | PASS | no |", md)
+
+
 class Launch(unittest.TestCase):
     def test_the_app_environment_goes_through_the_simctl_child_prefix(self):
         env = sim.launch_env()
@@ -165,6 +177,12 @@ class Await(unittest.TestCase):
 
     def test_a_location_key_carries_its_coordinates(self):
         self.assertEqual(sim.feed_for("location.48.5,9.0", "U"), [["xcrun", "simctl", "location", "U", "set", "48.5,9.0"]])
+
+    def test_the_background_key_sends_the_app_away_and_brings_it_back(self):
+        commands = sim.feed_for("lifecycle.background", "U", bundle="com.azul.AzSelfTest")
+        self.assertEqual(commands[0], ["xcrun", "simctl", "launch", "U", "com.apple.Preferences"])
+        self.assertEqual(commands[-1], ["xcrun", "simctl", "launch", "U", "com.azul.AzSelfTest"])
+        self.assertIsNone(sim.feed_for("lifecycle.background", "U"), "without the app's bundle there is nothing to bring back")
 
     def test_an_unknown_or_malformed_key_has_no_feed(self):
         self.assertIsNone(sim.feed_for("shake", "U"))

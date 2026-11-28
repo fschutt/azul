@@ -167,8 +167,13 @@ def new_awaits(text, seen):
     return fresh
 
 
-def feed_for(key, udid, touch=False):
+def feed_for(key, udid, touch=False, bundle=None):
     """The commands that answer an await key; None for a key this script does not know (the row then times out)."""
+    if key == "lifecycle.background":
+        # the app goes to the background (another app comes to the front) and comes back (the same process): Paused, then Resumed
+        if not bundle:
+            return None
+        return [["xcrun", "simctl", "launch", udid, "com.apple.Preferences"], ["sleep", "3"], ["xcrun", "simctl", "launch", udid, bundle]]
     if key == "biometric.match":
         return feed.match_commands(udid, True, touch=touch)
     if key == "biometric.nomatch":
@@ -246,6 +251,34 @@ def font_cache_findings(first, second):
     return found
 
 
+# The rows only a real iPhone can prove (the Simulator has no such hardware): the column "real device needed" of the results table.
+REAL_DEVICE = frozenset({
+    "sensors.accelerometer", "sensors.gyroscope", "sensors.magnetometer", "sensors.barometer", "sensors.light", "sensors.proximity",
+    "sensors.any", "media.camera", "system.haptics",
+})
+
+
+def ledger_table(reports, device_name):
+    """-> a markdown table, one line per row id of the three runs: the verdict of each run and whether a real iPhone is needed.
+    `reports` maps a run name (fresh / granted / revoked) to its report."""
+    runs = [name for name in ("fresh", "granted", "revoked") if name in reports]
+    ids = []
+    for name in runs:
+        for row in reports[name].get("rows", []):
+            if row.get("id") not in ids:
+                ids.append(row.get("id"))
+    lines = [f"iOS Simulator `{device_name}`", "", "| row | " + " | ".join(runs) + " | a real iPhone is needed |",
+             "|---|" + "---|" * len(runs) + "---|"]
+    for rid in ids:
+        cells = []
+        for name in runs:
+            row = rows_by_id(reports[name]).get(rid)
+            cells.append(row.get("verdict", "?") if row else "-")
+        needs = "yes" if rid in REAL_DEVICE else "no"
+        lines.append(f"| {rid} | " + " | ".join(cells) + f" | {needs} |")
+    return "\n".join(lines) + "\n"
+
+
 def sh(argv, timeout=120, check=False):
     try:
         p = subprocess.run(argv, capture_output=True, text=True, timeout=timeout)
@@ -302,7 +335,7 @@ def run_once(udid, bundle, name, out, seconds, touch):
             shot = True
         for key in new_awaits(text, seen):
             time.sleep(2.0)  # the sheet must be up before the face is shown to it
-            commands = feed_for(key, udid, touch)
+            commands = feed_for(key, udid, touch, bundle)
             if commands is None:
                 fed_keys.append(f"{key}: no feed for this key")
                 continue
@@ -412,7 +445,7 @@ def main(argv):
         sh(["xcrun", "simctl", "boot", udid], check=True)
         sh(["xcrun", "simctl", "bootstatus", udid, "-b"], timeout=300)
     sh(["xcrun", "simctl", "install", udid, str(app)], timeout=300, check=True)
-    findings, summary = [], []
+    findings, summary, reports = [], [], {}
     first, second, held = fonts_proof(udid, bundle, out)
     print("\n================ font cache (two launches after the install) ================")
     for n, lines in ((1, first), (2, second)):
@@ -442,6 +475,7 @@ def main(argv):
             continue
         print("\n".join(table(result["report"])))
         (out / f"{name}.report.json").write_text(json.dumps(result["report"], indent=2), encoding="utf-8")
+        reports[name] = result["report"]
         findings += check_rows(result["report"], name)
         findings += [f"[{name}] {f}" for f in check_display(result["report"], device["name"])]
         if name == "fresh" and result["asked"]:
@@ -457,6 +491,10 @@ def main(argv):
     else:
         print("no findings")
     (out / "summary.txt").write_text("\n".join(summary + findings) + "\n", encoding="utf-8")
+    if reports:
+        table_md = ledger_table(reports, device["name"])
+        (out / "results.md").write_text(table_md, encoding="utf-8")
+        print("\n" + table_md)
     print(f"files: {out}/ (console, report and screenshot of every run)")
     return 1 if findings else 0
 
