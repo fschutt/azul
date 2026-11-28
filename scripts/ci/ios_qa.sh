@@ -162,6 +162,11 @@ if [ "$session" = tabs ]; then
     done
   done
 fi
+if [ "$session" = fontwait ]; then
+  # the font-wait A/B (scripts/ci/font_wait_series.py): AZ_QA_FONTWAIT_PLAN="control:A=a.app;control:B=b.app;..." (.app folders, one bundle id), AZ_QA_FONTWAIT_STARTS per block
+  python3 "$here/font_wait_series.py" ios --out "$out/fontwait" --udid "$udid" --bundle "$bid" --starts "${AZ_QA_FONTWAIT_STARTS:-10}" \
+    --plan "${AZ_QA_FONTWAIT_PLAN:?AZ_QA_FONTWAIT_PLAN}" --label "$label" 2>&1 | tee "$out/fontwait.log"
+fi
 if [ "$session" = startup ]; then
   python3 "$here/ios_startup.py" --out "$out" --udid "$udid" --bundle "$bid" --exe "$exe" --app "$appdir" --starts "${AZ_QA_STARTS:-2}" 2>&1 | tee "$out/startup.log"
 fi
