@@ -1590,7 +1590,8 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
         return Dom::create_body();
     };
     s.size.set(size);
-    let frame = ui::Frame { size, insets: Insets::of(&info), title: kit::title_insets(&info) };
+    // The engine insets the window's root by the bars and the cutout; what is left of the system's room is the keyboard.
+    let frame = ui::Frame { size, insets: Insets::of(&info).inside_root(), title: kit::title_insets(&info) };
     s.frame.set(Some(frame));
     let content = if kit::settings_open(&s.kit) {
         // azul-appkit's settings page: Appearance, Data, Shortcuts, About.

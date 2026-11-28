@@ -112,7 +112,8 @@ const TOAST: &str = "position: absolute; left: 12px; right: 84px; display: flex;
 pub struct Frame {
     /// The window's size, px.
     pub size: (f32, f32),
-    /// What the system keeps: bars, cutout, keyboard.
+    /// What the system keeps of the root, which the engine has already inset by the bars and the cutout: the keyboard
+    /// (`Insets::inside_root`).
     pub insets: Insets,
     /// The room the window's own controls keep at the top (macOS's lights at the left, Windows' caption buttons at the right).
     pub title: kit::TitleInsets,
@@ -125,8 +126,8 @@ impl Frame {
         flow::is_wide(self.size.0)
     }
 
-    /// The top of what floats: under the status bar and the cutout on a phone, under the window's own
-    /// controls on a desktop.
+    /// The top of what floats: a gap under the root's top edge (the root starts under the status bar and the cutout) on a phone,
+    /// under the window's own controls on a desktop.
     #[must_use]
     pub fn top(&self) -> f32 {
         if self.wide() {
