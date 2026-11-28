@@ -293,33 +293,33 @@ pub fn cover_rects(band: &StatusBarBand) -> Vec<LogicalRect> {
 
 // ---- Icon-only pills (a phone's strip whose pills are ONE ICON each) ----
 //
-// The user's option (2026-11-28): a tab pill can shrink its text to a single icon, so that every
-// pill is the same size and the strip splits evenly over the lanes around the camera and fits,
-// where text pills of every length slide under the hole and scroll. The rules are plain numbers:
+// The user's rule (2026-11-28): on a phone a tab header is ONE ICON, every pill the same SQUARE, so
+// that the strip splits evenly over the lanes around the camera and fits, where text pills of
+// every length slide under the hole and scroll. The rules are plain numbers:
 // [`icon_pill_layout`] stands the pills in the lanes, [`icon_pill_width_where`] sizes them in a
-// view whose width is only asked about (a strip with no band), [`text_strip_needs_scroll`] is the
-// question `TabLabels::Auto` asks of the text pills.
+// view whose width is only asked about (a strip with no band).
 
-/// The widest an icon pill is, in logical px: a touch target and a little more.
-pub const ICON_PILL_MAX: f32 = 44.0;
+/// The widest (and tallest: an icon pill is a square) an icon pill is, in logical px.
+pub const ICON_PILL_MAX: f32 = 40.0;
 
-/// The narrowest an icon pill is, in logical px: a 32 px pill is a square. Where the pills do not
+/// The narrowest an icon pill is, in logical px: as tall as a text pill. Where the pills do not
 /// fit at this size the strip scrolls as a strip of text pills does.
 pub const ICON_PILL_MIN: f32 = 32.0;
+
+/// The least wide the target of an icon pill is, in logical px (44 pt / 48 dp is the touch
+/// target; the target is a whole row tall): the pill is padded to it, the picture is not.
+pub const ICON_TARGET_MIN: f32 = 44.0;
 
 /// The most pills a strip is laid out for: a strip of more tabs than this is not a strip any
 /// finger can use, and the layout (positions, lane shares) is made for this many ([`IconPillLayout::capped`]).
 pub const MAX_STRIP_PILLS: usize = 256;
-
-/// The widest a text pill is taken to be by [`text_pill_width`], in logical px (a label of any
-/// length is clipped to this, so one long label cannot make the estimate a number of its own).
-pub const MAX_TEXT_PILL: f32 = 360.0;
 
 /// How a strip of icon pills stands: the one width, the room between two pills of one lane, where
 /// each pill's left edge is, and whether nothing needs to scroll.
 #[derive(Debug, Clone, PartialEq)]
 pub struct IconPillLayout {
     /// The width of EVERY pill, in logical px: between [`ICON_PILL_MIN`] and [`ICON_PILL_MAX`].
+    /// An icon pill is a square: this is its height too.
     pub pill_width: f32,
     /// The room between two pills of one lane, in logical px.
     pub gap: f32,
@@ -479,45 +479,6 @@ pub fn icon_pill_width_where(
         width -= 4.0;
     }
     (ICON_PILL_MIN, false)
-}
-
-/// The width a TEXT pill is taken to have, in logical px, before anything is laid out: the label
-/// set as flora's tab capitals (11.5 px, bold, tracked .08 em: the wider of the two looks, flat's
-/// mixed case is never wider) measured the way the ribbon measures text (Helvetica's advances,
-/// 10 % wider), plus the 16 px beside the label on both sides and the 1 px border. It errs wide:
-/// `TabLabels::Auto` turns to icons a little early rather than late. Never above
-/// [`MAX_TEXT_PILL`].
-#[must_use]
-pub fn text_pill_width(label: &str) -> f32 {
-    const CAPS_PX: f32 = 11.5;
-    const TRACKING_EM: f32 = 0.08;
-    // A label longer than this is clipped to MAX_TEXT_PILL anyway.
-    const MEASURED_CHARS: usize = 96;
-    let capitals: String = label
-        .chars()
-        .take(MEASURED_CHARS)
-        .flat_map(char::to_uppercase)
-        .collect();
-    let tracking = capitals.chars().count() as f32 * TRACKING_EM * CAPS_PX;
-    #[allow(clippy::cast_precision_loss)] // a few px
-    let frame = 2.0 * crate::widgets::tabs::TOUCH_PILL_SIDE as f32 + 2.0;
-    (crate::widgets::ribbon::text_px(&capitals, CAPS_PX) + tracking + frame).min(MAX_TEXT_PILL)
-}
-
-/// Whether a strip of text pills (`widths`: each pill's width) laid out one after the other from
-/// `lead` with `gap` between them has to scroll to show every pill: some pill is not whole inside
-/// a lane with the strip at rest (it stands under a cutout or beyond the last lane). The question
-/// `TabLabels::Auto` asks of a strip in a band.
-#[must_use]
-pub fn text_strip_needs_scroll(lanes: &[(f32, f32)], widths: &[f32], lead: f32, gap: f32) -> bool {
-    let mut x = lead;
-    for &width in widths.iter().take(MAX_STRIP_PILLS) {
-        if !is_whole_in_a_lane((x, x + width), lanes) {
-            return true;
-        }
-        x += width + gap;
-    }
-    false
 }
 
 #[cfg(test)]

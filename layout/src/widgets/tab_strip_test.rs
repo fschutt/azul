@@ -375,8 +375,8 @@ fn a_strip_with_one_lane_is_one_group_centred_in_it() {
     assert!(layout.fits);
     assert!(near(layout.pill_width, ICON_PILL_MAX));
     let spans = pill_spans(&layout);
-    // 6 * 44 + 5 * 8 = 304 in 360: 28 each side.
-    assert!(near(spans[0].0, 28.0) && near(spans[5].1, 332.0), "{spans:?}");
+    // 6 * 40 + 5 * 8 = 280 in 360: 40 each side.
+    assert!(near(spans[0].0, 40.0) && near(spans[5].1, 320.0), "{spans:?}");
 }
 
 #[test]
@@ -501,15 +501,15 @@ fn lanes_that_are_not_numbers_make_a_row_not_a_crash() {
 
 #[test]
 fn a_strip_with_no_band_takes_the_widest_pill_the_window_lets_it() {
-    // A 360 dp window: 6 pills at 44 with 12 at both ends and 8 between: 328.
+    // A 360 dp window: 6 pills at 40 with 12 at both ends and 8 between: 304.
     let fits = |total: f32| total <= 360.0;
-    assert_eq!(icon_pill_width_where(6, 12.0, 8.0, fits), (44.0, true));
-    // 8 pills: only at 32 (24 + 256 + 56 = 336).
+    assert_eq!(icon_pill_width_where(6, 12.0, 8.0, fits), (40.0, true));
+    // 8 pills: only at 32 (24 + 256 + 56 = 336; at 36 it is 368).
     assert_eq!(icon_pill_width_where(8, 12.0, 8.0, fits), (32.0, true));
     // 10 pills: not even at 32 (416): the smallest and a scrolling row.
     assert_eq!(icon_pill_width_where(10, 12.0, 8.0, fits), (32.0, false));
     // Nothing to fit always fits.
-    assert_eq!(icon_pill_width_where(0, 12.0, 8.0, |_| false), (44.0, true));
+    assert_eq!(icon_pill_width_where(0, 12.0, 8.0, |_| false), (40.0, true));
 }
 
 #[test]
@@ -520,8 +520,8 @@ fn the_window_is_asked_widest_row_first_and_only_as_far_as_it_has_to() {
         total <= 360.0
     });
     assert_eq!(result, (32.0, true));
-    // 44, 40, 36, 32: four questions, from the widest row.
-    assert_eq!(asked.len(), 4, "{asked:?}");
+    // 40, 36, 32: three questions, from the widest row.
+    assert_eq!(asked.len(), 3, "{asked:?}");
     assert!(asked.windows(2).all(|w| w[0] > w[1]), "{asked:?}");
     let mut once = 0;
     let _ = icon_pill_width_where(2, 12.0, 8.0, |_| {
@@ -529,31 +529,4 @@ fn the_window_is_asked_widest_row_first_and_only_as_far_as_it_has_to() {
         true
     });
     assert_eq!(once, 1, "a row that fits at once is asked once");
-}
-
-#[test]
-fn a_text_pill_is_as_wide_as_its_capitals_and_never_more_than_the_cap() {
-    let home = text_pill_width("Home");
-    let share = text_pill_width("Share");
-    assert!(home > 50.0 && home < 110.0, "{home}");
-    assert!(share > home, "a longer label is a wider pill");
-    // Case does not matter: flora sets every tab in capitals.
-    assert!(near(text_pill_width("home"), home));
-    // Nothing but the frame: 16 + 16 + the border.
-    assert!(near(text_pill_width(""), 34.0), "{}", text_pill_width(""));
-    assert_eq!(text_pill_width(&"W".repeat(10_000)), MAX_TEXT_PILL);
-}
-
-#[test]
-fn a_strip_of_text_pills_needs_to_scroll_when_a_pill_would_stand_under_the_camera() {
-    let band = band_of(DisplayPreset::Pixel8, 360.0, 720.0);
-    let lanes = band.lane_spans();
-    // Two 70 px pills from 12: 12..82 and 90..160 - both whole in the left lane.
-    assert!(!text_strip_needs_scroll(&lanes, &[70.0, 70.0], 12.0, GAP));
-    // The third would be at 168..238: under the camera (160..200).
-    assert!(text_strip_needs_scroll(&lanes, &[70.0, 70.0, 70.0], 12.0, GAP));
-    // A strip of nothing needs nothing.
-    assert!(!text_strip_needs_scroll(&lanes, &[], 12.0, GAP));
-    // Without a lane at all every pill is out of place.
-    assert!(text_strip_needs_scroll(&[], &[70.0], 12.0, GAP));
 }

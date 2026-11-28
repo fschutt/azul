@@ -2807,6 +2807,10 @@ pub struct Ribbon {
     /// ([`Self::with_flip`]): `AtEdges` (the default) flips with a finger that swipes on the band
     /// (it scrolls nothing vertically); `Off` never. APPENDED for ABI stability.
     pub flip: crate::widgets::tab_flip::TabFlip,
+    /// What a tab pill shows on a phone ([`Self::with_labels`]): one icon (`RibbonTab::with_icon`),
+    /// the rule where every tab names one, or its text. Only the touch pills take it; a desktop's
+    /// pills show their text. APPENDED for ABI stability.
+    pub labels: crate::widgets::tabs::TabLabels,
 }
 
 /// The application button at the far left of the tab strip ("FILE").
@@ -2824,6 +2828,10 @@ pub struct RibbonAppButton {
     /// `on_click`, if any). `None`: the button only runs `on_click` (Office's
     /// full-window backstage is the app's to show).
     pub menu: OptionDom,
+    /// The button's icon where the tab pills of a phone are icons (`Ribbon::with_labels`): the
+    /// name `Dom::create_icon` takes; empty = none (and the strip stays on text). APPENDED for
+    /// ABI stability.
+    pub icon: AzString,
 }
 
 /// A single tab within a [`Ribbon`], containing a label and groups.
@@ -2847,6 +2855,16 @@ pub struct RibbonTab {
     /// given its own border, and telling two tabs apart in a screenshot
     /// meant reading their labels.
     pub style: OptionCssPropertyWithConditionsVec,
+    /// What the tab's band shows INSTEAD of its groups (`with_location`): a block that fills the
+    /// band - the location of the first tab of a file manager, its parents on one line and the
+    /// name of the folder big beneath. The band is as tall as the band of every other tab, so a
+    /// flip between this tab and a tab of commands never moves what is below it. `None` (the
+    /// default): the groups. APPENDED for ABI stability.
+    pub location: OptionDom,
+    /// The icon of the tab's pill where the pills of a phone are icons (`Ribbon::with_labels`):
+    /// the name `Dom::create_icon` takes; empty = none (and the strip stays on text). APPENDED
+    /// for ABI stability.
+    pub icon: AzString,
 }
 
 /// A captioned group of controls within a [`RibbonTab`].
@@ -3082,7 +3100,20 @@ impl RibbonAppButton {
             label,
             on_click: None.into(),
             menu: OptionDom::None,
+            icon: AzString::from_const_str(""),
         }
+    }
+
+    /// Sets the icon of the button for a strip of icon pills (see [`Self::icon`]).
+    pub fn set_icon(&mut self, icon: AzString) {
+        self.icon = icon;
+    }
+
+    /// Builder method: sets the icon of the button and returns `self`.
+    #[must_use]
+    pub fn with_icon(mut self, icon: AzString) -> Self {
+        self.set_icon(icon);
+        self
     }
 
     /// Sets the drop-down the button opens (see [`Self::menu`]).
@@ -3130,7 +3161,34 @@ impl RibbonTab {
             label,
             groups: RibbonGroupVec::from_const_slice(&[]),
             style: OptionCssPropertyWithConditionsVec::None,
+            location: OptionDom::None,
+            icon: AzString::from_const_str(""),
         }
+    }
+
+    /// Makes `location` the content of this tab's band, in place of groups (see
+    /// [`Self::location`]); the band is as tall as every tab's.
+    pub fn set_location(&mut self, location: Dom) {
+        self.location = OptionDom::Some(location);
+    }
+
+    /// Builder method: sets the location block of the band and returns `self`.
+    #[must_use]
+    pub fn with_location(mut self, location: Dom) -> Self {
+        self.set_location(location);
+        self
+    }
+
+    /// Sets the icon of the tab's pill for a strip of icon pills (see [`Self::icon`]).
+    pub fn set_icon(&mut self, icon: AzString) {
+        self.icon = icon;
+    }
+
+    /// Builder method: sets the icon of the tab's pill and returns `self`.
+    #[must_use]
+    pub fn with_icon(mut self, icon: AzString) -> Self {
+        self.set_icon(icon);
+        self
     }
 
     /// Appends per-tab style properties to this tab's header (see
@@ -3557,7 +3615,24 @@ impl Ribbon {
             strip_end: OptionDom::None,
             status_bar: crate::widgets::tab_strip::OptionStatusBarBand::None,
             flip: crate::widgets::tab_flip::TabFlip::AtEdges,
+            labels: crate::widgets::tabs::TabLabels::Auto,
         }
+    }
+
+    /// What a tab pill shows on a PHONE: one icon each, every pill the same square (`Auto`, the
+    /// default, where every tab - and the application button, if there is one - names an icon,
+    /// `RibbonTab::with_icon`, `RibbonAppButton::with_icon`; `Icons` always), or the text
+    /// (`Text`). A desktop's pills always show their text. See
+    /// [`crate::widgets::tabs::TabLabels`].
+    pub const fn set_labels(&mut self, labels: crate::widgets::tabs::TabLabels) {
+        self.labels = labels;
+    }
+
+    /// [`Self::set_labels`] for the builder chain.
+    #[must_use]
+    pub const fn with_labels(mut self, labels: crate::widgets::tabs::TabLabels) -> Self {
+        self.set_labels(labels);
+        self
     }
 
     /// Put the tab row in the status bar's band: the tabs take the place of the clock and the
@@ -3789,10 +3864,15 @@ impl Ribbon {
     /// no theme follows the app theme - the look of the theme the DOM is
     /// built for (`UiTheme::current()`), built once.
     fn themed(self, mode: RibbonChromeMode) -> Dom {
-        let scales = self.scales_for(mode);
         let view = RevealView::of(&self.reveal, self.active_tab);
         let theme = crate::widgets::themes::theme_blocks::live_theme(self.theme);
-        self.build_in(theme, mode, &scales, &view)
+        // A phone's strip (the touch pills) never collapses a group: its band scrolls instead.
+        let touch = self
+            .tab_style
+            .resolved_for(theme, crate::widgets::tabs::phone_build())
+            == crate::widgets::tabs::TabStyle::TouchPills;
+        let (scales, overflows) = self.scales_for(mode, touch);
+        self.build_in(theme, mode, &scales, overflows, &view)
     }
 
     /// How the active tab's groups are drawn (Office's ribbon scaling,
@@ -3805,25 +3885,46 @@ impl Ribbon {
     /// one of them. Outside a window's build, with no width set, every group
     /// is drawn as built. The touch chrome shows one group at a time and is
     /// never scaled.
-    fn scales_for(&self, mode: RibbonChromeMode) -> Vec<GroupScale> {
+    ///
+    /// `touch`: the strip is a phone's (the touch pills). Its groups are never scaled down or
+    /// collapsed: they are drawn as the app built them and the band scrolls sideways where they
+    /// are wider than the window. The second answer is whether the groups at the chosen scales
+    /// ARE wider than the room (on a desktop: at the narrowest step too): the band then shows the
+    /// fades at its clipped ends. Asked the way the steps are, through the recorded width
+    /// queries, so a resize across that width rebuilds the band.
+    fn scales_for(&self, mode: RibbonChromeMode, touch: bool) -> (Vec<GroupScale>, bool) {
         let Some(tab) = self.tabs.as_slice().get(self.active_tab) else {
-            return Vec::new();
+            return (Vec::new(), false);
         };
         let groups = tab.groups.as_slice();
         if matches!(mode, RibbonChromeMode::Mobile) {
-            return vec![GroupScale::FULL; groups.len()];
+            return (vec![GroupScale::FULL; groups.len()], false);
         }
         let available = self.available_width;
-        if available > 0.0 {
-            chosen_scales(groups, |total| total + FIT_SLACK_PX <= available)
-        } else {
-            chosen_scales(groups, |total| {
-                !matches!(
+        let too_wide = |total: f32| {
+            if available > 0.0 {
+                total + FIT_SLACK_PX > available
+            } else {
+                matches!(
                     azul_core::callbacks::build_window_width_less_than(total + FIT_SLACK_PX),
                     Some(true)
                 )
-            })
+            }
+        };
+        if touch {
+            // Never scaled: the groups as the app built them, and the band scrolls where they are
+            // wider than the room.
+            let total: f32 = groups.iter().map(|group| group_px(group, GroupScale::FULL)).sum();
+            return (vec![GroupScale::FULL; groups.len()], !groups.is_empty() && too_wide(total));
         }
+        // The last step asked about is the chosen one (the first that fits) or - where none does -
+        // the narrowest: the band overflows exactly when it did not fit. No width is asked twice.
+        let mut fitted = true;
+        let scales = chosen_scales(groups, |total| {
+            fitted = !too_wide(total);
+            fitted
+        });
+        (scales, !groups.is_empty() && !fitted)
     }
 
     /// `mode`'s chrome in exactly `theme`'s look: flat is the palette's own
@@ -3837,22 +3938,37 @@ impl Ribbon {
         theme: UiTheme,
         mode: RibbonChromeMode,
         scales: &[GroupScale],
+        overflows: bool,
         view: &RevealView,
     ) -> Dom {
         let resolved = self.tab_style.resolved_for(theme, crate::widgets::tabs::phone_build());
         let touch = resolved == crate::widgets::tabs::TabStyle::TouchPills;
         let pills = resolved == crate::widgets::tabs::TabStyle::Pills || touch;
         let mut curves = TabRowCurves::default();
+        // A band of the app's own (AzMail hides it behind its backstage) stays its own; every
+        // other one is the one band of every tab (`TAB_BAND_PX`).
+        let own_band = self.style.content_style.is_some();
+        // A phone's pills are one icon each, every one the same square, where the tabs name icons.
+        let icon_pills = if touch && !matches!(mode, RibbonChromeMode::Mobile) {
+            self.icon_pills()
+        } else {
+            None
+        };
         if touch {
             // The tab row of touch pills, a row longer than the window that scrolls; the status
             // bar's band, if there is one, decides the room before the first pill and after the
-            // last.
+            // last (icon pills that stand lane by lane start where the layout puts the first).
             let band = self
                 .status_bar
                 .as_ref()
                 .filter(|band| band.is_in_band());
             let strip = crate::widgets::tabs::StripScrollData::for_band(band, Vec::new());
-            self.style = touch_row_style(self.style, theme, strip.lead, strip.trail);
+            let lead = icon_pills
+                .as_ref()
+                .and_then(|p| p.positions.as_ref())
+                .and_then(|positions| positions.first().copied())
+                .unwrap_or(strip.lead);
+            self.style = touch_row_style(self.style, theme, lead, strip.trail);
         } else if pills {
             // The tab row of the theme's buttons, on one leather surface
             // with the content; a part the caller set stays the caller's.
@@ -3871,7 +3987,32 @@ impl Ribbon {
                 self.style = flora::ribbon_leather_style(self.style);
             }
         }
-        self.build_chrome(mode, theme, &curves, scales, view, pills, touch)
+        if !own_band {
+            // Whatever the look made of the band, it is the one height of every tab's band, and
+            // it scrolls sideways (without a scrollbar) where its groups do not fit.
+            let band = one_band(self.style.resolved_content_style().into_library_owned_vec());
+            self.style.content_style =
+                OptionCssPropertyWithConditionsVec::Some(CssPropertyWithConditionsVec::from_vec(band));
+        }
+        self.build_chrome(mode, theme, &curves, scales, view, pills, touch, overflows && !own_band, icon_pills)
+    }
+
+    /// The pills of this ribbon's tab row as icons: the application button (if there is one) and
+    /// the tabs, each by its icon, where [`Self::labels`] asks for it (see
+    /// [`crate::widgets::tabs::resolve_icon_pills`]); `None`: text.
+    fn icon_pills(&self) -> Option<crate::widgets::tabs::IconPills> {
+        let band = self.status_bar.as_ref().filter(|band| band.is_in_band());
+        let mut names: Vec<&str> = Vec::with_capacity(self.tabs.len() + 1);
+        let mut icons: Vec<&str> = Vec::with_capacity(self.tabs.len() + 1);
+        if let Some(button) = self.app_button.as_ref() {
+            names.push(button.label.as_str());
+            icons.push(button.icon.as_str());
+        }
+        for tab in self.tabs.as_slice() {
+            names.push(tab.label.as_str());
+            icons.push(tab.icon.as_str());
+        }
+        crate::widgets::tabs::resolve_icon_pills(self.labels, &names, &icons, band)
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -3884,6 +4025,8 @@ impl Ribbon {
         view: &RevealView,
         pills: bool,
         touch: bool,
+        overflows: bool,
+        icon_pills: Option<crate::widgets::tabs::IconPills>,
     ) -> Dom {
         let Self {
             app_button,
@@ -3905,6 +4048,8 @@ impl Ribbon {
             strip_end,
             status_bar,
             flip,
+            // Already turned into `icon_pills` by `build_in`.
+            labels: _,
         } = self;
         // The leather: the desktop pills' one surface and golden line. The touch pills have none.
         let leather = pills && !touch;
@@ -3966,28 +4111,73 @@ impl Ribbon {
                 .map(|ab| mobile_file_entry(ab, &style)),
         };
 
+        // Icon pills: the pill's index in the row (the application button is the first) and the room
+        // the camera hole leaves before it.
+        let pill_offset = usize::from(app_button.is_some());
+        let lane_spacer = |pill: usize| -> Option<Dom> {
+            let pills = icon_pills.as_ref()?;
+            let positions = pills.positions.as_ref()?;
+            let before = pill.checked_sub(1)?;
+            let between = positions.get(pill)? - (positions.get(before)? + pills.side);
+            (between > TOUCH_GAP_PX + 0.5).then(|| {
+                Dom::create_div().with_css(&format!(
+                    "flex-shrink: 0; width: {}px; height: 1px;",
+                    between - 2.0 * TOUCH_GAP_PX
+                ))
+            })
+        };
+        // The scroll-into-view of the selected pill: nothing to scroll where the pills stand lane by
+        // lane.
+        let in_lanes = icon_pills.as_ref().is_some_and(|pills| pills.positions.is_some());
+
         if let Some(ab) = app_button.into_option() {
             let RibbonAppButton {
                 label,
                 on_click,
                 menu,
+                icon: _,
             } = ab;
+            let (body, part_style) = match icon_pills.as_ref() {
+                Some(pills) => {
+                    let mut v = style.resolved_app_button_style().into_library_owned_vec();
+                    v.extend(crate::widgets::tabs::icon_pill_overrides(pills.side));
+                    (
+                        crate::widgets::tabs::icon_pill_body(&pills.icons[0]),
+                        CssPropertyWithConditionsVec::from_vec(v),
+                    )
+                }
+                None => (
+                    crate::widgets::widget_p_with_text(label.clone()),
+                    style.resolved_app_button_style(),
+                ),
+            };
             let mut d = Dom::create_div()
                 .with_ids_and_classes(IdOrClassVec::from_const_slice(CLS_APP_BUTTON))
-                .with_css_props(as_control(
-                    style.resolved_app_button_style(),
-                    tabs_in_titlebar,
-                ))
-                .with_children(DomVec::from_vec(vec![crate::widgets::widget_p_with_text(
-                    label,
-                )]));
+                .with_css_props(as_control(part_style, tabs_in_titlebar))
+                .with_children(DomVec::from_vec(vec![body]));
+            if icon_pills.is_some() {
+                // A screen reader still says the button's name.
+                d = d
+                    .with_accessibility_info(AccessibilityInfo {
+                        role: AccessibilityRole::PushButton,
+                        accessibility_name: OptionString::Some(label.clone()),
+                        ..Default::default()
+                    })
+                    .with_class(AzString::from_const_str(crate::widgets::tabs::ICON_PILL_CLASS));
+            }
             if let Some(look) = curves.app_button.as_ref() {
                 for curve in crate::widgets::tabs::australis_curves(look) {
                     d.add_child(curve);
                 }
             }
             if touch {
-                d.add_child(crate::widgets::tabs::hit_extender());
+                d.add_child(match icon_pills.as_ref() {
+                    Some(pills) => crate::widgets::tabs::icon_hit_extender(
+                        pills.side,
+                        crate::widgets::tab_strip::TOUCH_ROW,
+                    ),
+                    None => crate::widgets::tabs::hit_extender(),
+                });
             }
             if let Some(oc) = on_click.into_option() {
                 d = d.with_callbacks(
@@ -4042,12 +4232,37 @@ impl Ribbon {
                     CssPropertyWithConditionsVec::from_vec(merged)
                 }
             };
+            // A phone's pill is one icon: a square of the strip's one size, its label the name a
+            // screen reader says.
+            let icon = icon_pills
+                .as_ref()
+                .and_then(|pills| Some((pills, pills.icons.get(pill_offset + idx)?)));
+            let (body, part_style) = match icon {
+                Some((pills, icon)) => {
+                    let mut v = part_style.into_library_owned_vec();
+                    v.extend(crate::widgets::tabs::icon_pill_overrides(pills.side));
+                    (
+                        crate::widgets::tabs::icon_pill_body(icon),
+                        CssPropertyWithConditionsVec::from_vec(v),
+                    )
+                }
+                None => (crate::widgets::widget_p_with_text(tab.label.clone()), part_style),
+            };
+            // The room the camera hole leaves between this pill and the one before.
+            bar_children.extend(lane_spacer(pill_offset + idx));
             let mut d = Dom::create_div()
                 .with_ids_and_classes(IdOrClassVec::from_const_slice(classes))
                 .with_css_props(as_control(part_style, tabs_in_titlebar))
-                .with_children(DomVec::from_vec(vec![crate::widgets::widget_p_with_text(
-                    tab.label.clone(),
-                )]));
+                .with_children(DomVec::from_vec(vec![body]));
+            if icon.is_some() {
+                d = d
+                    .with_accessibility_info(AccessibilityInfo {
+                        role: AccessibilityRole::PageTab,
+                        accessibility_name: OptionString::Some(tab.label.clone()),
+                        ..Default::default()
+                    })
+                    .with_class(AzString::from_const_str(crate::widgets::tabs::ICON_PILL_CLASS));
+            }
             // The selected tab's curves go after its label: the label stays
             // the tab's first child in every look. Right after the
             // application button it hangs no run-out on that side: the
@@ -4068,8 +4283,14 @@ impl Ribbon {
             if touch {
                 // The target of a finger is the whole row, and the selected pill brings itself into
                 // a lane of the band when the selection changes.
-                d.add_child(crate::widgets::tabs::hit_extender());
-                if selected {
+                d.add_child(match icon_pills.as_ref() {
+                    Some(pills) => crate::widgets::tabs::icon_hit_extender(
+                        pills.side,
+                        crate::widgets::tab_strip::TOUCH_ROW,
+                    ),
+                    None => crate::widgets::tabs::hit_extender(),
+                });
+                if selected && !in_lanes {
                     d.add_child(crate::widgets::tabs::selected_marker(strip_scroll.clone(), idx));
                 }
             }
@@ -4195,7 +4416,10 @@ impl Ribbon {
             .with_ids_and_classes(IdOrClassVec::from_const_slice(CLS_TAB_BAR))
             .with_css_props(tab_bar_style)
             .with_children(DomVec::from_vec(bar_children));
-        if touch {
+        if touch && in_lanes {
+            // Icon pills that stand lane by lane around the camera hole: nothing to scroll.
+            tab_bar.root.set_css("overflow-x: hidden; overflow-y: hidden; scrollbar-width: none;");
+        } else if touch {
             // Longer than the window: the row scrolls under a finger, with the wheel and the keys,
             // and shows no scrollbar; a turn of the phone brings the selected pill into a lane.
             tab_bar.root.set_css("overflow-x: auto; overflow-y: hidden; scrollbar-width: none;");
@@ -4204,18 +4428,26 @@ impl Ribbon {
             ));
         }
 
+        // The band holds the groups of the tab, or - a tab with a location - that block alone.
+        let mut has_location = false;
         let mut group_doms: Vec<Dom> =
             match tabs.into_library_owned_vec().into_iter().nth(active_tab) {
-                Some(active) => active
-                    .groups
-                    .into_library_owned_vec()
-                    .into_iter()
-                    .enumerate()
-                    .map(|(i, g)| {
-                        let scale = scales.get(i).copied().unwrap_or(GroupScale::FULL);
-                        group_dom(g, &style, behavior, theme, scale)
-                    })
-                    .collect(),
+                Some(active) => match active.location.into_option() {
+                    Some(location) => {
+                        has_location = true;
+                        vec![location_host(location)]
+                    }
+                    None => active
+                        .groups
+                        .into_library_owned_vec()
+                        .into_iter()
+                        .enumerate()
+                        .map(|(i, g)| {
+                            let scale = scales.get(i).copied().unwrap_or(GroupScale::FULL);
+                            group_dom(g, &style, behavior, theme, scale)
+                        })
+                        .collect(),
+                },
                 None => Vec::new(),
             };
 
@@ -4374,6 +4606,12 @@ impl Ribbon {
             }
         }
         let mut content_style = style.resolved_content_style().into_library_owned_vec();
+        // Groups wider than the room: the band scrolls, and its clipped ends fade out.
+        if overflows && !has_location && !matches!(mode, RibbonChromeMode::Mobile) {
+            if let Some((light, dark)) = band_surface(leather, &content_style) {
+                group_doms = with_band_fades(group_doms, light, dark);
+            }
+        }
         let mut content_children = group_doms;
         let mut content_css = None;
         if view.reveal.is_some() && !matches!(mode, RibbonChromeMode::Mobile) {
@@ -4389,10 +4627,15 @@ impl Ribbon {
                 .with_ids_and_classes(IdOrClassVec::from_const_slice(CLS_CONTENT_BODY))
                 .with_key(("azul-ribbon-body", active_tab))
                 .with_children(DomVec::from_vec(content_children));
+            // It grows to fill the band and never shrinks below its groups: where they are wider
+            // the band scrolls (and the fades stand in the body, as wide as the groups).
             let mut body_style = vec![
                 Cond::simple(P::const_display(LayoutDisplay::Flex)),
                 Cond::simple(P::const_flex_direction(LayoutFlexDirection::Row)),
                 Cond::simple(P::const_flex_grow(LayoutFlexGrow::const_new(1))),
+                Cond::simple(P::const_flex_shrink(LayoutFlexShrink {
+                    inner: FloatValue::const_new(0),
+                })),
                 Cond::simple(P::const_align_items(LayoutAlignItems::Stretch)),
             ];
             if view.open {
@@ -4607,6 +4850,157 @@ impl RevealView {
             built_before,
         }
     }
+}
+
+/// The room between two touch pills, as a length.
+#[allow(clippy::cast_precision_loss)] // a few px
+const TOUCH_GAP_PX: f32 = crate::widgets::tabs::TOUCH_GAP as f32;
+
+/// The class of the block that holds a tab's location in its band (`RibbonTab::with_location`).
+pub const RIBBON_LOCATION_CLASS: &str = "__azul-native-ribbon-location";
+/// The class of a fade at an end of a band that scrolls sideways; the side's own class
+/// (`-left`, `-right`) follows it.
+pub const RIBBON_BAND_FADE_CLASS: &str = "__azul-native-ribbon-band-fade";
+static CLS_LOCATION: &[IdOrClass] = &[Class(AzString::from_const_str(RIBBON_LOCATION_CLASS))];
+static CLS_BAND_FADE_LEFT: &[IdOrClass] = &[
+    Class(AzString::from_const_str(RIBBON_BAND_FADE_CLASS)),
+    Class(AzString::from_const_str("__azul-native-ribbon-band-fade-left")),
+];
+static CLS_BAND_FADE_RIGHT: &[IdOrClass] = &[
+    Class(AzString::from_const_str(RIBBON_BAND_FADE_CLASS)),
+    Class(AzString::from_const_str("__azul-native-ribbon-band-fade-right")),
+];
+/// How wide a fade at an end of the band is, in px: the room the first and the last group keep
+/// from the ends, so a fade over the band at rest covers nothing.
+const BAND_FADE_PX: f32 = 20.0;
+
+/// `style` (a band's declarations) as the band of EVERY tab: [`crate::widgets::tabs::TAB_BAND_PX`]
+/// tall, whatever the look made it, and scrolling sideways without a scrollbar where its groups
+/// do not fit (the groups never shrink: `theme_group`).
+fn one_band(mut style: Vec<Cond>) -> Vec<Cond> {
+    let height = P::const_height(LayoutHeight::const_px(crate::widgets::tabs::TAB_BAND_PX));
+    let mut set = false;
+    for declaration in &mut style {
+        if matches!(declaration.property, P::Height(_)) && declaration.apply_if.as_ref().is_empty() {
+            declaration.property = height.clone();
+            set = true;
+        }
+    }
+    if !set {
+        style.push(Cond::simple(height));
+    }
+    if !style
+        .iter()
+        .any(|declaration| matches!(declaration.property, P::BoxSizing(_)) && declaration.apply_if.as_ref().is_empty())
+    {
+        style.push(cond_border_box());
+    }
+    style.push(Cond::simple(P::const_overflow_x(LayoutOverflow::Auto)));
+    style.push(Cond::simple(P::const_overflow_y(LayoutOverflow::Hidden)));
+    style.push(Cond::simple(P::ScrollbarWidth(
+        props::property::LayoutScrollbarWidthValue::Exact(LayoutScrollbarWidth::None),
+    )));
+    style
+}
+
+/// The block that holds a tab's location in the band, as wide as the band and as tall.
+fn location_host(location: Dom) -> Dom {
+    Dom::create_div()
+        .with_ids_and_classes(IdOrClassVec::from_const_slice(CLS_LOCATION))
+        .with_css(
+            "display: flex; flex-direction: column; box-sizing: border-box; width: 100%; \
+             height: 100%; flex-shrink: 0; overflow: hidden;",
+        )
+        .with_child(location)
+}
+
+/// The colours a fade at an end of the band dissolves into: the band's own surface, by day and by
+/// night. The leather's is its tint; any other band's is its background, a plain colour or the last
+/// colour of a gradient face. `None` for a band whose surface is neither (no fade then: the band
+/// still scrolls).
+fn band_surface(leather: bool, style: &[Cond]) -> Option<(ColorU, ColorU)> {
+    if leather {
+        return Some((ColorU::rgb(0xE4, 0xE2, 0xDD), ColorU::rgb(0x37, 0x36, 0x35)));
+    }
+    let face = |dark: bool| -> Option<ColorU> {
+        style
+            .iter()
+            .filter(|c| {
+                let night = c.apply_if.as_ref().iter().any(|selector| {
+                    matches!(
+                        selector,
+                        DynamicSelector::Mode(dynamic_selector::ModeCondition::Dark)
+                    )
+                });
+                if dark {
+                    night
+                } else {
+                    c.apply_if.as_ref().is_empty()
+                }
+            })
+            .filter_map(|c| match &c.property {
+                P::BackgroundContent(layers) => layers.get_property().and_then(|layers| {
+                    layers.as_ref().last().and_then(|layer| match layer {
+                        StyleBackgroundContent::Color(color) => Some(*color),
+                        StyleBackgroundContent::LinearGradient(gradient) => gradient
+                            .stops
+                            .as_ref()
+                            .last()
+                            .map(|stop| stop.color.to_color_u_default()),
+                        _ => None,
+                    })
+                }),
+                _ => None,
+            })
+            .last()
+    };
+    let light = face(false).filter(|c| c.a == 255)?;
+    Some((light, face(true).filter(|c| c.a == 255).unwrap_or(light)))
+}
+
+/// `groups` with a fade at each end of the band: `BAND_FADE_PX` of room before the first group and
+/// after the last, and over each a box that sticks to its edge of the band's view
+/// (`position: sticky`), so it dissolves whatever slides under it and covers nothing at rest. The
+/// fades take no room (a negative margin as wide as they are).
+fn with_band_fades(groups: Vec<Dom>, light: ColorU, dark: ColorU) -> Vec<Dom> {
+    let fade = |left: bool| -> Dom {
+        let (edge, other, to) = if left {
+            ("left", "right", "to right")
+        } else {
+            ("right", "left", "to left")
+        };
+        let gradient = |c: ColorU| {
+            format!(
+                "linear-gradient({to}, rgba({}, {}, {}, 1), rgba({}, {}, {}, 0))",
+                c.r, c.g, c.b, c.r, c.g, c.b
+            )
+        };
+        Dom::create_div()
+            .with_ids_and_classes(IdOrClassVec::from_const_slice(if left {
+                CLS_BAND_FADE_LEFT
+            } else {
+                CLS_BAND_FADE_RIGHT
+            }))
+            .with_css(&format!(
+                "position: sticky; {edge}: 0px; top: 0px; width: {BAND_FADE_PX}px; height: 100%; \
+                 flex-shrink: 0; margin-{other}: -{BAND_FADE_PX}px; background: {}; \
+                 @theme(dark) {{ background: {}; }}",
+                gradient(light),
+                gradient(dark),
+            ))
+    };
+    let room = || {
+        Dom::create_div().with_css(&format!(
+            "flex-shrink: 0; width: {BAND_FADE_PX}px; height: 1px;"
+        ))
+    };
+    let mut out = Vec::with_capacity(groups.len() + 4);
+    out.push(fade(true));
+    out.push(room());
+    out.extend(groups);
+    out.push(room());
+    out.push(fade(false));
+    out
 }
 
 /// `s` with its tab row made of `theme`'s buttons (`TabStyle::Pills`) and
@@ -5375,6 +5769,7 @@ fn mobile_file_entry(ab: RibbonAppButton, style: &RibbonStyle) -> Dom {
         label,
         on_click,
         menu,
+        icon: _,
     } = ab;
     let mut row = Dom::create_div()
         .with_ids_and_classes(IdOrClassVec::from_const_slice(CLS_MOBILE_TAB_OVERLAY_FILE))
@@ -6028,9 +6423,8 @@ const fn advance_milli_em(c: char) -> u32 {
     }
 }
 
-/// The width of `text` set at `font_px`, as the ribbon estimates it (and the tab strip's
-/// `text_pill_width` after it).
-pub(crate) fn text_px(text: &str, font_px: f32) -> f32 {
+/// The width of `text` set at `font_px`, as the ribbon estimates it.
+fn text_px(text: &str, font_px: f32) -> f32 {
     let milli: u64 = text.chars().map(|c| u64::from(advance_milli_em(c))).sum();
     milli as f32 / 1000.0 * font_px * TEXT_WIDTH_FACTOR
 }
@@ -8182,7 +8576,7 @@ mod tests {
             let Some(state) = state else { continue };
             let is_dark = conds
                 .iter()
-                .any(|c| matches!(c, DynamicSelector::Mode(azul_css::dynamic_selector::ModeCondition::Dark)));
+                .any(|c| matches!(c, DynamicSelector::Mode(dynamic_selector::ModeCondition::Dark)));
             if is_dark {
                 dark.push((p.get_type(), state));
             } else {
@@ -8215,7 +8609,7 @@ mod tests {
                     .any(|c| matches!(c, DynamicSelector::PseudoState(s) if *s == state));
                 let is_dark = conds
                     .iter()
-                    .any(|c| matches!(c, DynamicSelector::Mode(azul_css::dynamic_selector::ModeCondition::Dark)));
+                    .any(|c| matches!(c, DynamicSelector::Mode(dynamic_selector::ModeCondition::Dark)));
                 matches!(p, CssProperty::BackgroundContent(_))
                     && gated_on_state
                     && is_dark == want_dark
@@ -8262,7 +8656,7 @@ mod tests {
                 matches!(p, CssProperty::TextColor(_))
                     && conds
                         .iter()
-                        .any(|c| matches!(c, DynamicSelector::Mode(azul_css::dynamic_selector::ModeCondition::Dark)))
+                        .any(|c| matches!(c, DynamicSelector::Mode(dynamic_selector::ModeCondition::Dark)))
                     && conds
                         .iter()
                         .any(|c| matches!(c, DynamicSelector::PseudoState(PseudoStateType::Hover)))
@@ -9148,8 +9542,16 @@ mod tests {
                 P::const_flex_shrink(LayoutFlexShrink {
                     inner: FloatValue::const_new(0),
                 }),
-                P::const_height(LayoutHeight::const_px(92)),
+                // The one height of every tab's band, whatever the look: it was 92 px here before
+                // the band had one number (`TAB_BAND_PX`).
+                P::const_height(LayoutHeight::const_px(crate::widgets::tabs::TAB_BAND_PX)),
                 P::const_background_content(bg_vec(WHITE)),
+                // And it scrolls sideways, with no scrollbar, where its groups do not fit.
+                P::const_overflow_x(LayoutOverflow::Auto),
+                P::const_overflow_y(LayoutOverflow::Hidden),
+                P::ScrollbarWidth(props::property::LayoutScrollbarWidthValue::Exact(
+                    LayoutScrollbarWidth::None
+                )),
             ],
             "content band"
         );
@@ -9271,7 +9673,7 @@ mod tests {
         conds
             .as_ref()
             .iter()
-            .any(|c| matches!(c, DynamicSelector::Mode(azul_css::dynamic_selector::ModeCondition::Dark)))
+            .any(|c| matches!(c, DynamicSelector::Mode(dynamic_selector::ModeCondition::Dark)))
     }
 
     /// Invariant I8 for the ribbon's RESTING colours: every opaque colour a
@@ -10472,3 +10874,7 @@ mod ribbon_mobile_test;
 #[cfg(test)]
 #[path = "ribbon_touch_test.rs"]
 mod ribbon_touch_test;
+
+#[cfg(test)]
+#[path = "ribbon_band_test.rs"]
+mod ribbon_band_test;
