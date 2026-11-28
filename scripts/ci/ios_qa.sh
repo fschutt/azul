@@ -106,6 +106,9 @@ if [ "$session" = tabs ]; then
   # THE TAB STRIP on the phone: per orientation (1) the device's own pictures of a plain start, light and dark, (2) per file of AZ_QA_TABS_FILES a
   # recording of its run and the engine's frames of it (AZ_E2E_SHOT_DIR, scripts/ci/e2e_matrix.py --shots), its verdicts in the table
   xcrun simctl list devices | grep "$udid" | head -n 1 >"$out/device.txt" || true
+  # the app on the Simulator FIRST: the plain start below needs it, and the matrix runs install it only later (simctl launch of an app that is not
+  # there starts nothing: the iOS flicker audit recorded the home screen for 80 s that way)
+  xcrun simctl install "$udid" "$appdir" >"$out/install.log" 2>&1 || echo "the app did not install: $(tail -n 2 "$out/install.log")"
   for orient in portrait landscape; do
     if [ "$orient" = landscape ]; then
       open -a Simulator --args -CurrentDeviceUDID "$udid"; sleep 10
@@ -122,7 +125,7 @@ if [ "$session" = tabs ]; then
     xcrun simctl ui "$udid" appearance light >/dev/null 2>&1; sleep 4
     xcrun simctl terminate "$udid" "$bid" >/dev/null 2>&1 || true
     for part in ${AZ_QA_TABS_FILES:-tab_touch_phone tab_touch.json tab_touch_pictures}; do
-      xcrun simctl io "$udid" recordVideo --codec h264 --force "$td/videos/${part%.json}.mp4" >"$td/videos/${part%.json}.log" 2>&1 &
+      xcrun simctl io "$udid" recordVideo --codec=h264 --force "$td/videos/${part%.json}.mp4" >"$td/videos/${part%.json}.log" 2>&1 &
       rec=$!
       python3 "$here/e2e_matrix.py" ios --repo . --out "$td/matrix-${part%.json}" --udid "$udid" --only "$part" --shots "$td/shots" --app "$app" 2>&1 | tee -a "$td/e2e-matrix.log"
       kill -INT "$rec" 2>/dev/null; wait "$rec" 2>/dev/null

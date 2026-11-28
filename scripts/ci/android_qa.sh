@@ -169,6 +169,8 @@ for mode in "${mode_list[@]}"; do
     # against the e2e APK, per orientation: (1) the device's own pictures of a plain start, light and dark (the system draws the cutout), (2) per file a
     # recording of its run and the engine's frames of it (AZ_E2E_SHOT_DIR, pulled by scripts/ci/e2e_matrix.py --shots), its verdicts in the table
     adb shell dumpsys window displays 2>/dev/null | grep -i -E "cutout|init=|DisplayInfo" | head -n 24 >"$d/display.txt" || true
+    # the APK on the phone FIRST: the plain start below needs it, and the matrix runs install it only later
+    adb install -r -t "$apk" >"$d/install.log" 2>&1 || echo "the e2e APK did not install: $(tail -n 2 "$d/install.log")"
     adb shell settings put system accelerometer_rotation 0
     for orient in portrait landscape; do
       adb shell settings put system user_rotation "$([ "$orient" = portrait ] && echo 0 || echo 1)"
