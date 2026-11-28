@@ -1181,13 +1181,9 @@ impl Drop for CloseBridgeOnExit {
     }
 }
 
-/// What the loop does with the result of a pass over a UI-thread event: the same ladder the input
-/// sites use. An incremental relayout is PERFORMED here, never escalated into a DOM rebuild that
-/// would throw it away (an IME commit landed in the engine's tree and was overwritten by the app's
-/// unchanged model: typing composed, committed and vanished).
-#[cfg(all(target_os = "android", feature = "android-activity"))]
 /// Tell the app what `android_core::lifecycle::AppPhase` says is to be told (the app's lifecycle handler:
 /// `CallbackInfo::set_lifecycle_handler`; an app without one hears nothing), and apply what the handler asked for.
+#[cfg(all(target_os = "android", feature = "android-activity"))]
 fn tell_app(window: &mut AndroidWindow, tell: Option<crate::desktop::shell2::android_core::lifecycle::Tell>) {
     use azul_core::lifecycle::LifecycleEvent;
     use crate::desktop::shell2::android_core::lifecycle::Tell;
@@ -1205,6 +1201,11 @@ fn tell_app(window: &mut AndroidWindow, tell: Option<crate::desktop::shell2::and
     follow_ui_result(window, result);
 }
 
+/// What the loop does with the result of a pass over a UI-thread event: the same ladder the input
+/// sites use. An incremental relayout is PERFORMED here, never escalated into a DOM rebuild that
+/// would throw it away (an IME commit landed in the engine's tree and was overwritten by the app's
+/// unchanged model: typing composed, committed and vanished).
+#[cfg(all(target_os = "android", feature = "android-activity"))]
 fn follow_ui_result(window: &mut AndroidWindow, r: azul_core::events::ProcessEventResult) {
     use azul_core::events::ProcessEventResult as PER;
     match r {
@@ -1479,6 +1480,7 @@ fn apply_insets(window: &mut AndroidWindow, px: [i32; 5]) {
 /// `android_core::display` reads, PHYSICAL px), handed to the engine in logical px next to the insets: an app draws into the gaps
 /// (a tab strip in the status bar's band that slides around the camera). A change relayouts: a rotation moves the cutout to
 /// another edge. The sensor's kind and place are not public API on Android: `Unknown` kind, no spot.
+#[cfg(all(target_os = "android", feature = "android-activity"))]
 fn apply_display_features(window: &mut AndroidWindow, flat: &[i32]) {
     use crate::desktop::shell2::android_core::display::{decode, guess_shape, Bar, Px, ShapeGuess};
     use azul_core::{
@@ -3337,6 +3339,7 @@ pub fn set_system_bars_appearance(_status_light: bool, _navigation_light: bool) 
 /// Apply what the window asks of the system bars and the cutout area (`WindowFlags::system_bars`) when it is new or changed:
 /// `AzulActivity.applySystemBars` on the UI thread (hide / show with the swipe behaviour, the icon colour, the window drawing into
 /// the cutout and edge to edge). The `extend_into_safe_area` flag is the layout's: it never changes the cutout mode.
+#[cfg(all(target_os = "android", feature = "android-activity"))]
 fn apply_system_bars_if_changed(window: &mut AndroidWindow) {
     let wanted = window.common.current_window_state().flags.system_bars;
     if window.applied_system_bars == Some(wanted) {
