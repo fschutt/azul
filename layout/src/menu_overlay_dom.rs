@@ -137,7 +137,7 @@ fn styled(base: &[CssPropertyWithConditions], extra: &str) -> CssPropertyWithCon
     CssPropertyWithConditionsVec::from_vec(style)
 }
 
-fn class(name: &'static str) -> IdOrClass {
+const fn class(name: &'static str) -> IdOrClass {
     IdOrClass::Class(AzString::from_const_str(name))
 }
 

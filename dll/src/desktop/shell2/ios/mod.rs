@@ -2455,6 +2455,7 @@ fn make_layout_window(
 
 /// The platform state around a layout window, with no UIKit object: the window's state, the style it follows, the app's shared data
 /// and the hit tester.
+#[allow(clippy::too_many_arguments)]
 fn make_common(
     full_window_state: FullWindowState,
     appearance: (
