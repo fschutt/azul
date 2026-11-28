@@ -11,7 +11,10 @@
 # 5. the OpenGL ES host tests (scripts/ci/gles_host.sh: WebRender over Mesa's OpenGL ES 3 against the CPU renderer, the lifecycle
 #    executor with real EGL, the pure tests), one process per GL test; they are off in step 3 (AZ_GLES_HOST_TESTS)
 # 6. the guide: `azul-doc check` and `azul-doc check layout`
-# AZ_GATE_SKIP="clippy srcgate doc" leaves out the steps named (a change that touches the dll alone needs none of them).
+# 7. autofix (`azul-doc autofix`, patch, normalize, no change left): the API drift and the FFI safety of every type, a type of the
+#    engine that has the name of an API type fails it
+# AZ_GATE_SKIP="clippy srcgate doc" leaves out the steps named (a change that touches the dll alone needs none of them); the names are
+# android, clippy, srcgate, doc, autofix (a run for one step skips the others).
 #
 # Every step prints its own verdict line with the real exit code; the job exits 0 whatever they say, so that the runner keeps its build
 # cache (it saves it only for a job that succeeded). The last line is the verdict of all of them.
@@ -27,17 +30,19 @@ record() {   # name, exit status
 }
 mkdir -p target
 
-echo "=== 1. the Android targets ==="
-bash scripts/ci/android_gpu_check.sh
-# the script exits 0 whatever it found: its verdict per target is read from the logs it keeps
-for target in x86_64-linux-android aarch64-linux-android; do
-  log="target/android-check-$target.log"
-  if [ -f "$log" ] && grep -q "android shell: cargo check ok" "$log" && ! grep -q -E "error(\[E[0-9]+\])?:" "$log"; then
-    record "android check $target" 0
-  else
-    record "android check $target" 1
-  fi
-done
+if ! skip android; then
+  echo "=== 1. the Android targets ==="
+  bash scripts/ci/android_gpu_check.sh
+  # the script exits 0 whatever it found: its verdict per target is read from the logs it keeps
+  for target in x86_64-linux-android aarch64-linux-android; do
+    log="target/android-check-$target.log"
+    if [ -f "$log" ] && grep -q "android shell: cargo check ok" "$log" && ! grep -q -E "error(\[E[0-9]+\])?:" "$log"; then
+      record "android check $target" 0
+    else
+      record "android check $target" 1
+    fi
+  done
+fi
 
 if ! skip clippy; then
   echo "=== 2. clippy (azul-core, azul-css, azul-layout; the feature set the tests compile) ==="
@@ -93,6 +98,24 @@ if ! skip doc; then
   tail -n 12 target/gate-doc-layout.log
   echo "gate: azul-doc check layout exit $status"
   record "azul-doc check layout" "$status"
+fi
+
+if ! skip autofix; then
+  echo "=== 7. autofix: api.json drift and the FFI safety of every type the engine defines (a name that is also an API type fails here) ==="
+  (
+    set -e
+    cargo run -r -p azul-doc -- autofix
+    cargo run -r -p azul-doc -- autofix explain
+    cargo run -r -p azul-doc -- patch safe target/autofix/patches
+    cargo run -r -p azul-doc -- patch target/autofix/patches
+    cargo run -r -p azul-doc -- normalize
+  ) >target/gate-autofix.log 2>&1
+  status=$?
+  grep -E "CRITICAL|critical|error|Error|FFI safety|defined twice|duplicate" target/gate-autofix.log | head -n 20
+  tail -n 8 target/gate-autofix.log
+  if [ "$status" -eq 0 ] && ! git diff --quiet; then echo "autofix changed files:"; git diff --stat | tail -n 10; status=1; fi
+  echo "gate: autofix exit $status"
+  record "autofix" "$status"
 fi
 
 echo "=== GPU GATE SUMMARY ==="
