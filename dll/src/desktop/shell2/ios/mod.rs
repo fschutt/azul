@@ -1512,6 +1512,14 @@ extern "C" fn display_tick(_this: &Object, _cmd: Sel, _link: *mut Object) {
         {
             window.request_redraw();
         }
+        // What another app or the system asked this one to open (`application:openURL:options:`, the worker that copied the
+        // file): the app's open handler, once it has one.
+        if !matches!(
+            crate::desktop::extra::open_files::pump(window),
+            azul_core::events::ProcessEventResult::DoNothing
+        ) {
+            window.request_redraw();
+        }
         // The APP's explicit soft-keyboard request. `CallbackInfo::
         // request_soft_keyboard()` -> `CallbackChange::RequestSoftKeyboard` ->
         // `TextEditManager::pending_soft_keyboard` was drained on Android only,
@@ -1997,6 +2005,8 @@ extern "C" fn app_did_become_active(_this: &Object, _cmd: Sel, _app: *mut Object
     // one that cold-launched it arrived before this), and the permission the
     // user may have changed in Settings meanwhile is re-read.
     crate::desktop::notifications::app_became_active();
+    // a file or link that arrives from now on does not start the app
+    crate::desktop::extra::open_files::apple::note_active();
     // Covers the resume path that skips willEnterForeground (first launch
     // does both; unpausing twice is a harmless idempotent setter).
     unsafe { set_display_link_paused(false) };
@@ -2013,6 +2023,21 @@ extern "C" fn app_did_become_active(_this: &Object, _cmd: Sel, _app: *mut Object
             .common
             .request_regeneration(RelayoutReason::RefreshDom);
         let _ = window.present();
+    }
+}
+
+/// `application:openURL:options:` - another app or the system opens this one with a file ("Open in ..." of the Files app, Mail,
+/// the share sheet) or a link of a scheme the app declared. Everything else is `extra::open_files::apple`.
+extern "C" fn app_open_url(
+    _this: &Object,
+    _cmd: Sel,
+    _app: *mut Object,
+    url: *mut Object,
+    options: *mut Object,
+) -> bool {
+    // SAFETY: the objects UIKit passes, live for the call; the same layout in objc 0.2's and objc2's `Object` / `AnyObject`.
+    unsafe {
+        crate::desktop::extra::open_files::apple::did_open_url(url.cast(), options.cast())
     }
 }
 
@@ -2150,6 +2175,12 @@ fn get_or_create_app_delegate_class() -> Option<&'static Class> {
         decl.add_method(
             sel!(application:didFinishLaunchingWithOptions:),
             did_finish_launching as extern "C" fn(&Object, Sel, *mut Object, *mut Object) -> bool,
+        );
+
+        // Another app or the system opens this one with a file or a link.
+        decl.add_method(
+            sel!(application:openURL:options:),
+            app_open_url as extern "C" fn(&Object, Sel, *mut Object, *mut Object, *mut Object) -> bool,
         );
 
         // Lifecycle hooks — see comments on each function.

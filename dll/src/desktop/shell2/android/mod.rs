@@ -898,6 +898,14 @@ pub fn android_main(app: AndroidApp) {
         {
             window.needs_rerender = true;
         }
+        // What another app asked this one to open (the intent that started the app, a share, "Open with"): the worker that
+        // copied the files woke this loop; the app's open handler runs here once it has one.
+        if !matches!(
+            crate::desktop::extra::open_files::pump(&mut window),
+            azul_core::events::ProcessEventResult::DoNothing
+        ) {
+            window.needs_rerender = true;
+        }
 
         // `<webview>`s: what the Java WebViews reported (their callbacks wake
         // this loop) runs the views' callbacks; the ops of the last frames go

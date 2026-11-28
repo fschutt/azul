@@ -158,6 +158,7 @@ contracts() {
   cargo test -p azul-dll --features build-dll --no-fail-fast \
     --test file_picker_tells_the_truth_contract \
     --test android_share_open_contract \
+    --test ios_share_open_contract \
     --test android_jni_symbols_match_the_java_glue \
     --test android_manifest_contract \
     --test android_extras_java_glue_contract

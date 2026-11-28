@@ -191,3 +191,110 @@ fn the_app_installs_the_share_backend_when_it_starts_its_services() {
         "App::start_app_services installs the share backend:\n{body}"
     );
 }
+
+// ---- step 2: share IN / open with ----
+
+/// The activity is ONE instance whoever starts it, and takes the filters the build generates from the app's declaration.
+///
+/// Mutation: `launchMode="singleTop"` back (the state of 96d83ae2e0: an intent from another app started a second `AzulActivity`,
+/// a second `android_main`, a black window); the placeholder removed (no filter reaches the manifest).
+#[test]
+fn the_activity_is_single_task_and_takes_the_generated_open_filters() {
+    let manifest = xml_code("scripts/android/AndroidManifest.xml");
+    let activity = &manifest[manifest.find("<activity").unwrap()..];
+    let activity = &activity[..activity.find("</activity>").unwrap()];
+    assert_eq!(attribute(&manifest, "<activity", "android:launchMode").as_deref(), Some("singleTask"));
+    assert!(!manifest.contains("singleTop"), "no activity is singleTop: a share from another app would start a second one");
+    assert!(
+        activity.contains("@OPEN_FILTERS@"),
+        "the generated filters are placed inside the activity element:\n{activity}"
+    );
+    // the placeholder is substituted by the generator's output, and by nothing when the app declares nothing
+    let script = read("scripts/build-android.sh");
+    assert!(script.contains("documents_manifest.py\" android \"$AZ_DOCUMENTS\""), "the filters come from the declaration");
+    assert!(script.contains("-e \"/@OPEN_FILTERS@/r $OPEN_FILE\"") && script.contains("-e \"/@OPEN_FILTERS@/d\""));
+    // the only MAIN / LAUNCHER filter in the template is the launcher's: no static VIEW / SEND filter is hand-written there
+    for hand_written in ["android.intent.action.VIEW", "android.intent.action.SEND", "android.intent.action.EDIT"] {
+        assert!(
+            !activity.contains(hand_written),
+            "{hand_written} is generated from the app's [[app.documents]], not written in the template"
+        );
+    }
+}
+
+/// Both intents reach the engine, and an auth redirect is not read as a file or a link.
+///
+/// Mutation: the forward in `onCreate` removed (the intent that STARTED the app is lost); the forward in `onNewIntent` moved before
+/// the auth check (a sign-in redirect would reach the app's open handler as a link).
+#[test]
+fn the_activity_forwards_the_intent_that_started_it_and_the_ones_that_reach_it() {
+    let java = code("scripts/android/AzulActivity.java");
+    let on_create = {
+        let at = java.find("protected void onCreate(").expect("onCreate");
+        let rest = &java[at..];
+        let end = rest.find("\n    }\n").expect("end of onCreate");
+        &rest[..end]
+    };
+    let fresh = &on_create[on_create.find("if (savedInstanceState == null)").expect("the fresh-creation block")..];
+    assert!(
+        fresh.contains("AzulOpenIntent.forward(this, getIntent(), true)"),
+        "the intent that started the app is forwarded, only on a fresh creation:\n{fresh}"
+    );
+    let on_new_intent = {
+        let at = java.find("protected void onNewIntent(").expect("onNewIntent");
+        let rest = &java[at..];
+        &rest[..rest.find("\n    }\n").expect("end of onNewIntent")]
+    };
+    let auth = on_new_intent.find("AzulAuthSession.onIntent(intent)").expect("the auth check");
+    let open = on_new_intent.find("AzulOpenIntent.forward(this, intent, false)").expect("the open forward");
+    assert!(auth < open, "an auth redirect returns before the open forward");
+    assert!(on_new_intent.contains("setIntent(intent)"));
+}
+
+/// The Java class holds one native and says nothing when the library is not loaded; Rust has the symbol with the arguments.
+#[test]
+fn the_open_intent_class_has_its_native_and_the_rust_symbol() {
+    let java = code("scripts/android/AzulOpenIntent.java");
+    assert!(java.contains("private static native void nativeOnIntent(Activity activity, Intent intent, boolean launchedApp)"));
+    assert!(java.contains("catch (UnsatisfiedLinkError"), "no crash in onCreate when the library is not loaded");
+    assert_eq!(java.matches(" native ").count(), 1, "one native, no logic");
+    let rust = code("dll/src/desktop/extra/open_files/android.rs");
+    let at = rust.find("fn Java_com_azul_open_AzulOpenIntent_nativeOnIntent(").expect("the JNI symbol");
+    let signature = &rust[at..at + 400];
+    for argument in ["raw_env", "_class", "activity: jni::sys::jobject", "intent: jni::sys::jobject", "launched_app: jni::sys::jboolean"] {
+        assert!(signature.contains(argument), "{argument}:\n{signature}");
+    }
+    assert!(rust.contains("#[no_mangle]"));
+}
+
+/// The reading of an intent is cheap on the UI thread; the copying is a worker's, through a file descriptor, within limits.
+///
+/// Mutation: the copy run in the native (the UI thread blocks as long as a cloud provider streams: the ANR dialog after five seconds).
+#[test]
+fn the_copy_is_a_workers_through_a_descriptor_and_a_refusal_is_an_item() {
+    let rust = code("dll/src/desktop/extra/open_files/android.rs");
+    assert!(rust.contains("std::thread::Builder::new()"), "a worker thread");
+    assert!(rust.contains("openFileDescriptor") && rust.contains("detachFd") && rust.contains("from_raw_fd"));
+    assert!(!rust.contains("openInputStream"), "no stream read on a Java thread: a descriptor is a File");
+    assert!(rust.contains("takePersistableUriPermission"), "the persistable grant is taken where the sender offered it");
+    assert!(rust.contains("open_intent::classify"), "the classification is the tested pure function");
+    assert!(rust.contains("copy_in(") && rust.contains("file_failed("), "every file is an item, a failure with its reason");
+    assert!(rust.contains("WAIT_FOR_APP"), "the request that started the app waits for the App");
+    // the native itself ends by clearing a pending exception: it would be thrown at the Java caller
+    let native = &rust[rust.find("fn Java_com_azul_open_AzulOpenIntent_nativeOnIntent(").unwrap()..];
+    assert!(native.contains("exception_clear"));
+}
+
+/// Both phone loops run the app's handler.
+///
+/// Mutation: the pump removed from the Android loop (the request is queued and nobody runs the handler).
+#[test]
+fn both_phone_loops_pump_the_open_requests() {
+    for path in ["dll/src/desktop/shell2/android/mod.rs", "dll/src/desktop/shell2/ios/mod.rs"] {
+        let src = code(path);
+        assert!(src.contains("extra::open_files::pump("), "{path} runs the open handler");
+    }
+    let events = code("dll/src/desktop/app_events.rs");
+    assert!(events.contains("extra::open_files::take_deliveries()") && events.contains("extra::open_files::invoke_deliveries("));
+    assert!(events.contains("extra::open_files::defer_deliveries("), "a request with no window waits for one");
+}

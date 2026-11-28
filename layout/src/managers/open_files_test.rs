@@ -145,3 +145,13 @@ fn clones_are_one_queue() {
     assert_eq!(other.take_deliveries().len(), 1);
     assert!(queue.handler().as_ref().is_some());
 }
+
+#[test]
+fn a_request_before_the_app_was_active_is_the_one_that_started_it() {
+    let queue = OpenQueue::new();
+    assert!(!queue.was_active());
+    queue.note_active();
+    assert!(queue.was_active());
+    assert!(queue.clone().was_active(), "one app, one answer");
+    assert!(!OpenQueue::new().was_active(), "another app has its own");
+}

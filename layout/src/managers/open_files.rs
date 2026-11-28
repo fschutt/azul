@@ -33,6 +33,7 @@ struct Inner {
     handler: OptionCoreMenuCallback,
     current: Option<OpenRequest>,
     dropped: usize,
+    was_active: bool,
 }
 
 /// The open requests of one app: the held ones, the app's handler and the request whose delivery runs right now. The windows of
@@ -50,6 +51,7 @@ impl Default for OpenQueue {
                 handler: OptionCoreMenuCallback::None,
                 current: None,
                 dropped: 0,
+                was_active: false,
             })),
         }
     }
@@ -89,6 +91,17 @@ impl OpenQueue {
         }
         inner.held.push_back(request);
         true
+    }
+
+    /// The app became active (iOS `applicationDidBecomeActive:`): a request that comes before it is the one that STARTED the app.
+    pub fn note_active(&self) {
+        self.lock().was_active = true;
+    }
+
+    /// Whether the app has been active yet; a request made while it was not is `launched_app`.
+    #[must_use]
+    pub fn was_active(&self) -> bool {
+        self.lock().was_active
     }
 
     /// How many requests were dropped because the app never installed a handler (diagnostics).
