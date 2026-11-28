@@ -71,6 +71,8 @@ After the table come two lines for a script: `[startup-json] {...}` (the headlin
 | `x11:*`, `wayland:*`, `win:*`, `android:*` | the same for the Linux, Windows and Android windows: the libraries, the display or the window class, the native window, the renderer (`render_backend` says `cpu` or `gpu` and what was asked for), the accessibility adapter, the map or the show |
 | `gtk_im_loaded` | libgtk-3's input method context (X11 and Wayland): loaded at the first caret position a text field hands over, not at window creation; it shows as a late mark, and only in a run that has such a field |
 | `layout_begin`, `layout_phases`, `layout_end` | one layout pass, its reason and its phases |
+| `layout_extra_pass` | why a layout ran a SECOND pass inside one call (`#1 lifecycle_refresh=true docks_changed=false`): a lifecycle callback asked for a refresh, or the docking of an inline `<transient-window>` changed; a window whose first DOM is simply laid out has none |
+| `frame:first_render_*` | the first frame's render on macOS, split: `begin`, `prepared` (threads polled, size synced), `content_prepared` (the images the frame draws: the procedural materials, the desktop wallpaper they reflect), `rasterized`, `done` (the pixels are handed to the view) |
 | `a11y_tree_first_built` | the layout pass that built the first accessibility tree |
 | `first_present` | the first frame handed to the OS (macOS: the window is revealed) |
 | `first_event` | the first input event (mouse, key, touch, scroll) the app handled, whoever sent it |

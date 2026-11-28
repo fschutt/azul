@@ -608,6 +608,9 @@ macro_rules! css_property_from_type {
             CssPropertyType::FontKerning => {
                 CssProperty::FontKerning(CssPropertyValue::$content_type)
             }
+            CssPropertyType::TextDecorationStyle => {
+                CssProperty::TextDecorationStyle(CssPropertyValue::$content_type)
+            }
             CssPropertyType::TextUnderlineOffset => {
                 CssProperty::TextUnderlineOffset(CssPropertyValue::$content_type)
             }

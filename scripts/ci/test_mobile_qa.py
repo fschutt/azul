@@ -326,7 +326,7 @@ class ModeComparisonTests(unittest.TestCase):
 
     def test_a_gpu_request_waits_long_for_its_first_frame(self):
         # the first GL frame on a software renderer compiles every shader: two minutes are normal there, not a missing picture
-        self.assertEqual(q.first_frame_timeout_for("gpu", 45), 120)
+        self.assertEqual(q.first_frame_timeout_for("gpu", 45), 240)
         self.assertEqual(q.first_frame_timeout_for("gpu", 300), 300)       # a longer wish stays
         self.assertEqual(q.first_frame_timeout_for("cpu", 45), 45)
         self.assertEqual(q.first_frame_timeout_for("auto", 45), 45)
@@ -527,6 +527,59 @@ class StartupLinesTests(unittest.TestCase):
         self.assertIsNone(q.median_start(["nothing"]))
 
 
+class PermissionDialogTests(unittest.TestCase):
+    APP = "com.azul.AzMeet"
+    CLEAN = ('<hierarchy><node package="com.azul.AzMeet" class="android.widget.Button" text="Mute" resource-id="" bounds="[0,0][10,10]"/></hierarchy>')
+    DIALOG = ('<hierarchy><node package="com.google.android.permissioncontroller" class="android.widget.Button" text="While using the app" '
+              'resource-id="com.android.permissioncontroller:id/permission_allow_foreground_only_button" bounds="[0,0][10,10]"/></hierarchy>')
+
+    def test_a_clean_screen_has_no_dialog(self):
+        self.assertIsNone(q.detect_permission_dialog("  mCurrentFocus=Window{1 u0 com.azul.AzMeet/com.azul.app.AzulActivity}", self.CLEAN, self.APP))
+
+    def test_the_permission_controller_in_front_is_a_dialog(self):
+        focus = "  mCurrentFocus=Window{9 u0 com.google.android.permissioncontroller/com.android.permissioncontroller.permission.ui.GrantPermissionsActivity}"
+        self.assertIn("focused window", q.detect_permission_dialog(focus, "", self.APP))
+
+    def test_its_buttons_in_the_dump_are_a_dialog_even_when_the_focus_line_is_missing(self):
+        self.assertIn("permission controller", q.detect_permission_dialog("", self.DIALOG, self.APP))
+
+    def test_an_allow_button_of_another_package_is_a_dialog_but_the_apps_own_is_not(self):
+        other = '<node package="com.android.systemui" class="android.widget.Button" text="Allow" resource-id="" />'
+        own = '<node package="com.azul.AzMeet" class="android.widget.Button" text="Allow" resource-id="" />'
+        self.assertIn("allow", q.detect_permission_dialog("", other, self.APP))          # the text is compared in lower case
+        self.assertIsNone(q.detect_permission_dialog("", own, self.APP))
+
+    def test_tccd_prompt_lines_of_the_app_are_found(self):
+        log = ("2026-11-28 01:00:00 tccd: AUTHREQ_PROMPTING: msgID=1.2, service=kTCCServiceCamera, subject=com.azul.AzMeet\n"
+               "2026-11-28 01:00:01 tccd: AUTHREQ_PROMPTING: msgID=1.3, service=kTCCServiceMicrophone, subject=com.other.app\n"
+               "2026-11-28 01:00:02 tccd: something else\n")
+        self.assertEqual(len(q.ios_permission_prompts(log, "com.azul.AzMeet")), 1)
+        self.assertEqual(len(q.ios_permission_prompts(log)), 2)
+        self.assertEqual(q.ios_permission_prompts("", "x"), [])
+
+
+class PickTargetTests(unittest.TestCase):
+    # AzWidgets' real dump: the label above the field and the field carry the same name
+    DUMP = ("<hierarchy>"
+            '<node index="0" text="" class="android.widget.TextView" content-desc="TextInput" clickable="false" focusable="false" bounds="[110,813][970,850]">'
+            '<node index="0" text="" class="android.widget.TextView" content-desc="TextInput" clickable="false" focusable="false" bounds="[0,0][0,0]" /></node>'
+            '<node index="1" text="" class="android.widget.EditText" content-desc="TextInput" clickable="false" focusable="true" bounds="[118,871][962,986]">'
+            "</node>"
+            '<node index="2" text="" class="android.widget.RadioButton" content-desc="Dark" clickable="true" focusable="true" bounds="[519,251][588,291]" />'
+            '<node index="3" text="" class="android.widget.TextView" content-desc="Dark" clickable="false" focusable="false" bounds="[519,251][588,291]" />'
+            "</hierarchy>")
+
+    def test_the_field_is_picked_before_the_label_with_the_same_name(self):
+        self.assertEqual(q.pick_target(self.DUMP, "TextInput"), (540, 928))
+
+    def test_an_interactive_node_is_picked_before_a_plain_one(self):
+        self.assertEqual(q.pick_target(self.DUMP, "Dark"), (553, 271))
+
+    def test_a_name_that_is_not_there_or_has_no_box_is_none(self):
+        self.assertIsNone(q.pick_target(self.DUMP, "Nothing"))
+        self.assertIsNone(q.pick_target('<node content-desc="Zero" bounds="[0,0][0,0]" />', "Zero"))
+
+
 class CheckedTests(unittest.TestCase):
     XML = ('''<hierarchy><node index="2" text="" class="android.widget.RadioButton" content-desc="Dark" checkable="true" checked="true" clickable="true" bounds="[519,251][588,291]">'''
            '''<node index="0" text="" class="android.widget.TextView" content-desc="Dark" checkable="false" checked="false" bounds="[519,251][588,291]" />'''
@@ -550,6 +603,9 @@ class GpuFrameWaitTests(unittest.TestCase):
         self.assertTrue(q.gpu_frame_presented(self.CONTRACT + "\n" + self.FIRST))
         self.assertTrue(q.gpu_frame_presented(self.FRAMES))
         self.assertTrue(q.gpu_frame_presented("I RustStdoutStderr: [Android GPU] first frame 1080x2400: 20 draw calls"))
+        # the shared GPU code's own line (common/gles_gpu.rs), the one an Android GPU run writes
+        self.assertTrue(q.gpu_frame_presented("I RustStdoutStderr: [ 5123us][Info][Rendering] [render] first GPU frame: 1285.4 ms (WebRender compiles its programs in it)"))
+        self.assertFalse(q.gpu_frame_presented("[render] drawing the first frame at 1080x2400 px: WebRender compiles the programs it needs in it"))
         self.assertFalse(q.gpu_frame_presented(self.CONTRACT))
         self.assertFalse(q.gpu_frame_presented(""))
 
@@ -563,6 +619,20 @@ class GpuFrameWaitTests(unittest.TestCase):
     def test_a_request_that_fell_back_to_the_cpu_is_not_waited_for(self):
         fell_back = "[render] gpu unavailable at probe: x; drawing on the CPU\n[render] backend=cpu requested=gpu device=software"
         self.assertEqual(q.wait_for_gpu_frame(lambda: fell_back, 120, sleep=lambda _s: None), 0.0)
+
+    def test_a_build_without_a_gpu_path_is_not_waited_for(self):
+        # the Android CPU present path writing its frames: nothing to wait for
+        cpu_frames = "I RustStdoutStderr: [      900000us][Info][Rendering] [Android] present full - rows 0..2400 of 2400"
+        self.assertEqual(q.wait_for_gpu_frame(lambda: cpu_frames, 240, sleep=lambda _s: None), 0.0)
+        # an engine that names no renderer and says nothing for 20 s
+        clock = iter(range(0, 1000))
+        self.assertEqual(q.wait_for_gpu_frame(lambda: "[azul] logging enabled", 240, sleep=lambda _s: None, clock=lambda: next(clock)), 0.0)
+
+    def test_an_engine_that_keeps_talking_without_naming_a_renderer_is_waited_for(self):
+        count = iter(range(0, 1000))
+        clock = iter(range(0, 1000))
+        waited = q.wait_for_gpu_frame(lambda: "[azul] line " + "x" * next(count), 30, sleep=lambda _s: None, clock=lambda: next(clock))
+        self.assertIsNone(waited)
 
     def test_the_wait_gives_up_after_the_time_and_says_so(self):
         clock = iter(range(0, 1000))

@@ -81,6 +81,15 @@ def stored_data_offset(path, info):
     return info.header_offset + 30 + name_length + extra_length
 
 
+def libraries(path):
+    """The native libraries (lib/<abi>/*.so) of an APK, by their names in it ([] for a file that is no APK)."""
+    try:
+        with zipfile.ZipFile(path) as archive:
+            return [i.filename for i in archive.infolist() if i.filename.startswith("lib/") and i.filename.endswith(".so")]
+    except (zipfile.BadZipFile, OSError):
+        return []
+
+
 def check_apk(path):
     """The problems of every native library of an APK: [] when each can be loaded on 16 KiB pages."""
     try:

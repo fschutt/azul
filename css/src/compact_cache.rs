@@ -1822,6 +1822,8 @@ pub const DOM_HAS_TEXT_DECORATION_THICKNESS: u64 = 1 << 42;
 pub const DOM_HAS_TEXT_UNDERLINE_OFFSET: u64 = 1 << 43;
 /// The DOM declares `text-underline-position` with a value other than its initial one.
 pub const DOM_HAS_TEXT_UNDERLINE_POSITION: u64 = 1 << 44;
+/// The DOM declares `text-decoration-style` with a value other than its initial one.
+pub const DOM_HAS_TEXT_DECORATION_STYLE: u64 = 1 << 45;
 pub const SCROLLBAR_GUTTER_AUTO: u8 = 0;
 pub const SCROLLBAR_GUTTER_STABLE: u8 = 1;
 pub const SCROLLBAR_GUTTER_BOTH_EDGES: u8 = 2;
@@ -5249,8 +5251,9 @@ mod autotest_generated {
             DOM_HAS_TEXT_DECORATION_THICKNESS,
             DOM_HAS_TEXT_UNDERLINE_OFFSET,
             DOM_HAS_TEXT_UNDERLINE_POSITION,
+            DOM_HAS_TEXT_DECORATION_STYLE,
         ];
-        assert_eq!(flags.len(), 45, "the word has 45 of its 64 bits taken");
+        assert_eq!(flags.len(), 46, "the word has 46 of its 64 bits taken");
 
         let mut seen = 0u64;
         for f in flags {

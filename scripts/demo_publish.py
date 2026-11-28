@@ -3,6 +3,7 @@
 
     demo_publish.py assemble  --in <dir of downloaded demoapps-* artifacts> --out <dir> [--version 0.2.0] [--sha <git sha>]
     demo_publish.py companion --in <dir> --out companion.json [--version 0.2.0] [--sha <git sha>]
+    demo_publish.py list      --out <dir>      what the assembled publication carries, and which files of the manifest it does not
 
 `assemble` writes into --out exactly the files the release page links (doc/src/dllgen/demo_apps.rs builds the
 same names from scripts/demo_apps.toml): a desktop binary as <Name>-<os>[.exe].tar.gz (the macOS ones with the
@@ -173,14 +174,58 @@ def assemble(in_dir, out_dir, version, sha):
     return listing
 
 
+def unpublished(listing, manifest):
+    """The files of the manifest that a publication does not carry: [(package, column, asset name, known_failing reason or None)]."""
+    have = {x["name"] for x in listing}
+    missing = []
+    for app in manifest["app"]:
+        for col in demo_apps.columns_of(app):
+            name = demo_apps.release_name(app, col)
+            if name not in have:
+                reason = app["known_failing"].get(col) or app["known_failing"].get(col.split("-")[0])
+                missing.append((app["package"], col, name, reason))
+    return missing
+
+
+def render_listing(listing, manifest):
+    """What a publication carries, in markdown (the job summary of demos-publish.yml): the assets, and the files of the manifest that
+    are not in it, because the release page then reads "not available" for each."""
+    total = sum(x["size"] for x in listing)
+    lines = ["### The assets of this publication", "", "| asset | app | platform | size | sha256 |", "|---|---|---|---|---|"]
+    for x in listing:
+        lines.append(f"| {x['name']} | {x['app']} | {x['column']} | {demo_apps.human(x['size'])} | `{str(x['sha256'])[:12]}` |")
+    lines += ["", f"**{len(listing)} assets, {demo_apps.human(total)}**."]
+    missing = unpublished(listing, manifest)
+    if missing:
+        per_app = {}
+        for package, col, _, _ in missing:
+            per_app.setdefault(package, []).append(col)
+        lines += ["", f"Not in this publication ({len(missing)} files; the page reads \"not available\" for each):", ""]
+        lines += [f"- {package}: {', '.join(cols)}" for package, cols in sorted(per_app.items())]
+    else:
+        lines += ["", "Every file of the manifest is in this publication."]
+    return "\n".join(lines) + "\n"
+
+
 def main(argv):
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("command", choices=("assemble", "companion"))
-    ap.add_argument("--in", dest="in_dir", required=True)
+    ap.add_argument("command", choices=("assemble", "companion", "list"))
+    ap.add_argument("--in", dest="in_dir")
     ap.add_argument("--out", required=True)
     ap.add_argument("--version", default=demo_apps.azul_version())
     ap.add_argument("--sha", default="")
     args = ap.parse_args(argv)
+    if args.command == "list":
+        # demo_publish.py list --out <dir that assemble wrote>: what that publication carries and what it does not
+        try:
+            listing = json.loads((pathlib.Path(args.out) / "release-assets.json").read_text(encoding="utf-8"))
+        except (OSError, ValueError) as e:
+            print(f"demo_publish: no release-assets.json in {args.out}: {e}", file=sys.stderr)
+            return 1
+        print(render_listing(listing, demo_apps.load()))
+        return 0 if listing else 1
+    if not args.in_dir:
+        ap.error(f"{args.command} needs --in")
     if args.command == "assemble":
         listing = assemble(args.in_dir, args.out, args.version, args.sha)
         total = sum(x["size"] for x in listing)
