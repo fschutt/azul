@@ -31,13 +31,10 @@ pub enum Theme {
 }
 
 impl Default for Theme {
-    /// The look a user who chose none gets: flora on a phone (Android, iOS), flat elsewhere.
+    /// The look a user who chose none gets: every Az app starts in flora, on every platform. A theme the user
+    /// chose (the settings page, the shared config) or a `--theme` switch wins over it.
     fn default() -> Self {
-        if cfg!(any(target_os = "android", target_os = "ios")) {
-            Self::Flora
-        } else {
-            Self::Flat
-        }
+        Self::Flora
     }
 }
 

@@ -1524,7 +1524,8 @@ pub fn start() {
         reminder: None,
     };
     state.announce_view();
-    let mut config = AppConfig::create();
+    // Every Az app starts in flora; `--theme` wins.
+    let mut config = AppConfig::create().with_theme("flora");
     if let Some(theme) = &args.theme {
         config = config.with_theme(theme.as_str());
     }

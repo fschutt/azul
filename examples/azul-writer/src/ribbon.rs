@@ -16,7 +16,7 @@ use azul::{
     widgets::{
         Button, DropDown, RichAlign, RichBlockKind, RichCheck, RichFormat, RichTableSize,
         RichTextCommand, RichTextEditorState, Ribbon, RibbonAppButton, RibbonGallery,
-        RibbonGalleryCell, RibbonItem, RibbonTab, StatusBarBand, TabHeader, TabHeaderState, TabStyle,
+        RibbonGalleryCell, RibbonItem, RibbonTab, StatusBarBand, TabHeader, TabHeaderState,
     },
     window::{SystemBarMode, WindowCreateOptions},
 };
@@ -502,9 +502,9 @@ pub fn status_band(info: &LayoutCallbackInfo) -> Option<StatusBarBand> {
 #[must_use]
 pub fn phone_strip(app: &RefAny, st: &AppState, band: Option<StatusBarBand>) -> Dom {
     let tabs = azul_appkit::l10n::labels(&["azwriter-tab-file", TABS[0], TABS[1], TABS[2]]);
+    // The style is the default one (`TabStyle::Auto`): the touch pills on a phone, the look every tab bar has elsewhere.
     let header = TabHeader::create(tabs)
         .with_active_tab(st.ribbon_tab.min(TABS.len() - 1) + 1)
-        .with_style(TabStyle::TouchPills)
         .with_on_click(app.clone(), on_phone_tab as TabOnClickCallbackType);
     match band {
         Some(band) => header.with_status_bar(band).dom(),

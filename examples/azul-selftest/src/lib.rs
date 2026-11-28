@@ -423,7 +423,8 @@ extern "C" fn layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
 pub fn start() -> i32 {
     let unattended = unattended_requested();
     let mut data = RefAny::new(SelfTest::new(unattended));
-    let app = App::create(data.clone(), AppConfig::create());
+    // Every Az app starts in flora.
+    let app = App::create(data.clone(), AppConfig::create().with_theme("flora"));
     let mut window = WindowCreateOptions::create(layout);
     window.window_state.title = "AzSelfTest".into();
     window.create_callback = Some(Callback::create(on_created)).into();
