@@ -168,7 +168,63 @@ pub fn hidden_from_assistive_technology(layout_result: &DomLayoutResult) -> Vec<
             hidden[idx] = true;
         }
     }
+    hide_page_under_modal(layout_result, &mut hidden);
     hidden
+}
+
+/// A modal dialog makes the page under it inert for assistive technology as it does for the pointer:
+/// while one is shown (a `<transient-window anchor="dialog">` or `"viewport"` the layout holds, the
+/// last of them when several are), everything of the document outside it - and outside the chain of
+/// its ancestors, which keeps the tree connected - is hidden, as `aria-modal` asks. A window that
+/// opens windows lays its popups out nowhere, so nothing is hidden there: the OS window does it.
+fn hide_page_under_modal(layout_result: &DomLayoutResult, hidden: &mut [bool]) {
+    use azul_core::transient::TransientAnchor;
+
+    let node_data = layout_result.styled_dom.node_data.as_ref();
+    let hierarchy = layout_result.styled_dom.node_hierarchy.as_ref();
+    let boxes = &layout_result.layout_tree.dom_to_layout;
+    if boxes.is_empty() {
+        return;
+    }
+    let modal = node_data.iter().enumerate().rev().find_map(|(idx, data)| {
+        let NodeType::TransientWindow(config) = &data.node_type else {
+            return None;
+        };
+        let shown = boxes.contains_key(&NodeId::new(idx));
+        let covers = matches!(config.anchor, TransientAnchor::Dialog | TransientAnchor::Viewport);
+        (shown && covers && config.dock == azul_core::transient::TransientDock::Popup)
+            .then_some(idx)
+    });
+    let Some(modal) = modal else {
+        return;
+    };
+    let parent_of = |idx: usize| {
+        hierarchy
+            .get(idx)
+            .and_then(NodeHierarchyItem::parent_id)
+            .map(|parent| parent.index())
+    };
+    // The modal and what is inside it (a parent before its children: one forward pass), and the
+    // chain of its ancestors.
+    let mut keep = vec![false; hidden.len()];
+    for idx in modal..hidden.len() {
+        if idx == modal || parent_of(idx).is_some_and(|p| p < idx && keep[p]) {
+            keep[idx] = true;
+        }
+    }
+    let mut ancestor = parent_of(modal);
+    for _ in 0..hidden.len() {
+        let Some(idx) = ancestor else {
+            break;
+        };
+        keep[idx] = true;
+        ancestor = parent_of(idx);
+    }
+    for (idx, kept) in keep.iter().enumerate() {
+        if !*kept {
+            hidden[idx] = true;
+        }
+    }
 }
 
 /// How many nodes a scan of one `<label>`'s subtree visits. Labels hold a

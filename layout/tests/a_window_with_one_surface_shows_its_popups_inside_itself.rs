@@ -639,3 +639,34 @@ fn a_popup_in_a_stacking_context_is_painted_in_the_top_layer_of_the_window() {
         "the popup is a context of the same level as the page's own, not inside the rail's: {contexts:?}"
     );
 }
+
+/// A modal dialog makes the page under it inert for assistive technology as for the pointer
+/// (`aria-modal`): the page's own nodes are hidden from it while the dialog is shown, the dialog's
+/// are not, and a popover that is no modal hides nothing.
+#[test]
+fn a_modal_dialog_hides_the_page_under_it_from_assistive_technology() {
+    use azul_layout::managers::a11y::hidden_from_assistive_technology;
+
+    let (mut lw, ws) = window(PHONE, true);
+    let dom = page(popup(TransientAnchor::Dialog, false, Some("Delete?"), vec![panel(280.0, 120.0)]));
+    show(&mut lw, &ws, &dom);
+    let page_node = node_with_class(&lw, "page");
+    let hidden = hidden_from_assistive_technology(&lw.layout_results[&DomId::ROOT_ID]);
+    assert!(!hidden[page_node.index()], "closed: the page is read as ever");
+
+    open_popup(&mut lw);
+    show(&mut lw, &ws, &dom);
+    let hidden = hidden_from_assistive_technology(&lw.layout_results[&DomId::ROOT_ID]);
+    let panel_node = node_with_class(&lw, "panel");
+    assert!(hidden[page_node.index()], "the page under a modal is not read");
+    assert!(hidden[node_with_class(&lw, "top").index()], "none of it");
+    assert!(!hidden[panel_node.index()], "the dialog is");
+    assert!(!hidden[popup_node(&lw).index()], "and so is the node that holds it");
+
+    // A popover is no modal.
+    let (mut lw, ws) = window(PHONE, true);
+    let dom = page(popup(TransientAnchor::Bottom, true, None, vec![panel(100.0, 60.0)]));
+    show(&mut lw, &ws, &dom);
+    let hidden = hidden_from_assistive_technology(&lw.layout_results[&DomId::ROOT_ID]);
+    assert!(!hidden[node_with_class(&lw, "page").index()], "a popover hides nothing");
+}
