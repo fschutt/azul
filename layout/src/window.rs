@@ -16503,6 +16503,33 @@ impl LayoutWindow {
         Some(rect)
     }
 
+    /// Where a node's laid-out box is on the screen right now, for a node that has no hit-test area
+    /// of its own (the label inside a button, a text run): its box moved by the scroll offsets and
+    /// transforms painted over it, as [`Self::get_node_hit_test_bounds`] does for a box that has one.
+    /// [`Self::get_node_position`] and [`Self::get_node_size`] are the box in CONTENT coordinates:
+    /// inside a scrolled box that is not where the node is drawn, and a click aimed there misses.
+    pub fn get_node_laid_out_bounds_on_screen(&self, node_id: DomNodeId) -> Option<LogicalRect> {
+        let layout_result = self.layout_results.get(&node_id.dom)?;
+        let nid = node_id.node.into_crate_internal()?;
+        let rect = LogicalRect::new(self.get_node_position(node_id)?, self.get_node_size(node_id)?);
+        let Some(&idx) = layout_result
+            .layout_tree
+            .dom_to_layout
+            .get(&nid)
+            .and_then(|indices| indices.first())
+        else {
+            return Some(rect);
+        };
+        Some(crate::headless::node_rect_to_screen(
+            layout_result,
+            node_id.dom,
+            idx.index(),
+            rect,
+            &|d, n| self.scroll_manager.get_current_offset(d, n),
+            &|d, n| self.painted_transform_of(d, n),
+        ))
+    }
+
     /// Get the parent of a node
     pub fn get_parent(&self, node_id: DomNodeId) -> Option<DomNodeId> {
         let layout_result = self.layout_results.get(&node_id.dom)?;
@@ -16756,6 +16783,43 @@ impl LayoutWindow {
             now,
             &hop,
         )
+    }
+
+    /// [`Self::scroll_into_view_dry_run`] with the deltas as the containers would REALLY move: a box
+    /// scrolls no further than its content reaches, so centring the last pill of a strip moves the
+    /// strip less than the ideal delta says. A caller that aims at where the node will be after the
+    /// scroll (a click) needs the movement that happens, not the one that was asked for.
+    #[must_use]
+    pub fn scroll_into_view_dry_run_clamped(
+        &self,
+        node_id: DomNodeId,
+        options: crate::managers::scroll_into_view::ScrollIntoViewOptions,
+        now: Instant,
+    ) -> Vec<crate::managers::scroll_into_view::ScrollAdjustment> {
+        let hops = self.nested_dom_hops();
+        let hop = move |d: DomId| hops.get(&d).copied();
+        let mut scroll_manager = self.scroll_manager.clone();
+        let mut adjustments = crate::managers::scroll_into_view::scroll_node_into_view(
+            node_id,
+            &self.layout_results,
+            &mut scroll_manager,
+            options,
+            now,
+            &hop,
+        );
+        for adjustment in &mut adjustments {
+            let (dom, node) = (
+                adjustment.scroll_container_dom_id,
+                adjustment.scroll_container_node_id,
+            );
+            let before = self.scroll_manager.get_current_offset(dom, node).unwrap_or_default();
+            let after = scroll_manager.get_current_offset(dom, node).unwrap_or_default();
+            adjustment.delta = LogicalPosition {
+                x: after.x - before.x,
+                y: after.y - before.y,
+            };
+        }
+        adjustments
     }
 
     /// Every nested dom mapped to `(host's dom, host node, the offset that

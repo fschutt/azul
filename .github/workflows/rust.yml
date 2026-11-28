@@ -905,6 +905,15 @@ jobs:
           cargo test -p AzCompanion --lib --no-fail-fast 2>&1 | tee azul-companion-tests.txt
           ./scripts/zero_test_guard.sh --strict azul-companion-tests.txt
 
+      # The QA self-test app's own tests (the report's numbered parts, the rendered rows): its main.rs has none, so `--lib`.
+      - name: Run AzSelfTest tests
+        env:
+          AZ_LINK_PATH: ${{ runner.temp }}/azul-cabi
+        run: |
+          set -o pipefail
+          cargo test -p AzSelfTest --lib --no-fail-fast 2>&1 | tee azul-selftest-tests.txt
+          ./scripts/zero_test_guard.sh --strict azul-selftest-tests.txt
+
       # The transport tests of the phone companion over the REAL iroh engine: a host and a phone client of azul-review-link
       # talking through the libazul built above (its shipped feature set carries iroh). With AZ_REQUIRE_IROH_ENGINE=1 a libazul
       # without the engine fails them instead of skipping them.

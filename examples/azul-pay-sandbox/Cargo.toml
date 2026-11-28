@@ -12,6 +12,9 @@ path = "src/lib.rs"
 [[bin]]
 name = "azul-pay-sandbox"
 path = "src/main.rs"
+# The server's entry point has no tests of its own (the library's are in src/tests.rs); without this cargo builds an
+# empty test harness for it and the strict zero-test guard of the DLL tests job fails on "0 tests ran".
+test = false
 
 # Only std and crates azul's lockfile already has (the services that drive it build it from here).
 [dependencies]

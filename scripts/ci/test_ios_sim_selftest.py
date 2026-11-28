@@ -5,9 +5,14 @@ the expectations of a Simulator run); the Simulator itself is the job's (standar
     python3 scripts/ci/test_ios_sim_selftest.py
 """
 import json
+import os
 import pathlib
+import plistlib
+import subprocess
 import sys
+import tempfile
 import unittest
+from unittest import mock
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import ios_sim_selftest as sim  # noqa: E402
@@ -276,6 +281,100 @@ class Expectations(unittest.TestCase):
 
     def test_a_sensor_the_simulator_lacks_may_not_fail_or_need_a_person(self):
         self.assertTrue(sim.check_rows(self.full(sensors__gyroscope="NEEDS-HUMAN"), "fresh"))
+
+
+class Robust(unittest.TestCase):
+    """The first Simulator job (run 46100586763) ended in an uncaught TimeoutExpired of the first launch and in `denied by service
+    delegate (SBMainWorkspace)` for every launch of the second device: the device was not Booted for real, nothing checked it."""
+
+    def completed(self, code, text):
+        return subprocess.CompletedProcess([], code, stdout=text, stderr="")
+
+    def test_the_files_of_a_launch_are_absolute_paths_because_the_simulators_launchd_opens_them_itself(self):
+        with mock.patch.object(sim.subprocess, "run", return_value=self.completed(0, "com.azul.AzSelfTest: 7\n")) as run:
+            sim.launch_app("UDID", "com.azul.AzSelfTest", "demo-out/x/o.txt", "demo-out/x/e.txt", {})
+        argv = run.call_args.args[0]
+        stdout = next(a for a in argv if a.startswith("--stdout="))[len("--stdout="):]
+        stderr = next(a for a in argv if a.startswith("--stderr="))[len("--stderr="):]
+        self.assertTrue(os.path.isabs(stdout) and os.path.isabs(stderr), (stdout, stderr))
+
+    def test_a_launch_that_hangs_is_tried_again_and_a_pid_is_read(self):
+        runs = [subprocess.TimeoutExpired("simctl", 180), self.completed(0, "com.azul.AzSelfTest: 4242\n")]
+        with mock.patch.object(sim.subprocess, "run", side_effect=runs) as run, mock.patch.object(sim.time, "sleep"), \
+                mock.patch.object(sim, "sh", return_value=(0, "")) as sh:
+            ok, pid, said = sim.launch_app("UDID", "com.azul.AzSelfTest", "o.txt", "e.txt", {})
+        self.assertEqual((ok, pid), (True, 4242))
+        self.assertEqual(run.call_count, 2)
+        self.assertIn(["xcrun", "simctl", "bootstatus", "UDID", "-b"], [c.args[0] for c in sh.call_args_list], "the device is asked again before the retry")
+
+    def test_a_launch_that_springboard_refuses_twice_is_a_result_not_a_traceback(self):
+        refused = self.completed(1, "The request was denied by service delegate (SBMainWorkspace).")
+        with mock.patch.object(sim.subprocess, "run", return_value=refused), mock.patch.object(sim.time, "sleep"), \
+                mock.patch.object(sim, "sh", return_value=(0, "")):
+            ok, pid, said = sim.launch_app("UDID", "b", "o", "e", {})
+        self.assertFalse(ok)
+        self.assertIsNone(pid)
+        self.assertIn("SBMainWorkspace", said)
+
+    def test_a_launch_that_always_hangs_names_the_timeout(self):
+        with mock.patch.object(sim.subprocess, "run", side_effect=subprocess.TimeoutExpired("simctl", 180)), \
+                mock.patch.object(sim.time, "sleep"), mock.patch.object(sim, "sh", return_value=(0, "")):
+            ok, _, said = sim.launch_app("UDID", "b", "o", "e", {})
+        self.assertFalse(ok)
+        self.assertIn("did not return in 180 s", said)
+
+    def test_a_device_boots_after_the_others_were_shut_down_and_settles(self):
+        calls = []
+
+        def fake(argv, timeout=120, check=False):
+            calls.append(argv[2:4])
+            return 0, ""
+
+        with mock.patch.object(sim, "sh", side_effect=fake), mock.patch.object(sim.time, "sleep") as sleep:
+            ok, why = sim.boot_device("UDID")
+        self.assertEqual((ok, why), (True, ""))
+        self.assertEqual(calls, [["shutdown", "all"], ["boot", "UDID"], ["bootstatus", "UDID"]])
+        sleep.assert_called_with(sim.BOOT_SETTLE_SECONDS)
+
+    def test_a_device_that_is_booted_already_is_fine_and_one_that_never_boots_is_not(self):
+        answers = iter([(0, ""), (149, "Unable to boot device in current state: Booted"), (0, "")])
+        with mock.patch.object(sim, "sh", side_effect=lambda *a, **k: next(answers)), mock.patch.object(sim.time, "sleep"):
+            self.assertTrue(sim.boot_device("UDID")[0])
+        answers = iter([(0, ""), (0, ""), (1, "device failed to boot")])
+        with mock.patch.object(sim, "sh", side_effect=lambda *a, **k: next(answers)), mock.patch.object(sim.time, "sleep"):
+            ok, why = sim.boot_device("UDID")
+        self.assertFalse(ok)
+        self.assertIn("bootstatus", why)
+
+    def test_the_launch_proof_of_an_app_that_dies_names_its_last_console_lines(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            out = pathlib.Path(tmp)
+            app = out / "AzMeet.app"
+            app.mkdir()
+            (app / "Info.plist").write_bytes(plistlib.dumps({"CFBundleIdentifier": "com.azul.AzMeet"}))
+
+            def launch(udid, bundle, stdout, stderr, env, **kw):
+                pathlib.Path(stderr).write_text("dyld: Symbol not found: _SCDynamicStoreCopyValue\n")
+                return True, 777, "com.azul.AzMeet: 777"
+
+            with mock.patch.object(sim, "launch_app", side_effect=launch), mock.patch.object(sim, "sh", return_value=(0, "")), \
+                    mock.patch.object(sim, "alive", return_value=False), mock.patch.object(sim, "screenshot"), mock.patch.object(sim.time, "sleep"):
+                ok, line = sim.launch_proof("UDID", app, out)
+        self.assertFalse(ok)
+        self.assertIn("Symbol not found", line)
+        self.assertIn("AzMeet", line)
+
+    def test_the_launch_proof_of_a_running_app_says_so(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            out = pathlib.Path(tmp)
+            app = out / "AzCompanion.app"
+            app.mkdir()
+            (app / "Info.plist").write_bytes(plistlib.dumps({"CFBundleIdentifier": "com.azul.AzCompanion"}))
+            with mock.patch.object(sim, "launch_app", return_value=(True, 55, "ok")), mock.patch.object(sim, "sh", return_value=(0, "")), \
+                    mock.patch.object(sim, "alive", return_value=True), mock.patch.object(sim, "screenshot"), mock.patch.object(sim.time, "sleep"):
+                ok, line = sim.launch_proof("UDID", app, out)
+        self.assertTrue(ok)
+        self.assertIn("alive", line)
 
 
 if __name__ == "__main__":

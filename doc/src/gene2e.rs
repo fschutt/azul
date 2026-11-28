@@ -474,6 +474,12 @@ const OP_POLICY: &[(&str, Option<DenyReason>)] = &[
     ("notification_event",        Some("delivered by the dll's notification service \
                                         (AZ_BACKEND=headless); the in-crate runner has none, \
                                         so its callback never runs - red on arrival")),
+    // DENY: the app's lifecycle event (paused, resumed, ...) queued into the mailbox. Only the dll's event
+    // pass runs the app's handler (`CallbackInfo::set_lifecycle_handler`); the in-crate runner generated tests run
+    // in has none, so nothing a generated scenario asserts afterwards can see it. Hand-written AZ_E2E scenarios use
+    // it (examples/azul-writer/e2e/, examples/azul-paint/e2e/).
+    ("simulate_lifecycle",        Some("delivered by the dll's event pass; the in-crate runner has none, \
+                                        so the app's handler never runs - red on arrival")),
     ("key_up",                    None),
     ("text_input",                None),
     // A user's paste with the content handed in (no OS clipboard): the

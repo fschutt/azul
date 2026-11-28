@@ -200,6 +200,13 @@ pub enum PermissionDiffEvent {
 /// seconds; a probe mounted by a timer minutes later is no consequence of a click.
 pub static GESTURE_WINDOW: core::time::Duration = core::time::Duration::from_secs(5);
 
+/// Whether `at` (when a gesture was made) is within [`GESTURE_WINDOW`] of `now`. Both are the
+/// engine's `Instant` (a real clock where there is one, the frame counter on wasm, where
+/// `std::time::Instant::now()` panics); the two spans meet on one scale, nanoseconds.
+fn within_gesture_window(now: &Instant, at: &Instant) -> bool {
+    now.duration_since(at).as_nanos() < GESTURE_WINDOW.as_nanos()
+}
+
 /// What [`PermissionManager::admit`] says about an op that may ask the user.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Admission {
@@ -388,14 +395,14 @@ pub struct PermissionManager {
     /// When the user last made a gesture (a click, a touch lifted, a key pressed) that no
     /// request has used yet: the next one that may ask goes within [`GESTURE_WINDOW`] of it
     /// ([`PermissionManager::admit`]).
-    gesture: Option<std::time::Instant>,
+    gesture: Option<Instant>,
     /// The capability the last gesture was used for, and when that gesture was made: the same
     /// gesture admits the same capability again ([`PermissionManager::admit`]: a probe's
     /// Subscribe reaches the platform through two managers in one pass, and both are of one click).
-    used: Option<(Capability, std::time::Instant)>,
+    used: Option<(Capability, Instant)>,
     /// When the platforms' quiet read of the capabilities in use was last folded in
     /// ([`PermissionManager::probe_due`]).
-    probed_at: Option<std::time::Instant>,
+    probed_at: Option<Instant>,
     /// The capabilities an app asked the state of.
     asked: Asked,
 }
@@ -565,11 +572,12 @@ impl PermissionManager {
     /// The shell calls this when it sees one; the next [`Self::admit`] of a not yet decided
     /// capability uses it up.
     pub fn note_gesture(&mut self) {
-        self.note_gesture_at(std::time::Instant::now());
+        self.note_gesture_at(Instant::now());
     }
 
-    /// [`Self::note_gesture`] at the time `at`.
-    pub const fn note_gesture_at(&mut self, at: std::time::Instant) {
+    /// [`Self::note_gesture`] at the time `at` (the engine's clock: on wasm, which has no clock
+    /// to read, the frame counter, so nothing in here can trap there).
+    pub fn note_gesture_at(&mut self, at: Instant) {
         self.gesture = Some(at);
         self.used = None;
     }
@@ -585,12 +593,12 @@ impl PermissionManager {
     ///   capability again within that gesture goes too), so a probe in the first DOM never asks at
     ///   launch and two capabilities never ask at once.
     pub fn admit(&mut self, capability: Capability) -> Admission {
-        self.admit_at(capability, std::time::Instant::now())
+        self.admit_at(capability, Instant::now())
     }
 
     /// [`Self::admit`] at the time `now`: a gesture older than [`GESTURE_WINDOW`] is no longer
     /// the cause of a request.
-    pub fn admit_at(&mut self, capability: Capability, now: std::time::Instant) -> Admission {
+    pub fn admit_at(&mut self, capability: Capability, now: Instant) -> Admission {
         match self.peek(capability) {
             PermissionState::Granted(_) | PermissionState::EphemeralGranted(_) => Admission::Go,
             PermissionState::Denied | PermissionState::Restricted => Admission::Skip,
@@ -599,14 +607,15 @@ impl PermissionManager {
                 // The gesture that admitted this capability admits it again: one probe's
                 // Subscribe reaches the platform through two managers in one pass (the
                 // permission manager's and the location manager's), both are of one click.
-                let same_gesture = self.used.is_some_and(|(used, at)| {
-                    used == capability && now.saturating_duration_since(at) < GESTURE_WINDOW
-                });
+                let same_gesture = self
+                    .used
+                    .as_ref()
+                    .is_some_and(|(used, at)| *used == capability && within_gesture_window(&now, at));
                 if same_gesture {
                     return Admission::Go;
                 }
                 match self.gesture.take() {
-                    Some(at) if now.saturating_duration_since(at) < GESTURE_WINDOW => {
+                    Some(at) if within_gesture_window(&now, &at) => {
                         self.used = Some((capability, at));
                         Admission::Go
                     }
@@ -694,10 +703,11 @@ impl PermissionManager {
     /// Whether the quiet read of the capabilities in use is due: the first time, and then every
     /// `every_ms` milliseconds (the pump calls it on every pass; the reads are cheap but not free).
     pub fn probe_due(&mut self, every_ms: u64) -> bool {
-        let now = std::time::Instant::now();
+        let now = Instant::now();
         let due = self
             .probed_at
-            .is_none_or(|at| now.duration_since(at).as_millis() >= u128::from(every_ms));
+            .as_ref()
+            .is_none_or(|at| now.duration_since(at).as_millis_u64() >= every_ms);
         if due {
             self.probed_at = Some(now);
         }

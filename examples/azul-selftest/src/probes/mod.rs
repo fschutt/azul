@@ -16,6 +16,7 @@ use azul::prelude::*;
 use crate::report::{RowResult, Verdict};
 
 pub mod device;
+pub mod lifecycle;
 pub mod media;
 pub mod pending;
 pub mod platform;
@@ -28,7 +29,7 @@ pub mod system;
 /// row waits. They run in an unattended run only when the harness says so with `AZ_SELFTEST_FED=1` (it promises to
 /// answer every `AZ_SELFTEST_AWAIT` line); without it they are listed with their instruction like every other row that
 /// needs a person.
-pub const FEEDABLE: &[&str] = &["security.biometric_prompt", "security.keyring_protected"];
+pub const FEEDABLE: &[&str] = &["security.biometric_prompt", "security.keyring_protected", "lifecycle.background"];
 
 /// How long an unattended row waits for the engine to read the system's permission state before it says the permission was never
 /// granted: the engine reads it quietly about once a second, so a permission granted with `pm grant` reads NotDetermined at first.
@@ -104,6 +105,7 @@ pub fn all() -> Vec<&'static ProbeDef> {
         device::PROBES,
         sensors::PROBES,
         media::PROBES,
+        lifecycle::PROBES,
         security::PROBES,
         system::PROBES,
         platform::PROBES,

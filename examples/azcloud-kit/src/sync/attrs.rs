@@ -142,7 +142,9 @@ fn split_names(buffer: &[u8]) -> Vec<String> {
         .collect()
 }
 
-#[cfg(target_os = "macos")]
+// iOS shares the Apple system calls (listxattr with XATTR_NOFOLLOW, chflags): the Linux names (llistxattr)
+// do not exist there.
+#[cfg(any(target_os = "macos", target_os = "ios"))]
 mod imp {
     use std::{os::unix::ffi::OsStrExt, path::Path};
 
@@ -217,7 +219,7 @@ mod imp {
     }
 }
 
-#[cfg(all(unix, not(target_os = "macos")))]
+#[cfg(all(unix, not(any(target_os = "macos", target_os = "ios"))))]
 mod imp {
     use std::{os::unix::ffi::OsStrExt, path::Path};
 
