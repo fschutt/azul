@@ -98,6 +98,31 @@ pub enum Capability {
     InputMonitoring,
 }
 
+impl Capability {
+    /// Every capability, in declaration order: what the pump asks the platform's quiet read about.
+    pub const ALL: [Self; 19] = [
+        Self::Camera,
+        Self::Microphone,
+        Self::ScreenCapture,
+        Self::Geolocation,
+        Self::GeolocationBackground,
+        Self::Biometric,
+        Self::Motion,
+        Self::PhotoLibrary,
+        Self::PhotoLibraryWrite,
+        Self::Contacts,
+        Self::Calendars,
+        Self::Reminders,
+        Self::Notifications,
+        Self::Bluetooth,
+        Self::BluetoothBackground,
+        Self::NearbyWifi,
+        Self::LocalNetwork,
+        Self::AppTrackingTransparency,
+        Self::InputMonitoring,
+    ];
+}
+
 /// Quality of a granted permission. Matches research/08 §2's quality split.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
@@ -170,6 +195,124 @@ pub enum PermissionDiffEvent {
     Reconfigure { capability: Capability },
 }
 
+/// How long after a user gesture a request may still be taken for its consequence: a button's
+/// callback mounts a probe within the same pass, a slower chain (a dialog of the app first) within
+/// seconds; a probe mounted by a timer minutes later is no consequence of a click.
+pub static GESTURE_WINDOW: core::time::Duration = core::time::Duration::from_secs(5);
+
+/// What [`PermissionManager::admit`] says about an op that may ask the user.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Admission {
+    /// It goes through now.
+    Go,
+    /// Not yet: it waits for the user's next gesture, or for the request in flight to be answered.
+    Hold,
+    /// Never: the user decided (denied, restricted). It is not asked again.
+    Skip,
+}
+
+/// Whether [`CallbackInfo::open_app_settings`](crate::callbacks::CallbackInfo::open_app_settings)
+/// found where the user changes the permission, and opened it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+#[repr(C)]
+pub enum SettingsOpened {
+    /// The system's settings page for the app or the permission was opened.
+    Opened,
+    /// This platform has no such page (Linux has no per-app permission settings), or the opener
+    /// failed. The app tells the user where to look.
+    #[default]
+    Unsupported,
+}
+
+/// The platform whose settings page [`settings_url`] names.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SettingsPlatform {
+    /// macOS: System Settings, Privacy & Security.
+    Macos,
+    /// iOS: the app's page of the Settings app.
+    Ios,
+    /// Android: the app's details page of the system settings.
+    Android,
+    /// Windows: Settings, Privacy.
+    Windows,
+    /// Linux and the rest: no such page.
+    Other,
+}
+
+impl SettingsPlatform {
+    /// The platform this build runs on.
+    #[must_use]
+    pub const fn current() -> Self {
+        if cfg!(target_os = "macos") {
+            Self::Macos
+        } else if cfg!(target_os = "ios") {
+            Self::Ios
+        } else if cfg!(target_os = "android") {
+            Self::Android
+        } else if cfg!(target_os = "windows") {
+            Self::Windows
+        } else {
+            Self::Other
+        }
+    }
+}
+
+/// Where the user changes the permission of `capability` on `platform`, as the URL the system
+/// opens (`Url::open`): the pane of that permission where the platform has one, else the general
+/// privacy page; `None` where there is no settings page at all (Linux).
+///
+/// iOS has one page per app (`app-settings:`), Android's `android-settings:app-details` is the
+/// token the Android opener turns into `Settings.ACTION_APPLICATION_DETAILS_SETTINGS` with the
+/// package's URI (an Intent has no URL of its own).
+#[must_use]
+pub const fn settings_url(capability: Capability, platform: SettingsPlatform) -> Option<&'static str> {
+    match platform {
+        SettingsPlatform::Ios => Some("app-settings:"),
+        SettingsPlatform::Android => Some("android-settings:app-details"),
+        SettingsPlatform::Macos => Some(match capability {
+            Capability::Camera => "x-apple.systempreferences:com.apple.preference.security?Privacy_Camera",
+            Capability::Microphone => {
+                "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone"
+            }
+            Capability::Geolocation | Capability::GeolocationBackground => {
+                "x-apple.systempreferences:com.apple.preference.security?Privacy_LocationServices"
+            }
+            Capability::ScreenCapture => {
+                "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture"
+            }
+            Capability::InputMonitoring => {
+                "x-apple.systempreferences:com.apple.preference.security?Privacy_ListenEvent"
+            }
+            Capability::PhotoLibrary | Capability::PhotoLibraryWrite => {
+                "x-apple.systempreferences:com.apple.preference.security?Privacy_Photos"
+            }
+            Capability::Contacts => {
+                "x-apple.systempreferences:com.apple.preference.security?Privacy_Contacts"
+            }
+            Capability::Calendars => {
+                "x-apple.systempreferences:com.apple.preference.security?Privacy_Calendars"
+            }
+            Capability::Reminders => {
+                "x-apple.systempreferences:com.apple.preference.security?Privacy_Reminders"
+            }
+            Capability::Notifications => "x-apple.systempreferences:com.apple.Notifications-Settings.extension",
+            _ => "x-apple.systempreferences:com.apple.preference.security?Privacy",
+        }),
+        SettingsPlatform::Windows => Some(match capability {
+            Capability::Camera => "ms-settings:privacy-webcam",
+            Capability::Microphone => "ms-settings:privacy-microphone",
+            Capability::Geolocation | Capability::GeolocationBackground => "ms-settings:privacy-location",
+            Capability::Notifications => "ms-settings:privacy-notifications",
+            Capability::Contacts => "ms-settings:privacy-contacts",
+            Capability::Calendars => "ms-settings:privacy-calendar",
+            Capability::PhotoLibrary | Capability::PhotoLibraryWrite => "ms-settings:privacy-pictures",
+            Capability::Bluetooth | Capability::BluetoothBackground => "ms-settings:privacy-radios",
+            _ => "ms-settings:privacy",
+        }),
+        SettingsPlatform::Other => None,
+    }
+}
+
 /// Per-capability state held across frames.
 ///
 /// `refcount` is the number of distinct DOM nodes currently in the layout
@@ -194,6 +337,30 @@ impl CapabilityEntry {
     }
 }
 
+/// The capabilities an app asked the state of ([`PermissionManager::get_status`]), a bit each:
+/// the pump reads the platform's quiet state of those only, so an app that never asks pays
+/// nothing and a launch changes no state it did not look at. Interior mutability, because the
+/// question comes from a `&self` accessor; not part of the manager's state, so two managers
+/// compare equal whatever they were asked.
+#[derive(Debug, Default)]
+struct Asked(core::sync::atomic::AtomicU32);
+
+impl Clone for Asked {
+    fn clone(&self) -> Self {
+        Self(core::sync::atomic::AtomicU32::new(
+            self.0.load(core::sync::atomic::Ordering::Relaxed),
+        ))
+    }
+}
+
+impl PartialEq for Asked {
+    fn eq(&self, _other: &Self) -> bool {
+        true
+    }
+}
+
+impl Eq for Asked {}
+
 /// Cross-platform permission manager.
 ///
 /// One per `App` (capabilities live at process scope, not per-window — a
@@ -215,6 +382,22 @@ pub struct PermissionManager {
     /// impl to synthesize targeted `PermissionChanged` events; cleared by
     /// [`clear_pending_changed`](Self::clear_pending_changed) after dispatch.
     pending_changed: Vec<(Capability, Option<DomNodeId>)>,
+    /// Subscribes that wait for the user's next gesture before the platform may ask (see
+    /// [`PermissionManager::take_dispatchable`]).
+    held: Vec<PermissionDiffEvent>,
+    /// When the user last made a gesture (a click, a touch lifted, a key pressed) that no
+    /// request has used yet: the next one that may ask goes within [`GESTURE_WINDOW`] of it
+    /// ([`PermissionManager::admit`]).
+    gesture: Option<std::time::Instant>,
+    /// The capability the last gesture was used for, and when that gesture was made: the same
+    /// gesture admits the same capability again ([`PermissionManager::admit`]: a probe's
+    /// Subscribe reaches the platform through two managers in one pass, and both are of one click).
+    used: Option<(Capability, std::time::Instant)>,
+    /// When the platforms' quiet read of the capabilities in use was last folded in
+    /// ([`PermissionManager::probe_due`]).
+    probed_at: Option<std::time::Instant>,
+    /// The capabilities an app asked the state of.
+    asked: Asked,
 }
 
 impl EventProvider for PermissionManager {
@@ -244,12 +427,37 @@ impl PermissionManager {
         Self::default()
     }
 
-    /// Read the most recently observed state for `capability`.
+    /// Read the most recently observed state for `capability`: what an app asks before it uses
+    /// a capability. Asking is remembered: the pump folds the platform's quiet read of the
+    /// capabilities that were asked about (and of those in use) into the manager, so the state
+    /// follows the settings app from then on.
     #[must_use]
     pub fn get_status(&self, capability: Capability) -> PermissionState {
+        self.asked.0.fetch_or(
+            1_u32 << (capability as u32),
+            core::sync::atomic::Ordering::Relaxed,
+        );
+        self.peek(capability)
+    }
+
+    /// [`Self::get_status`] without being counted as the app's question (the manager's own reads).
+    fn peek(&self, capability: Capability) -> PermissionState {
         self.statuses
             .get(&capability)
             .map_or(PermissionState::NotDetermined, |e| e.state)
+    }
+
+    /// The capabilities whose platform state the pump should fold in: the ones an app asked
+    /// the state of and the ones with a probe node in the DOM.
+    #[must_use]
+    pub fn capabilities_in_use(&self) -> Vec<Capability> {
+        let asked = self.asked.0.load(core::sync::atomic::Ordering::Relaxed);
+        Capability::ALL
+            .into_iter()
+            .filter(|capability| {
+                asked & (1_u32 << (*capability as u32)) != 0 || self.refcount(*capability) > 0
+            })
+            .collect()
     }
 
     /// Record that `node_id` now needs `capability`. The first subscriber
@@ -351,6 +559,146 @@ impl PermissionManager {
     #[must_use]
     pub fn refcount(&self, capability: Capability) -> u32 {
         self.statuses.get(&capability).map_or(0, |e| e.refcount)
+    }
+
+    /// The user did something that may start a request: a click, a touch lifted, a key pressed.
+    /// The shell calls this when it sees one; the next [`Self::admit`] of a not yet decided
+    /// capability uses it up.
+    pub fn note_gesture(&mut self) {
+        self.note_gesture_at(std::time::Instant::now());
+    }
+
+    /// [`Self::note_gesture`] at the time `at`.
+    pub const fn note_gesture_at(&mut self, at: std::time::Instant) {
+        self.gesture = Some(at);
+        self.used = None;
+    }
+
+    /// Whether an op that may ask the user for `capability` (its probe node's Subscribe, a
+    /// backend's first open) goes through now:
+    ///
+    /// - already `Granted`: yes, nothing can be asked;
+    /// - `Denied` / `Restricted`: never ([`Admission::Skip`]): the user decided, the app reads the
+    ///   state and offers the settings, it is not asked again;
+    /// - a request is in flight (`Requested`): not yet;
+    /// - not decided: only after a user gesture, and ONE capability per gesture (asking the same
+    ///   capability again within that gesture goes too), so a probe in the first DOM never asks at
+    ///   launch and two capabilities never ask at once.
+    pub fn admit(&mut self, capability: Capability) -> Admission {
+        self.admit_at(capability, std::time::Instant::now())
+    }
+
+    /// [`Self::admit`] at the time `now`: a gesture older than [`GESTURE_WINDOW`] is no longer
+    /// the cause of a request.
+    pub fn admit_at(&mut self, capability: Capability, now: std::time::Instant) -> Admission {
+        match self.peek(capability) {
+            PermissionState::Granted(_) | PermissionState::EphemeralGranted(_) => Admission::Go,
+            PermissionState::Denied | PermissionState::Restricted => Admission::Skip,
+            PermissionState::Requested => Admission::Hold,
+            PermissionState::NotDetermined => {
+                // The gesture that admitted this capability admits it again: one probe's
+                // Subscribe reaches the platform through two managers in one pass (the
+                // permission manager's and the location manager's), both are of one click.
+                let same_gesture = self.used.is_some_and(|(used, at)| {
+                    used == capability && now.saturating_duration_since(at) < GESTURE_WINDOW
+                });
+                if same_gesture {
+                    return Admission::Go;
+                }
+                match self.gesture.take() {
+                    Some(at) if now.saturating_duration_since(at) < GESTURE_WINDOW => {
+                        self.used = Some((capability, at));
+                        Admission::Go
+                    }
+                    _ => Admission::Hold,
+                }
+            }
+        }
+    }
+
+    /// The diff events the platform may act on now: what [`Self::take_pending_events`] drains,
+    /// minus the Subscribes that must not ask yet or at all. A Subscribe the user has not
+    /// allowed by a gesture is held (and goes out with the next gesture); one for a decided
+    /// capability is dropped, one whose probe left the DOM meanwhile too. A `Release` drops the
+    /// held Subscribe of its capability and goes out.
+    pub fn take_dispatchable(&mut self) -> Vec<PermissionDiffEvent> {
+        let mut work = core::mem::take(&mut self.held);
+        work.append(&mut self.pending_events);
+        let mut out = Vec::new();
+        for event in work {
+            match event {
+                PermissionDiffEvent::Subscribe { capability, .. } => {
+                    if self.refcount(capability) == 0 {
+                        continue;
+                    }
+                    match self.admit(capability) {
+                        Admission::Go => out.push(event),
+                        Admission::Hold => {
+                            let waiting = self.held.iter().any(|held| {
+                                matches!(held, PermissionDiffEvent::Subscribe { capability: c, .. } if *c == capability)
+                            });
+                            if !waiting {
+                                self.held.push(event);
+                            }
+                        }
+                        Admission::Skip => {}
+                    }
+                }
+                PermissionDiffEvent::Release { capability } => {
+                    self.held.retain(|held| {
+                        !matches!(held, PermissionDiffEvent::Subscribe { capability: c, .. } if *c == capability)
+                    });
+                    out.push(event);
+                }
+                PermissionDiffEvent::Reconfigure { .. } => out.push(event),
+            }
+        }
+        out
+    }
+
+    /// Whether a Subscribe waits for the user's gesture: the pump looks again at it with every
+    /// new state the platform's quiet read brings (a capability that turns out granted needs no
+    /// gesture) and with every gesture.
+    #[must_use]
+    pub const fn has_held(&self) -> bool {
+        !self.held.is_empty()
+    }
+
+    /// The Subscribes still waiting for a gesture, by capability (a test or a hint to the UI).
+    #[must_use]
+    pub fn held_capabilities(&self) -> Vec<Capability> {
+        self.held
+            .iter()
+            .filter_map(|event| match event {
+                PermissionDiffEvent::Subscribe { capability, .. } => Some(*capability),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// Adopts the platform's QUIET read of `capability` (it never prompts: `probe_status`): the
+    /// OS knows more than the manager when the user changed a switch in the settings, and on
+    /// platforms where a backend opens a device on its own (a camera) no request ever passed
+    /// through here. A `NotDetermined` probe is "no word", never a step back. `true` when the
+    /// state changed.
+    pub fn observe(&mut self, capability: Capability, probed: PermissionState) -> bool {
+        if probed == PermissionState::NotDetermined {
+            return false;
+        }
+        self.set_status(capability, probed)
+    }
+
+    /// Whether the quiet read of the capabilities in use is due: the first time, and then every
+    /// `every_ms` milliseconds (the pump calls it on every pass; the reads are cheap but not free).
+    pub fn probe_due(&mut self, every_ms: u64) -> bool {
+        let now = std::time::Instant::now();
+        let due = self
+            .probed_at
+            .is_none_or(|at| now.duration_since(at).as_millis() >= u128::from(every_ms));
+        if due {
+            self.probed_at = Some(now);
+        }
+        due
     }
 
     /// Pre-compute the next-frame refcount map from a closure that yields
@@ -1698,5 +2046,18 @@ impl crate::managers::NodeIdRemap for PermissionManager {
                 *node = map.resolve_dom_node_id(dom, n);
             }
         }
+        // A Subscribe that waits for the user's gesture names the probe that asked: an unmounted
+        // probe falls back to the window root, as above.
+        for held in &mut self.held {
+            if let PermissionDiffEvent::Subscribe { node_id, .. } = held {
+                *node_id = map
+                    .resolve_dom_node_id(dom, *node_id)
+                    .unwrap_or(DomNodeId::ROOT);
+            }
+        }
     }
 }
+
+#[cfg(test)]
+#[path = "permission_gate_test.rs"]
+mod permission_gate_test;

@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE policyconfig PUBLIC
+ "-//freedesktop//DTD PolicyKit Policy Configuration 1.0//EN"
+ "http://www.freedesktop.org/standards/PolicyKit/1.0/policyconfig.dtd">
+<!--
+  The polkit action behind a `UserPresence` keyring item on Linux (azul's keyring, `Keyring::support`
+  and `CallbackInfo::keyring_unlock`): the app asks the desktop's authorisation dialog to prove that
+  the user is there before it reads the item. `auth_self_keep`: the user's own password (or their
+  fingerprint, where the system's PAM takes one), asked again after a few minutes.
+
+  A package that ships an app using protected keyring items installs this file as
+  /usr/share/polkit-1/actions/io.azul.keyring.policy. Without it polkit does not know the action
+  and `Keyring::support(KeyringProtection::UserPresence)` answers NotEnrolled.
+-->
+<policyconfig>
+  <vendor>azul</vendor>
+  <vendor_url>https://azul.rs/</vendor_url>
+  <action id="io.azul.keyring.unlock">
+    <description>Unlock a secret kept by an application</description>
+    <message>Authentication is required to unlock a stored secret</message>
+    <defaults>
+      <allow_any>no</allow_any>
+      <allow_inactive>no</allow_inactive>
+      <allow_active>auth_self_keep</allow_active>
+    </defaults>
+  </action>
+</policyconfig>

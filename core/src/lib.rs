@@ -426,7 +426,8 @@ pub mod tls;
 /// Throwaway certificate authorities and a loopback TLS server, for tests only.
 #[cfg(all(feature = "tls-testing", not(target_arch = "wasm32")))]
 pub mod tls_testing;
-/// System-keyring POD types — `KeyringRequest` + `KeyringResult`.
+/// System-keyring POD types — `KeyringRequest` + `KeyringResult`, the protection levels
+/// (`KeyringProtection`) and the quiet probes (`KeyringNeed`, `KeyringSupport`).
 ///
 /// Stateful manager lives in `azul_layout::managers::keyring`.
 pub mod keyring;
@@ -517,6 +518,11 @@ pub mod tray;
 /// The queues live in `azul-layout` (`managers::notification`), the OS
 /// plumbing in `azul-dll` (`desktop/notifications`) - the tray's split.
 pub mod notification;
+/// App lifecycle POD type (`LifecycleEvent`): sent to the background, brought back, short of memory, about to end.
+///
+/// The queue and the handler live in `azul-layout` (`managers::lifecycle`), the shells raise the events
+/// (`azul-dll`, `desktop/lifecycle`) - the tray's split.
+pub mod lifecycle;
 /// Built-in user-agent default stylesheet.
 pub mod ua_css;
 /// Default font/text constants and small geometry helpers for layout.

@@ -12447,10 +12447,33 @@ pub trait PlatformWindow {
                 super::capability_pump::pump(lw);
             }
             self.sync_capability_pump_timer();
+            // The app's lifecycle events a system callback (or the debug server) queued: the app's handler runs now,
+            // on the loop thread, like a menu click (`desktop::lifecycle`).
+            if self
+                .get_layout_window()
+                .is_some_and(|lw| lw.app_services.lifecycle.has_queued_lifecycle_events())
+            {
+                // (a rebuild the handler asked for is requested inside `deliver`)
+                let _ = crate::desktop::lifecycle::deliver(self);
+            }
             self.process_transient_dismissal();
             // AFTER the dismissal: an Escape that closed the popup here has
             // no popup left to be forwarded to (and was consumed there).
             self.forward_keys_to_popup();
+        }
+
+        // The user's gesture (a click, a tap, a key press) is what lets a permission that may
+        // ask them go out (`PermissionManager::admit`): noted before the callbacks of this
+        // pass run, so the layout pass a callback causes finds it.
+        let gesture = {
+            let current = self.get_current_window_state();
+            let previous = self.get_previous_window_state().as_ref().unwrap_or(current);
+            super::user_gesture::user_gesture_between(previous, current)
+        };
+        if gesture {
+            if let Some(layout_window) = self.get_layout_window_mut() {
+                layout_window.permission_manager.note_gesture();
+            }
         }
 
         // Get previous state (or use current as fallback for first frame)

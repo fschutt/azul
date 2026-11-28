@@ -11,6 +11,7 @@ const IOS_CLIPBOARD_RS: &str = include_str!("ios/clipboard.rs");
 const IOS_WEBVIEW_RS: &str = include_str!("ios/webview.rs");
 const IOS_SYSTEM_FONT_RS: &str = include_str!("ios/system_font.rs");
 const IOS_OPEN_URL_RS: &str = include_str!("ios/open_url.rs");
+const NOTIFICATIONS_APPLE_RS: &str = include_str!("../notifications/apple.rs");
 const AUTH_APPLE_RS: &str = include_str!("../extra/auth_session/apple.rs");
 const PERMISSION_IOS_RS: &str = include_str!("../extra/permission/ios.rs");
 const GAMEPAD_APPLE_RS: &str = include_str!("../extra/gamepad/apple.rs");
@@ -809,9 +810,13 @@ fn url_open_on_ios_asks_uikit_on_the_main_thread() {
         "URLWithString:",
         "if nsurl.is_null()",
         "CString::new(",
+        "resolve_open_alias(url)",
     ] {
         assert!(code.contains(needed), "ios/open_url.rs: `{needed}` is missing");
     }
+    // the alias is resolved before anything reads the URL (the main thread asks, or the queue is handed it)
+    let hook = body(&code, "pub fn azul_ios_open_url(");
+    in_order(hook, "resolve_open_alias(url)", "on_main_thread()", "azul_ios_open_url");
     at(IOS_MOD_RS, "mod open_url;", "the iOS shell declares the opener");
 }
 
@@ -860,6 +865,13 @@ fn the_ios_permission_backend_requests_one_capability_at_a_time_and_reads_quietl
         status.contains("PermissionState::NotDetermined") && !status.contains("PermissionState::Denied\n                } else"),
         "a when-in-use grant is not a refusal of the background capability"
     );
+    // a Subscribe (which the manager lets through only after a user gesture, for an undecided capability) asks for THAT
+    // capability, location excepted (the geolocation backend asks with its own Subscribe); a Release asks nothing
+    let event = body(PERMISSION_IOS_RS, "pub fn handle_event(");
+    at(event, "PermissionDiffEvent::Subscribe { capability, .. }", "handle_event");
+    at(event, "Capability::Geolocation | Capability::GeolocationBackground => {}", "handle_event");
+    at(event, "other => request(*other)", "handle_event");
+    assert!(!event.contains("Release"), "a release asks nothing (and gives nothing back)");
     // the request path is the only one that asks: the probes never do
     let probe = body(PERMISSION_IOS_RS, "pub fn probe_status(");
     for asking in ["requestAccess", "requestWhenInUse", "requestAlways", "request_av_access", "request_permission"] {
@@ -884,4 +896,68 @@ fn the_ios_window_feeds_the_engines_gesture_config_from_uikits_numbers() {
     let touch = body(IOS_MOD_RS, "fn handle_touch(");
     at(touch, "UIKIT_GESTURES.pan_threshold_points", "handle_touch");
     assert!(!code_of(touch).contains("10.0"), "the slop is the table's, not a literal");
+}
+
+/// The app hears of its life from the delegate: `Paused` before `applicationDidEnterBackground:` returns (iOS may suspend
+/// the process right after), `Resumed` on the way back, `LowMemory` after the shell gave back its own memory,
+/// `WillTerminate` before anything is taken down. One helper raises them, so each is delivered the same way.
+#[test]
+fn the_ios_delegate_tells_the_app_of_its_life() {
+    let helper = body(IOS_MOD_RS, "fn raise_lifecycle(");
+    at(helper, "crate::desktop::lifecycle::raise(window, event)", "raise_lifecycle");
+    at(helper, "apply_event_result(result)", "raise_lifecycle");
+    for (handler, event) in [
+        ("extern \"C\" fn app_did_enter_background(", "LifecycleEvent::Paused"),
+        ("extern \"C\" fn app_will_enter_foreground(", "LifecycleEvent::Resumed"),
+        ("extern \"C\" fn app_did_receive_memory_warning(", "LifecycleEvent::LowMemory"),
+        ("extern \"C\" fn app_will_terminate(", "LifecycleEvent::WillTerminate"),
+    ] {
+        let delegate = body(IOS_MOD_RS, handler);
+        at(delegate, "raise_lifecycle(window,", handler);
+        at(delegate, event, handler);
+    }
+    // what the shell owns is done first (the sensors stopped, the memory given back), the app's handler after; the
+    // termination tells the app before the window comes down
+    let background = body(IOS_MOD_RS, "extern \"C\" fn app_did_enter_background(");
+    in_order(background, "sensors::pause(", "LifecycleEvent::Paused", "app_did_enter_background");
+    let memory = body(IOS_MOD_RS, "extern \"C\" fn app_did_receive_memory_warning(");
+    in_order(memory, "gpu_memory_warning()", "LifecycleEvent::LowMemory", "app_did_receive_memory_warning");
+    let terminate = body(IOS_MOD_RS, "extern \"C\" fn app_will_terminate(");
+    in_order(terminate, "LifecycleEvent::WillTerminate", "gpu_event(gpu_lifecycle::Event::Shutdown)", "app_will_terminate");
+    in_order(terminate, "LifecycleEvent::WillTerminate", "Box::from_raw(AZUL_IOS_WINDOW)", "app_will_terminate");
+}
+
+/// "The permission dialog appears only when needed" has to be checkable from a console: every place that asks the system
+/// for a grant says so in the log, right before it asks, in words the Simulator driver
+/// (`scripts/ci/ios_sim_selftest.py`) looks for ("OS prompt"). A fresh install that asked for nothing has none of those
+/// lines; a dialog nobody explained would have one.
+#[test]
+fn every_place_the_ios_shell_asks_the_system_for_a_permission_says_so_in_the_log_first() {
+    for (file, source, asks) in [
+        (
+            "extra/geolocation/ios.rs",
+            GEOLOCATION_IOS_RS,
+            &["requestWhenInUseAuthorization", "requestAlwaysAuthorization"][..],
+        ),
+        ("notifications/apple.rs", NOTIFICATIONS_APPLE_RS, &["requestAuthorizationWithOptions"][..]),
+        ("extra/speech/apple.rs", SPEECH_APPLE_RS, &["requestAuthorization:"][..]),
+    ] {
+        let code = code_of(source);
+        for ask in asks {
+            let mut found = 0;
+            for (at_byte, _) in code.match_indices("msg_send![") {
+                let call: String = code[at_byte..].chars().take(160).collect();
+                if !call.contains(ask) {
+                    continue;
+                }
+                found += 1;
+                let before: String = code[..at_byte].chars().rev().take(900).collect::<Vec<_>>().into_iter().rev().collect();
+                assert!(
+                    before.contains("OS prompt"),
+                    "{file}: the call that asks with `{ask}` is not preceded by a log line that says so (\"OS prompt\")"
+                );
+            }
+            assert!(found > 0, "{file}: no call with `{ask}` found - was it renamed? (this pin has to follow it)");
+        }
+    }
 }

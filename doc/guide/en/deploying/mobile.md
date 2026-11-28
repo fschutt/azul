@@ -458,9 +458,11 @@ or even a Mac:
 
 ## Local network on a phone
 
-An app that uses an `IrohEndpoint` finds the computer it controls by its endpoint id on the local
-network ([Networking](../data/networking.md#finding-a-peer-on-the-local-network)); a phone needs
-two things the engine cannot grant itself.
+An app that turns local discovery on (`IrohConfig::with_local_discovery(true)`; it is off by
+default, so nothing touches the local network and no Local Network dialog comes at launch: turn it
+on where the user starts pairing or a call) finds the computer it controls by its endpoint id on
+the local network ([Networking](../data/networking.md#finding-a-peer-on-the-local-network)); a
+phone needs two things the engine cannot grant itself.
 
 **Android.** `AndroidManifest.xml` declares `android.permission.CHANGE_WIFI_MULTICAST_STATE` (the
 template in `scripts/android/` already does; it is a normal permission, granted at install, no
@@ -972,6 +974,35 @@ An emulator will not tell you about digitizer sampling rate, pen tilt, Force
 Touch stages, real sensor noise or thermal throttling. For anything timing- or
 hardware-shaped, the device is the only answer — see the install steps
 [above](#installing--debugging-the-built-app).
+
+## The app's life: paused, resumed, short of memory, ending
+
+A phone does not ask an app whether it may stop. After the app leaves the foreground the system may end the process without another word, so what a person would lose - the document, the drawing, the half-typed message - is written when the app is **paused**, not when it ends. The engine tells the app four things, on every platform that has them:
+
+| Event | When | What to do |
+|---|---|---|
+| `Paused` | the app left the foreground (another app in front, the screen off, the home key) | write what a person would lose |
+| `Resumed` | the app is in the foreground again | read what changed meanwhile |
+| `LowMemory` | the system asks for memory back | drop what can be made again: caches, decoded pictures, tiles |
+| `WillTerminate` | the process is about to end (not promised: a phone often ends a process with no such event) | the last chance to write |
+
+The app installs one handler, usually in its window's create callback, and asks which event it runs for:
+
+```rust
+extern "C" fn on_lifecycle(mut data: RefAny, info: CallbackInfo) -> Update {
+    if let OptionLifecycleEvent::Some(LifecycleEvent::Paused) = info.get_lifecycle_event() {
+        // write the document
+    }
+    Update::DoNothing
+}
+
+extern "C" fn on_create(data: RefAny, info: CallbackInfo) -> Update {
+    info.set_lifecycle_handler(data, on_lifecycle);
+    Update::DoNothing
+}
+```
+
+An app that installs no handler hears nothing. The handler runs on the loop thread like a menu click, with the app's data and the window's `CallbackInfo`; what it asks for (a timer, a rebuild) is applied as for every other callback. A test raises the same events without a phone: `azul::desktop::lifecycle::raise(&mut window, LifecycleEvent::Paused)` runs the handler against a headless window (`dll/tests/lifecycle_headless.rs`).
 
 ## See also
 

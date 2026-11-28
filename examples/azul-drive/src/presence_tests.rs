@@ -52,6 +52,16 @@ fn a_computer_that_cannot_check_asks_for_the_drives_name_and_never_runs_the_acti
         decide(BiometricResult::Unavailable, false),
         Decision::Unchecked
     );
+    // A sensor with nothing enrolled (no finger, no passcode) cannot check either.
+    assert_eq!(
+        decide(BiometricResult::NotEnrolled, false),
+        Decision::Unchecked
+    );
+    // A locked-out sensor is a failure of the check, not a way around it.
+    assert_eq!(
+        decide(BiometricResult::LockedOut, false),
+        Decision::Stop("azdrive-presence-failed")
+    );
 }
 
 /// Only a TEST run - whose libazul never shows a real prompt and answers Unavailable for it -

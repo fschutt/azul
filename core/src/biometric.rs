@@ -53,6 +53,11 @@ impl BiometricKind {
 /// Maps onto every platform's result enum: iOS `LAError`, Android
 /// `BiometricPrompt.AuthenticationCallback`, Windows
 /// `UserConsentVerificationResult`, Linux polkit / PAM (research/02 §6).
+///
+/// This is the standalone gate (`request_biometric_auth`): a yes that carries no secret. It is a
+/// boolean the LIBRARY enforces. Never use its yes to unlock a key: a protected keyring item
+/// (`CallbackInfo::keyring_store_protected` + `keyring_unlock`) is released by the OS or the
+/// secure hardware itself.
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum BiometricResult {
@@ -73,9 +78,17 @@ pub enum BiometricResult {
     /// the prompt could not be shown (Linux degraded path, or hardware
     /// absent). Pairs with [`BiometricKind::NotAvailable`].
     Unavailable,
-    /// A platform error occurred (sensor busy, lockout, key invalidated,
-    /// or an unmapped native error code).
+    /// A platform error occurred (sensor busy, key invalidated, or an
+    /// unmapped native error code).
     Error,
+    /// Too many failed attempts: biometrics are locked (temporarily or
+    /// until the passcode is entered). Appended after `Error` so the
+    /// numbers of the first six stay.
+    LockedOut,
+    /// The device has the sensor but nothing is set up: no finger / face
+    /// enrolled, or no passcode for a prompt that falls back to it.
+    /// `Unavailable` stays for "no sensor, no service".
+    NotEnrolled,
 }
 
 impl BiometricResult {

@@ -22,8 +22,8 @@
 //! The two tiers of AzDrive's secrets, the interim rule until the key vault (a key bound to
 //! this computer's hardware) replaces it:
 //! - SILENT: the per-drive entries background sync needs are plain keychain items, readable
-//!   while the user is logged in, without a biometric access control (`require_biometry` is
-//!   false for them). A signed, installed AzDrive syncs without a prompt.
+//!   while the user is logged in, without a biometric access control (`DeviceUnlocked`: the
+//!   level that never shows a sheet). A signed, installed AzDrive syncs without a prompt.
 //! - GATED: Touch ID or the computer's password are asked only before an action that reveals
 //!   or changes keys - a new recovery code, another device added, new keys after a hack, a
 //!   drive removed ([`crate::presence`]).
@@ -190,7 +190,13 @@ impl Read {
                 Read::Secret(Zeroizing::new(secret.as_str().to_string()))
             }
             KeyringResult::NotFound => Read::Missing,
-            KeyringResult::Denied => Read::Refused,
+            // The system refused, the user said no, or the keychain would have to ask (a quiet
+            // read met a dialog): the drive waits for the user's own action.
+            KeyringResult::Denied
+            | KeyringResult::WouldPrompt
+            | KeyringResult::Cancelled
+            | KeyringResult::Failed
+            | KeyringResult::LockedOut => Read::Refused,
             KeyringResult::Unavailable => Read::Unavailable,
             _ => Read::Failed,
         }

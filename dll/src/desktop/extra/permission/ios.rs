@@ -33,11 +33,19 @@ use objc::{
     sel, sel_impl,
 };
 
-/// The permission manager's diff events. A Subscribe is the manager's own business (it calls [`request`] only when the
-/// state is NotDetermined and a user gesture has been seen); a Release has nothing to give back here: the capture
-/// sessions belong to the camera / microphone workers and the location manager to the geolocation backend.
+/// The permission manager's diff events. The manager holds a Subscribe until a user gesture has been seen and passes
+/// it on only for a capability whose state is still undecided (one request per capability, a refusal is never asked
+/// again): the Subscribe that arrives here IS the moment to ask, so it asks, for THAT capability only. Location is asked
+/// by the geolocation backend's own Subscribe (it starts its manager with the request: two asks would be one prompt
+/// and a second code path). A Release has nothing to give back here: the capture sessions belong to the camera /
+/// microphone workers and the location manager to the geolocation backend.
 pub fn handle_event(event: &PermissionDiffEvent) {
-    let _ = event;
+    if let PermissionDiffEvent::Subscribe { capability, .. } = event {
+        match capability {
+            Capability::Geolocation | Capability::GeolocationBackground => {}
+            other => request(*other),
+        }
+    }
 }
 
 /// Ask the system for `capability`: the prompt of THAT capability only (one request, never a bundle), from the main

@@ -65,6 +65,12 @@ pub fn save(st: &mut AppState, info: &mut CallbackInfo, app: &RefAny, tag: u64) 
     spawn(st, info, app, vec![job], tag);
 }
 
+/// The app left the foreground (or is about to end): the open document is written when it has changes. A phone ends a
+/// background process without another word, so this is the last chance to keep an edit (`lib.rs`: `on_lifecycle`).
+pub fn save_on_pause(st: &mut AppState, info: &mut CallbackInfo, app: &RefAny) {
+    save_if_dirty(st, info, app);
+}
+
 /// The open document saved first when it has changes (switching documents
 /// never loses an edit).
 fn save_if_dirty(st: &mut AppState, info: &mut CallbackInfo, app: &RefAny) {
