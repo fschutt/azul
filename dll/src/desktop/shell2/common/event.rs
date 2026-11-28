@@ -10688,9 +10688,27 @@ pub trait PlatformWindow {
                             if !azul_core::events::window_listener_hears(*window_filter, event) {
                                 continue;
                             }
+                            // Keys: on a window with one surface the popups are IN this window,
+                            // and who hears a key is the engine's call (the top overlay holds the
+                            // keyboard; a closed one hears nothing).
+                            let is_key = matches!(
+                                window_filter,
+                                azul_core::events::WindowEventFilter::TextInput
+                                    | azul_core::events::WindowEventFilter::VirtualKeyDown
+                                    | azul_core::events::WindowEventFilter::VirtualKeyUp
+                            );
                             for (dom_id, lr) in &layout_window.layout_results {
                                 let ndc = lr.styled_dom.node_data.as_container();
                                 for node_id in nodes_listening_to_window_events(&lr.styled_dom) {
+                                    if is_key
+                                        && !layout_window.key_listener_hears(
+                                            *dom_id,
+                                            node_id,
+                                            self.get_current_window_state(),
+                                        )
+                                    {
+                                        continue;
+                                    }
                                     if let Some(nd) = ndc.get(node_id) {
                                         for cb in nd.get_callbacks().as_ref().iter() {
                                             if cb.event == *filter {

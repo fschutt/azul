@@ -446,3 +446,80 @@ fn focus_inside_a_dismissed_overlay_is_lost_with_it() {
     assert!(lw.dismiss_transient_window(node).is_some());
     assert!(!lw.focus_is_inside_dismissed_overlay(elsewhere), "the user clicked elsewhere");
 }
+
+/// A popup's own window-level key listener (a dialog's Escape handler) hears keys only while its popup
+/// is open and on top: a closed dialog's `cancel` must not run for any Escape of the page, and the
+/// page's shortcuts must not run behind a dialog that holds the keyboard.
+#[test]
+fn a_listener_inside_a_popup_hears_keys_only_while_the_popup_is_open_and_on_top() {
+    let (mut lw, ws) = window(PHONE, true);
+    let dom = page(popup(TransientAnchor::Dialog, false, Some("Rename"), vec![panel(280.0, 100.0)]));
+    show(&mut lw, &ws, &dom);
+    let transient = popup_node(&lw);
+    let inside = node_with_class(&lw, "panel");
+    let page_node = node_with_class(&lw, "page");
+    let hears = |lw: &LayoutWindow, node| lw.key_listener_hears(DomId::ROOT_ID, node, &ws);
+    assert!(!hears(&lw, transient), "closed: its listener hears nothing");
+    assert!(!hears(&lw, inside));
+    assert!(hears(&lw, page_node), "the page hears as before");
+
+    open_popup(&mut lw);
+    show(&mut lw, &ws, &dom);
+    assert!(hears(&lw, transient), "open and on top");
+    assert!(hears(&lw, inside));
+    assert!(!hears(&lw, page_node), "a dialog holds the keyboard of the window");
+
+    // A window that opens windows is not touched: every listener hears.
+    let (lw2, ws2) = window(PHONE, false);
+    assert!(lw2.key_listener_hears(DomId::ROOT_ID, NodeId::new(0), &ws2));
+}
+
+/// Two overlays: the one opened last is on top, and only it hears. Closed, the one under it does.
+#[test]
+fn only_the_top_overlay_hears_a_key() {
+    let (mut lw, ws) = window(PHONE, true);
+    let dom = Dom::create_body()
+        .with_css("margin: 0;")
+        .with_child(
+            Dom::create_div()
+                .with_css("height: 40px; width: 120px;")
+                .with_child(popup(TransientAnchor::Bottom, true, None, vec![panel(100.0, 50.0)])),
+        )
+        .with_child(
+            Dom::create_div()
+                .with_css("height: 40px; width: 120px;")
+                .with_child(popup(TransientAnchor::Bottom, true, None, vec![panel(100.0, 50.0)])),
+        );
+    show(&mut lw, &ws, &dom);
+    let nodes: Vec<NodeId> = lw
+        .transient_windows
+        .open_windows()
+        .iter()
+        .map(|w| w.source_node)
+        .collect();
+    assert_eq!(nodes.len(), 2);
+    let hears = |lw: &LayoutWindow, node| lw.key_listener_hears(DomId::ROOT_ID, node, &ws);
+    assert!(!hears(&lw, nodes[0]), "under the other");
+    assert!(hears(&lw, nodes[1]), "on top");
+    assert!(lw.dismiss_transient_window(nodes[1]).is_some());
+    assert!(hears(&lw, nodes[0]), "on top now");
+}
+
+/// An open list (a combobox's options) takes no keyboard: the page keeps typing into its field.
+#[test]
+fn a_list_popup_leaves_the_page_its_keys() {
+    let (mut lw, ws) = window(PHONE, true);
+    let list = Dom::create_div()
+        .with_ids_and_classes(class("list"))
+        .with_accessibility_info(AccessibilityInfo {
+            role: AccessibilityRole::List,
+            ..Default::default()
+        })
+        .with_css("height: 30px; width: 100px;");
+    let dom = page(popup(TransientAnchor::Bottom, true, None, vec![list]));
+    show(&mut lw, &ws, &dom);
+    let transient = popup_node(&lw);
+    let page_node = node_with_class(&lw, "page");
+    assert!(lw.key_listener_hears(DomId::ROOT_ID, page_node, &ws), "the field keeps its keys");
+    assert!(lw.key_listener_hears(DomId::ROOT_ID, transient, &ws), "and the list hears its arrows");
+}

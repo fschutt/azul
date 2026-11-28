@@ -579,3 +579,80 @@ impl LayoutWindow {
         false
     }
 }
+
+// ---------------------------------------------------------------------------------------------
+// The keyboard: who hears a key while overlays are open.
+// ---------------------------------------------------------------------------------------------
+
+impl LayoutWindow {
+    /// May the WINDOW-level key listener (`EventFilter::Window` `VirtualKeyDown` / `VirtualKeyUp` /
+    /// `TextInput`) on `node` of `dom` hear a key now?
+    ///
+    /// On a window that opens windows every popup is a window of its own, which has its own
+    /// listeners and its own keys: the parent's copy of a popup's node is not where a key goes. On a
+    /// window with one surface the popup IS in this window, and its listeners (a dialog's Escape
+    /// handler, a menu's arrow keys) sit among everyone else's, so the engine says who hears:
+    ///
+    /// - a listener inside a popup's node hears while that popup is the TOP overlay - the one opened
+    ///   last; a closed popup's listener, or one under another overlay, does not (a dialog's
+    ///   `cancel` must not run for the Escape that closed the dropdown above it, nor for one pressed
+    ///   when it is not even open);
+    /// - every other listener of the page hears, unless a popup you work in (one that takes the
+    ///   keyboard) is on top: it holds the keyboard of the window. A list popup (a combobox's
+    ///   options) leaves the page its keys: typing goes on in the field.
+    ///
+    /// Always `true` on a window that opens windows.
+    #[must_use]
+    pub fn key_listener_hears(
+        &self,
+        dom: DomId,
+        node: NodeId,
+        window_state: &FullWindowState,
+    ) -> bool {
+        if !self.effective_presentation(window_state).is_one_surface() {
+            return true;
+        }
+        let top = self
+            .transient_windows
+            .open_windows()
+            .iter()
+            .rev()
+            .find(|w| w.overlay.is_some())
+            .map(|w| w.source_node);
+        let Some(root) = self.layout_results.get(&DomId::ROOT_ID) else {
+            return true;
+        };
+        // The popup the listener is inside of, if any (a popup's content is in the root DOM).
+        let owner = if dom == DomId::ROOT_ID {
+            let nodes = root.styled_dom.node_data.as_container();
+            let hierarchy = root.styled_dom.node_hierarchy.as_container();
+            let mut found = None;
+            let mut current = Some(node);
+            for _ in 0..hierarchy.len() {
+                let Some(n) = current else {
+                    break;
+                };
+                if let Some(azul_core::dom::NodeType::TransientWindow(config)) =
+                    nodes.get(n).map(azul_core::dom::NodeData::get_node_type)
+                {
+                    if config.dock == azul_core::transient::TransientDock::Popup {
+                        found = Some(n);
+                        break;
+                    }
+                }
+                current = hierarchy
+                    .get(n)
+                    .and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id);
+            }
+            found
+        } else {
+            None
+        };
+        match owner {
+            Some(popup) => top == Some(popup),
+            None => top.is_none_or(|top| {
+                !crate::transient::transient_takes_focus(&root.styled_dom, top)
+            }),
+        }
+    }
+}
