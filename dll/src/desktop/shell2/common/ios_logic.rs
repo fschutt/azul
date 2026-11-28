@@ -328,10 +328,39 @@ pub const fn frame_step(result: ProcessEventResult) -> FrameStep {
 
 use crate::desktop::shell2::android_core::slop::{Lift, Move};
 
-/// The distance a finger may wander before it is a pan, in points. The engine's logical pixel IS the point on iOS
-/// (the frame factor `dpi / 96` is the screen scale), so positions are compared with it as they are. UIKit's own pan
-/// recognizer starts after about this much.
-pub const TOUCH_SLOP_POINTS: f32 = 10.0;
+/// The numbers UIKit's own gesture recognizers and scroll views use, in ONE place (the engine's gesture detection reads
+/// them from here and from nowhere else): where UIKit exposes a constant it is that constant; where it exposes none
+/// (the pan threshold, the double-tap interval, the swipe velocity) it is ONE documented number, named as such.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct UiKitGestures {
+    /// How far a finger moves before a pan begins, points: the touch slop of the shell. The engine's logical pixel IS
+    /// the point on iOS (the frame factor `dpi / 96` is the screen scale), so positions are compared with it as they
+    /// are. UIKit exposes NO constant for it (`UIPanGestureRecognizer` keeps its threshold private); about ten points
+    /// is what its recognizers do.
+    pub pan_threshold_points: f32,
+    /// `UILongPressGestureRecognizer.minimumPressDuration`'s default, milliseconds (0.5 s). The user's Touch
+    /// Accommodations "Hold Duration" (Settings > Accessibility) is not readable through any public API.
+    pub long_press_ms: u64,
+    /// `UILongPressGestureRecognizer.allowableMovement`'s default, points.
+    pub long_press_movement_points: f32,
+    /// The longest gap between two taps of a double tap, milliseconds. UIKit exposes none: the recognizers decide
+    /// inside (about 0.3 s); the engine's own default of 0.5 s is kept for a double click made with a pointer.
+    pub double_tap_ms: u64,
+    /// `UIScrollView.DecelerationRate.normal` (`UIScrollViewDecelerationRateNormal`): per millisecond.
+    pub deceleration_normal: f32,
+    /// `UIScrollView.DecelerationRate.fast` (`UIScrollViewDecelerationRateFast`): per millisecond.
+    pub deceleration_fast: f32,
+}
+
+/// The numbers above. A static: a table, not a scalar.
+pub static UIKIT_GESTURES: UiKitGestures = UiKitGestures {
+    pan_threshold_points: 10.0,
+    long_press_ms: 500,
+    long_press_movement_points: 10.0,
+    double_tap_ms: 500,
+    deceleration_normal: 0.998,
+    deceleration_fast: 0.99,
+};
 
 /// The phase of a `UITouch` event, as `handle_touch` reads it (`touchesBegan:` ... `touchesCancelled:`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

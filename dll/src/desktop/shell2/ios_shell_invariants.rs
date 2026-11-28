@@ -499,18 +499,23 @@ fn the_protected_requests_of_the_ios_build_check_their_purpose_string_first() {
     let check = auth.find("request_would_stop_the_process(key)").expect("a check");
     assert!(check < request, "the check comes before the first request");
 
-    let sensors = body(SENSORS_APPLE_RS, "fn start_push_only_sensors(");
+    // The barometer and the step counter are started one by one, each only after the Motion purpose-string check
+    // (`motion_key_blocks`), and only for an app that reads them.
+    let check = body(SENSORS_APPLE_RS, "fn motion_key_blocks(");
+    at(check, "request_would_stop_the_process(keys::MOTION)", "motion_key_blocks");
+    let barometer = body(SENSORS_APPLE_RS, "fn start_barometer(");
     in_order(
-        sensors,
-        "request_would_stop_the_process(keys::MOTION)",
+        barometer,
+        "motion_key_blocks(",
         "CMAltimeter::isRelativeAltitudeAvailable()",
-        "start_push_only_sensors",
+        "start_barometer",
     );
+    let steps = body(SENSORS_APPLE_RS, "fn start_steps(");
     in_order(
-        sensors,
-        "request_would_stop_the_process(keys::MOTION)",
+        steps,
+        "motion_key_blocks(",
         "startPedometerUpdatesFromDate_withHandler",
-        "start_push_only_sensors",
+        "start_steps",
     );
 }
 
@@ -860,4 +865,23 @@ fn the_ios_permission_backend_requests_one_capability_at_a_time_and_reads_quietl
     for asking in ["requestAccess", "requestWhenInUse", "requestAlways", "request_av_access", "request_permission"] {
         assert!(!probe.contains(asking), "probe_status must never ask ({asking})");
     }
+}
+
+/// The engine's gesture detection takes UIKit's numbers (one table, `ios_logic::UIKIT_GESTURES`) at window creation, and the
+/// touch handler's slop is the table's pan threshold, not a number of its own.
+#[test]
+fn the_ios_window_feeds_the_engines_gesture_config_from_uikits_numbers() {
+    let new = body(IOS_MOD_RS, "pub fn new(");
+    for needed in [
+        "gesture_drag_manager.config",
+        "UIKIT_GESTURES.pan_threshold_points",
+        "UIKIT_GESTURES.long_press_ms",
+        "UIKIT_GESTURES.long_press_movement_points",
+        "UIKIT_GESTURES.double_tap_ms",
+    ] {
+        assert!(new.contains(needed), "IOSWindow::new: `{needed}` is missing");
+    }
+    let touch = body(IOS_MOD_RS, "fn handle_touch(");
+    at(touch, "UIKIT_GESTURES.pan_threshold_points", "handle_touch");
+    assert!(!code_of(touch).contains("10.0"), "the slop is the table's, not a literal");
 }

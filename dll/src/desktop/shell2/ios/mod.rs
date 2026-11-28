@@ -50,7 +50,7 @@ use crate::{
         common::{
             debug_server::LogCategory,
             event::{self, CommonWindowState, HitTestNode, PlatformWindow},
-            ios_logic::{mouse_plan, CursorPlan, HitPlan, TouchPhase, TOUCH_SLOP_POINTS},
+            ios_logic::{mouse_plan, CursorPlan, HitPlan, TouchPhase, UIKIT_GESTURES},
             WindowError,
         },
         headless::CpuBackend,
@@ -718,7 +718,7 @@ fn handle_touch(this: &Object, touches: *mut Object, event: *mut Object, phase: 
                     .and_then(|id| touch_types.iter().find(|(touch, _)| *touch == id))
                     .is_none_or(|(_, kind)| *kind == 0);
                 match primary_pos {
-                    Some(at) => window.tap.down(applies, at, TOUCH_SLOP_POINTS),
+                    Some(at) => window.tap.down(applies, at, UIKIT_GESTURES.pan_threshold_points),
                     None => window.tap.cancel(),
                 }
             }
@@ -2244,7 +2244,7 @@ pub struct IOSWindow {
     /// down, and the next primary is born only once every finger has lifted.
     pub primary_touch_id: Option<u64>,
     /// The touch slop of the primary finger (`android_core::slop`): a tap candidate until it has moved more than
-    /// [`TOUCH_SLOP_POINTS`], then a pan for good.
+    /// `UIKIT_GESTURES.pan_threshold_points`, then a pan for good.
     pub tap: TapSlop,
     /// The finger driving the one-finger PAN, which unlike the mouse pipe
     /// transfers to a remaining finger when it lifts (`UIScrollView` keeps
@@ -2291,6 +2291,15 @@ impl IOSWindow {
         layout_window.current_window_state = full_window_state.clone();
         layout_window.routes = config.routes.clone();
         app_shared.seed_window(&mut layout_window, &config);
+        // The engine's gesture detection reads the numbers UIKit's own recognizers use (one table: `UIKIT_GESTURES`),
+        // not its desktop defaults.
+        layout_window.gesture_drag_manager.config = azul_layout::managers::gesture::GestureDetectionConfig {
+            drag_distance_threshold: UIKIT_GESTURES.pan_threshold_points,
+            double_click_time_threshold_ms: UIKIT_GESTURES.double_tap_ms,
+            long_press_time_threshold_ms: UIKIT_GESTURES.long_press_ms,
+            long_press_distance_threshold: UIKIT_GESTURES.long_press_movement_points,
+            ..azul_layout::managers::gesture::GestureDetectionConfig::default()
+        };
         // The faces the app ships (`AppConfig::add_font`): this shell has no app-level font
         // manager to take them from, so the window registers them itself.
         layout_window

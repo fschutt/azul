@@ -572,3 +572,19 @@ fn a_path_is_what_comes_before_the_nul_of_the_buffer() {
     assert_eq!(path_from_c_buffer(b"no nul at all"), Some(String::from("no nul at all")));
     assert_eq!(path_from_c_buffer(&[0xff, 0xfe, 0]), None, "not UTF-8: no path (the file cannot be named to the registry)");
 }
+
+// ---- the numbers of UIKit's gesture recognizers, in one place ----------------------------------------------------------
+
+/// The touch slop of the shell, the engine's drag threshold and its long-press numbers come from ONE table: there was a
+/// lone `TOUCH_SLOP_POINTS = 10.0` in this file and the engine's own defaults (5 px drag, 10 px long press) beside it.
+#[test]
+fn the_gesture_numbers_are_those_uikit_uses_and_live_in_one_table() {
+    assert_eq!(UIKIT_GESTURES.pan_threshold_points, 10.0);
+    assert_eq!(UIKIT_GESTURES.long_press_ms, 500, "UILongPressGestureRecognizer.minimumPressDuration defaults to 0.5 s");
+    assert_eq!(UIKIT_GESTURES.long_press_movement_points, 10.0, "allowableMovement defaults to 10 points");
+    assert!(
+        (UIKIT_GESTURES.deceleration_normal - 0.998).abs() < f32::EPSILON && (UIKIT_GESTURES.deceleration_fast - 0.99).abs() < f32::EPSILON,
+        "UIScrollViewDecelerationRateNormal / Fast"
+    );
+    assert!(UIKIT_GESTURES.deceleration_fast < UIKIT_GESTURES.deceleration_normal, "fast decelerates sooner");
+}
