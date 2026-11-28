@@ -195,6 +195,11 @@ pub enum PermissionDiffEvent {
     Reconfigure { capability: Capability },
 }
 
+/// How long after a user gesture a request may still be taken for its consequence: a button's
+/// callback mounts a probe within the same pass, a slower chain (a dialog of the app first) within
+/// seconds; a probe mounted by a timer minutes later is no consequence of a click.
+pub static GESTURE_WINDOW: core::time::Duration = core::time::Duration::from_secs(5);
+
 /// What [`PermissionManager::admit`] says about an op that may ask the user.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Admission {
@@ -380,9 +385,10 @@ pub struct PermissionManager {
     /// Subscribes that wait for the user's next gesture before the platform may ask (see
     /// [`PermissionManager::take_dispatchable`]).
     held: Vec<PermissionDiffEvent>,
-    /// A user gesture (a click, a touch lifted, a key pressed) happened since the last request
-    /// that may ask: the next one may go ([`PermissionManager::admit`]).
-    gesture: bool,
+    /// When the user last made a gesture (a click, a touch lifted, a key pressed) that no
+    /// request has used yet: the next one that may ask goes within [`GESTURE_WINDOW`] of it
+    /// ([`PermissionManager::admit`]).
+    gesture: Option<std::time::Instant>,
     /// When the platforms' quiet read of the capabilities in use was last folded in
     /// ([`PermissionManager::probe_due`]).
     probed_at: Option<std::time::Instant>,
@@ -554,8 +560,13 @@ impl PermissionManager {
     /// The user did something that may start a request: a click, a touch lifted, a key pressed.
     /// The shell calls this when it sees one; the next [`Self::admit`] of a not yet decided
     /// capability uses it up.
-    pub const fn note_gesture(&mut self) {
-        self.gesture = true;
+    pub fn note_gesture(&mut self) {
+        self.note_gesture_at(std::time::Instant::now());
+    }
+
+    /// [`Self::note_gesture`] at the time `at`.
+    pub const fn note_gesture_at(&mut self, at: std::time::Instant) {
+        self.gesture = Some(at);
     }
 
     /// Whether an op that may ask the user for `capability` (its probe node's Subscribe, a
@@ -568,12 +579,22 @@ impl PermissionManager {
     /// - not decided: only after a user gesture, and ONE request per gesture, so a probe in the
     ///   first DOM never asks at launch and two capabilities never ask at once.
     pub fn admit(&mut self, capability: Capability) -> Admission {
+        self.admit_at(capability, std::time::Instant::now())
+    }
+
+    /// [`Self::admit`] at the time `now`: a gesture older than [`GESTURE_WINDOW`] is no longer
+    /// the cause of a request.
+    pub fn admit_at(&mut self, capability: Capability, now: std::time::Instant) -> Admission {
         match self.peek(capability) {
             PermissionState::Granted(_) | PermissionState::EphemeralGranted(_) => Admission::Go,
             PermissionState::Denied | PermissionState::Restricted => Admission::Skip,
             PermissionState::Requested => Admission::Hold,
             PermissionState::NotDetermined => {
-                if core::mem::take(&mut self.gesture) {
+                let fresh = self
+                    .gesture
+                    .take()
+                    .is_some_and(|at| now.saturating_duration_since(at) < GESTURE_WINDOW);
+                if fresh {
                     Admission::Go
                 } else {
                     Admission::Hold

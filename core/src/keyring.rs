@@ -144,7 +144,7 @@ impl KeyringProtection {
 /// The text of the OS sheet an op may show.
 ///
 /// iOS `localizedReason` and `localizedCancelTitle`, Android `PromptInfo`, the Windows Hello
-/// message, the polkit message. An empty `reason` is "Unlock <the app's name>"; an empty
+/// message, the polkit message. An empty `reason` is "Unlock" and the app's name; an empty
 /// `cancel_label` is the platform's own, localised "Cancel".
 #[repr(C)]
 #[derive(Debug, Clone, PartialEq, Eq, Default)]

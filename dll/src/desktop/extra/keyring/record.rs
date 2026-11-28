@@ -72,8 +72,9 @@ pub(crate) enum HelloStatus {
     Other,
 }
 
-/// The meaning of a `KeyCredentialStatus` number: 0 Success, 1 UnknownError, 2 NotFound,
-/// 3 UserCanceled, 4 UserPrefersPassword, 5 CredentialAlreadyExists, 6 SecurityDeviceLocked.
+/// The meaning of a `KeyCredentialStatus` number: 0 `Success`, 1 `UnknownError`, 2 `NotFound`,
+/// 3 `UserCanceled`, 4 `UserPrefersPassword`, 5 `CredentialAlreadyExists`, 6
+/// `SecurityDeviceLocked`.
 #[cfg_attr(not(any(target_os = "windows", test)), allow(dead_code))]
 pub(crate) const fn hello_status(code: i32) -> HelloStatus {
     match code {
