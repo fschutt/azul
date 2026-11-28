@@ -1325,10 +1325,15 @@ extern "C" fn on_input_key(
                     s.search.clear();
                     crate::start_find(info, app, s);
                 } else {
-                    // ... the second closes the view: the line empties and the folder shows again.
+                    // ... the second closes the view: the line empties, the folder shows again and
+                    // the line goes back to its status (unless a program's output or a notice is
+                    // open in it).
                     s.command_bar.input.clear();
                     set_input_text(info, "");
                     end_search(info, app, s);
+                    if s.command_bar.run.is_none() && s.command_bar.notice.is_none() {
+                        s.command_bar.expanded = false;
+                    }
                 }
             })
         }
