@@ -76,6 +76,7 @@ pub mod frame_pacer;
 pub mod frame_schedule;
 /// The decisions of the iOS shell that need no UIKit (safe-area insets, the keyboard's cover, the
 /// names of its Objective-C classes, the pieces of a log line), so a host can test them.
+pub mod ios_display;
 pub mod ios_logic;
 pub mod layout;
 /// The runtime gate for every `log_*!` macro, plus RAII enter/exit spans.
