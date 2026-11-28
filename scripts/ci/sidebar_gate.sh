@@ -40,7 +40,7 @@ features="azul-core/serde-json,azul-core/url,azul-layout/json,azul-layout/e2e-se
 
 tests() {
   AZ_REQUIRE_TEST_FONTS=1 cargo test -p azul-layout --lib --features "$features" --no-fail-fast -- \
-    sidebar inspector location_bar action_sheet app_frame pie_marker 2>&1 | tee sidebar-tests.txt
+    sidebar inspector location_bar action_sheet app_frame pie_marker ribbon tab_ tabs:: 2>&1 | tee sidebar-tests.txt
   return "${PIPESTATUS[0]}"
 }
 run tests tests
@@ -213,6 +213,20 @@ api_functions=(
   SidebarRow.set_collab
   SidebarRow.with_collab
   SidebarRow.has_pie
+  TabHeader.set_labels
+  TabHeader.with_labels
+  TabHeader.set_icons
+  TabHeader.with_icons
+  Ribbon.set_labels
+  Ribbon.with_labels
+  Ribbon.set_button_face
+  Ribbon.with_button_face
+  RibbonTab.set_location
+  RibbonTab.with_location
+  RibbonTab.set_icon
+  RibbonTab.with_icon
+  RibbonAppButton.set_icon
+  RibbonAppButton.with_icon
 )
 autofix_round() {
   local out code=0
