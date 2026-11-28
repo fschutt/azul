@@ -29,19 +29,32 @@ if ! python3 scripts/demo_apps.py qa-only "$app"; then
 fi
 
 mkdir -p demo-out/libs demo-out/apps demo-out/results
-rustup target add "$target"
-python3 scripts/demo_apps.py plan --e2e > demo-out/plan.txt
+if [ -n "${PREBUILT_RUN:-}" ]; then
+  # PREBUILT_RUN=<run id>: the apps of an earlier run of this job (its artifact remote-macOS holds demo-out/apps/*.zip) instead of the
+  # 13 minutes of the library build; the symbol gate of those apps was read there (violations [] for AzMeet and AzCompanion).
+  echo "== prebuilt: the apps of run $PREBUILT_RUN (no library build, no symbol gate here)"
+  lib="mobile-e2e-iroh"
+  mkdir -p demo-out/prebuilt
+  gh run download "$PREBUILT_RUN" -R "$GITHUB_REPOSITORY" -n remote-macOS -D demo-out/prebuilt || { echo "PREBUILT_EXIT=download"; exit 1; }
+  for prebuilt_app in "$app" AzCompanion AzMeet; do
+    found="$(find demo-out/prebuilt -name "$prebuilt_app-e2e-$col.app.zip" | head -n 1)"
+    if [ -n "$found" ]; then cp "$found" "demo-out/apps/$prebuilt_app-e2e-$col.app.zip"; else echo "PREBUILT_MISSING=$prebuilt_app"; fi
+  done
+else
+  rustup target add "$target"
+  python3 scripts/demo_apps.py plan --e2e > demo-out/plan.txt
 
-lib="$(python3 scripts/demo_apps.py e2e-lib "$app")"
-features="$(python3 scripts/demo_apps.py features "$col" "$lib")"
-echo "== build $app on $lib: $features"
-start=$(date +%s)
-bash scripts/demo_lib.sh ios "$target" "$features" "demo-out/libs/demolib-$col-$lib" || { echo "BUILD_EXIT=lib"; exit 1; }
-echo "LIB $lib SECONDS: $(( $(date +%s) - start ))"
-start=$(date +%s)
-python3 scripts/demo_build.py ios --target "$target" --apps "$app" --libs demo-out/libs --out demo-out/apps \
-  --results demo-out/results --variant "$lib" || { echo "BUILD_EXIT=app"; exit 1; }
-echo "APP SECONDS: $(( $(date +%s) - start ))"
+  lib="$(python3 scripts/demo_apps.py e2e-lib "$app")"
+  features="$(python3 scripts/demo_apps.py features "$col" "$lib")"
+  echo "== build $app on $lib: $features"
+  start=$(date +%s)
+  bash scripts/demo_lib.sh ios "$target" "$features" "demo-out/libs/demolib-$col-$lib" || { echo "BUILD_EXIT=lib"; exit 1; }
+  echo "LIB $lib SECONDS: $(( $(date +%s) - start ))"
+  start=$(date +%s)
+  python3 scripts/demo_build.py ios --target "$target" --apps "$app" --libs demo-out/libs --out demo-out/apps \
+    --results demo-out/results --variant "$lib" || { echo "BUILD_EXIT=app"; exit 1; }
+  echo "APP SECONDS: $(( $(date +%s) - start ))"
+fi
 
 zip="demo-out/apps/$app-e2e-$col.app.zip"
 ls -la "$zip" || { echo "BUILD_EXIT=nozip"; exit 1; }
@@ -56,9 +69,11 @@ echo "== the app: $bundle"
 # symbols. Not part of the self-test: nothing here changes the exit code of the job.
 also=()
 for other in AzCompanion AzMeet; do
-  echo "== E63 symbol gate: $other on $lib"
-  python3 scripts/demo_build.py ios --target "$target" --apps "$other" --libs demo-out/libs --out demo-out/apps \
-    --results demo-out/results --variant "$lib" || echo "E63_APP_EXIT[$other]=$?"
+  if [ -z "${PREBUILT_RUN:-}" ]; then
+    echo "== E63 symbol gate: $other on $lib"
+    python3 scripts/demo_build.py ios --target "$target" --apps "$other" --libs demo-out/libs --out demo-out/apps \
+      --results demo-out/results --variant "$lib" || echo "E63_APP_EXIT[$other]=$?"
+  fi
   # the app is started on the first Simulator below (the launch proof), next to the self-test app
   other_zip="demo-out/apps/$other-e2e-$col.app.zip"
   if [ -f "$other_zip" ]; then
@@ -95,7 +110,9 @@ done
 xcrun simctl list devicetypes | grep -i "iphone" | head -30 || true
 xcrun simctl list runtimes | head -10 || true
 
-for device in "iPhone 16 Pro" "iPhone SE (3rd generation)"; do
+devices=("iPhone 16 Pro" "iPhone SE (3rd generation)")
+[ -n "${AZ_SIM_FIRST_ONLY:-}" ] && devices=("iPhone 16 Pro")
+for device in "${devices[@]}"; do
   slug="$(printf '%s' "$device" | tr -c 'A-Za-z0-9' '-' | sed 's/-*$//')"
   echo "== self-test on $device"
   python3 scripts/ci/ios_sim_selftest.py --app "$bundle" --device "$device" --out "demo-out/ios-sim-selftest-$slug" \
