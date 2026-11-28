@@ -50,6 +50,10 @@ pub use mount_views::{
     MOUNT_VIEW_MAX_ROW_HEIGHT,
 };
 
+// The engine's own ops of the keyring and the biometric stand-in (`standin_user`, `keyring`,
+// `biometric_prompt`): a scenario drives a protected secret's whole flow on any host.
+mod standin_ops;
+
 mod runner;
 pub use runner::{run_e2e_test, run_e2e_test_with_settings};
 
@@ -79,6 +83,21 @@ mod export_tests;
 // real dispatcher on a headless window.
 #[cfg(test)]
 mod mode_ops_tests;
+
+// The display preset a window simulates (`set_display_preset`) and what the window has of
+// cutouts, bars and insets (`get_display_features`), through the real dispatcher.
+#[cfg(test)]
+mod display_ops_tests;
+
+// A vertical swipe on a tab panel (`TabContent::with_flip_of`): the touch ops, the flip told to the app as a tap
+// on a pill is, the tab-change sound once per tab crossed, a fling's momentum (timers), through the real dispatcher.
+#[cfg(test)]
+mod tab_flip_ops_tests;
+
+// The touch strip scrolls sideways without a scrollbar, and `scrollbar-width: none` as CSS text hides
+// the bar like the typed property does.
+#[cfg(test)]
+mod tab_strip_ops_tests;
 
 // The key names `key_down` / `key_up` accept: punctuation and the numeric
 // keypad, so a scenario can type an operator (`plus`, `numpad_multiply`).

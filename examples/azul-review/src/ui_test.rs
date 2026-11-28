@@ -91,6 +91,17 @@ fn with_no_folder_the_title_row_names_none_but_still_offers_to_open_one() {
 }
 
 #[test]
+fn the_top_bar_always_has_the_key_that_starts_a_review_session_and_none_that_stops_before_it() {
+    crate::l10n::in_english();
+    for s in [reviewing("/work/proj"), empty("")] {
+        let row = top_bar(&s, &RefAny::new(0u8), 0.0);
+        assert!(has_id(&row, "__azreview_review-state"), "the key is in the bar the pens are in");
+        assert!(!has_id(&row, "__azreview_review-stop"), "nothing runs: nothing to stop");
+        assert!(texts(&row).iter().any(|t| t == "Start review"), "{:?}", texts(&row));
+    }
+}
+
+#[test]
 fn a_folder_is_named_by_its_own_name_and_its_tooltip_is_the_whole_path() {
     assert_eq!(
         folder_names(std::path::Path::new("/work/proj")),
@@ -346,6 +357,15 @@ fn the_window_hears_the_keys_the_pointer_leaving_and_the_button_let_go_anywhere(
 }
 
 #[test]
+fn the_window_being_asked_to_close_ends_the_review_session_and_does_not_hold_the_window_back() {
+    let body = with_window_listeners(Dom::create_body(), &RefAny::new(0u8));
+    assert_eq!(
+        window_events(&body, crate::review_ctl::on_close_requested as usize),
+        vec![EventFilter::Window(WindowEventFilter::CloseRequested)]
+    );
+}
+
+#[test]
 fn the_edge_of_a_panel_is_named_for_the_screen_reader() {
     // Its role is a grip (azul's lint refuses a named node of an unknown role: the e2e reads its output).
     let s = reviewing("/work/proj");
@@ -419,11 +439,11 @@ fn the_strip_of_page_numbers_of_a_file_of_thousands_of_pages_is_a_couple_of_doze
 
 // ---- how much is reviewed ----
 
-fn progressing() -> AppState {
+fn progressing() -> (AppState, crate::lib_test::Scratch) {
     crate::l10n::in_english();
     let a: String = (0..100).map(|i| format!("fn a{i}() {{}}\n")).collect();
     let folder = crate::lib_test::scratch_folder("ui-progress", &[("a.rs", a.as_str()), ("src/b.rs", "fn b() {}\n")]);
-    AppState::on_disk(folder, RefAny::new(0u8), PathBuf::new())
+    (AppState::on_disk(folder.to_path_buf(), RefAny::new(0u8), PathBuf::new()), folder)
 }
 
 #[test]
@@ -437,7 +457,7 @@ fn numbers_are_grouped_by_thousands() {
 
 #[test]
 fn the_foot_of_the_tree_says_how_much_of_the_workspace_is_reviewed_and_that_some_files_are_not_counted_yet() {
-    let mut s = progressing();
+    let (mut s, _dir) = progressing();
     for _ in 0..4 {
         s.watch_pages(0.0, 1_200.0, 400);
     }
@@ -452,7 +472,7 @@ fn the_foot_of_the_tree_says_how_much_of_the_workspace_is_reviewed_and_that_some
 
 #[test]
 fn a_folder_row_says_the_part_of_its_lines_that_is_reviewed_and_a_file_row_says_nothing_of_the_kind() {
-    let mut s = progressing();
+    let (mut s, _dir) = progressing();
     let src = s.tree.find("src").expect("src");
     assert_eq!(folder_trail(&s, src), None, "its files are not counted: no lines to take a part of");
     let list = s.source.list("src").expect("listed");

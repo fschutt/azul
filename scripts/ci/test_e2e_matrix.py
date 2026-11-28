@@ -148,5 +148,21 @@ class RecordsTests(unittest.TestCase):
         self.assertEqual([(r["verdict"], r["detail"], r["platform"]) for r in recs], [("N/A", "no host", "ios")] * 2)
 
 
+class ShotFolderTests(unittest.TestCase):
+    def test_the_shot_folder_of_every_file_fits_the_system_property_that_carries_it(self):
+        # `setprop debug.az.env 'AZ_E2E_SHOT_DIR=<path>'`: a system property's value holds 91 characters; a longer one is refused and the
+        # engine then writes its frames nowhere (nothing to pull)
+        root = Path(__file__).resolve().parents[2]
+        stems = [Path(s["rel"]).stem for s in m.discover(str(root))]
+        self.assertTrue(stems, "no scenario file found")
+        for package in ("com.azul.AzWidgets", "com.azul.AzCompanion"):
+            for stem in stems:
+                value = "AZ_E2E_SHOT_DIR=" + m.android_shot_dir(package, stem)
+                self.assertLessEqual(len(value), 91, value)
+
+    def test_the_frames_of_a_file_are_in_a_folder_of_the_apps_own(self):
+        self.assertEqual(m.android_shot_dir("com.azul.AzWidgets", "tab_touch_phone"), "/sdcard/Android/data/com.azul.AzWidgets/files/tab_touch_phone")
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=1)

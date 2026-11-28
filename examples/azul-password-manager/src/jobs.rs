@@ -25,6 +25,7 @@ use azul::{
     callbacks::{CallbackInfo, RefAny, TimerCallbackInfo, TimerCallbackReturn, Update},
     dom::ClipboardContent,
     error::KeyringResult,
+    misc::{Keyring, KeyringProtection, KeyringPrompt, KeyringSupport},
     option::OptionString,
     str::String as AzString,
     task::{
@@ -483,9 +484,22 @@ fn keyring(s: &mut KeysApp, info: &mut CallbackInfo, op: KeyringOp, call: Keyrin
     }
     match &call {
         KeyringCall::Get(name) => info.keyring_get(name.as_str()),
-        KeyringCall::Store(name, secret, biometry) => {
-            info.keyring_store(name.as_str(), secret.as_str(), *biometry);
+        // The user's action: the OS shows its sheet (the app's reason, "Use password" as its cancel).
+        KeyringCall::Unlock(name, reason) => info.keyring_unlock(
+            name.as_str(),
+            KeyringPrompt::create(AzString::from(reason.as_str()))
+                .with_cancel_label(AzString::from(t("azpasswordmanager-use-password"))),
+        ),
+        KeyringCall::Store(name, secret, KeyringProtection::DeviceUnlocked) => {
+            info.keyring_store(name.as_str(), secret.as_str());
         }
+        KeyringCall::Store(name, secret, protection) => info.keyring_store_protected(
+            name.as_str(),
+            secret.as_str(),
+            *protection,
+            KeyringPrompt::create(AzString::from(t("azpasswordmanager-biometric-store-reason")))
+                .with_cancel_label(AzString::from(t("azpasswordmanager-use-password"))),
+        ),
         KeyringCall::Delete(name) => info.keyring_delete(name.as_str()),
     }
     s.keyring_waiting = Some(op);
@@ -495,20 +509,41 @@ fn keyring(s: &mut KeysApp, info: &mut CallbackInfo, op: KeyringOp, call: Keyrin
 /// A keyring request. Holds a secret while it is made; never printed.
 enum KeyringCall {
     Get(String),
-    Store(String, Zeroizing<String>, bool),
+    /// Reads the item behind the OS check (the sheet's reason is the second field).
+    Unlock(String, String),
+    Store(String, Zeroizing<String>, KeyringProtection),
     Delete(String),
 }
 
 /// Lets this device unlock the open vault without its password: its vault key goes to the OS
 /// keyring, behind the OS biometric prompt where there is one.
 pub fn enable_device_unlock(s: &mut KeysApp, info: &mut CallbackInfo) {
-    let biometric = !matches!(info.get_biometric_kind(), BiometricKind::NotAvailable);
-    let mode = if biometric {
+    let mode = if device_check().is_some() {
+        // The OS (or the secure hardware) releases the key only after the user's check.
         DeviceUnlock::Biometric
+    } else if !matches!(info.get_biometric_kind(), BiometricKind::NotAvailable) {
+        // A sensor the keychain cannot bind an item to (an unsigned build): the key stays
+        // unbound and azul's biometric prompt is asked before it is read - a gate of the app,
+        // which the setting says (`prompt`), not the OS's.
+        DeviceUnlock::Prompt
     } else {
         DeviceUnlock::Keyring
     };
     store_device_key(s, info, mode);
+}
+
+/// The protection the vault key goes under on this device, when the platform can hold it behind
+/// the user's check (`Keyring::support`): the biometric where there is one, else the biometric
+/// or passcode (Windows Hello takes either); `None` where it cannot.
+fn device_check() -> Option<KeyringProtection> {
+    [KeyringProtection::Biometric, KeyringProtection::UserPresence]
+        .into_iter()
+        .find(|level| {
+            matches!(
+                Keyring::support(*level),
+                KeyringSupport::Hardware | KeyringSupport::Library
+            )
+        })
 }
 
 fn store_device_key(s: &mut KeysApp, info: &mut CallbackInfo, mode: DeviceUnlock) {
@@ -517,11 +552,12 @@ fn store_device_key(s: &mut KeysApp, info: &mut CallbackInfo, mode: DeviceUnlock
     };
     let vault_id = session.open.vault.id.clone();
     let secret = session.open.vault_key.to_base64();
-    let call = KeyringCall::Store(
-        store::keyring_name(&vault_id),
-        secret,
-        mode == DeviceUnlock::Biometric,
-    );
+    let protection = if mode == DeviceUnlock::Biometric {
+        device_check().unwrap_or(KeyringProtection::UserPresence)
+    } else {
+        KeyringProtection::DeviceUnlocked
+    };
+    let call = KeyringCall::Store(store::keyring_name(&vault_id), secret, protection);
     keyring(s, info, KeyringOp::Store { vault_id, mode }, call);
 }
 
@@ -555,7 +591,16 @@ pub fn unlock_with_device(s: &mut KeysApp, info: &mut CallbackInfo) {
                 allow_device_credential: true,
             });
         }
-        Some(_) => {
+        Some(DeviceUnlock::Biometric) => {
+            // The OS shows its sheet: the one call that may.
+            let reason =
+                t_args("azpasswordmanager-biometric-reason", &[("name", Arg::from(name))]);
+            let call = KeyringCall::Unlock(store::keyring_name(&vault_id), reason);
+            if keyring(s, info, KeyringOp::Get { vault_id, key }, call) {
+                s.busy = Some(t("azpasswordmanager-waiting-keyring"));
+            }
+        }
+        Some(DeviceUnlock::Keyring) => {
             let call = KeyringCall::Get(store::keyring_name(&vault_id));
             if keyring(s, info, KeyringOp::Get { vault_id, key }, call) {
                 s.busy = Some(t("azpasswordmanager-waiting-keyring"));
@@ -569,8 +614,15 @@ pub fn unlock_with_device(s: &mut KeysApp, info: &mut CallbackInfo) {
 fn keyring_problem(result: &KeyringResult) -> String {
     t(match result {
         KeyringResult::NotFound => "azpasswordmanager-keyring-not-found",
-        KeyringResult::Denied => "azpasswordmanager-keyring-denied",
-        KeyringResult::Unavailable => "azpasswordmanager-keyring-unavailable",
+        // The system refused, or the user did not pass the check (cancelled, no match, locked out).
+        KeyringResult::Denied
+        | KeyringResult::Cancelled
+        | KeyringResult::Failed
+        | KeyringResult::LockedOut
+        | KeyringResult::WouldPrompt => "azpasswordmanager-keyring-denied",
+        KeyringResult::Unavailable | KeyringResult::NotEnrolled => {
+            "azpasswordmanager-keyring-unavailable"
+        }
         _ => "azpasswordmanager-keyring-error",
     })
 }
@@ -605,7 +657,7 @@ pub extern "C" fn on_keyring_result(mut data: RefAny, mut info: CallbackInfo) ->
             }
             // A keychain that cannot bind the item to biometry (an unsigned build): keep the key
             // without the binding and ask azul's biometric prompt before reading it.
-            KeyringResult::Error | KeyringResult::Unavailable
+            KeyringResult::Error | KeyringResult::Unavailable | KeyringResult::NotEnrolled
                 if mode == DeviceUnlock::Biometric =>
             {
                 store_device_key(s, &mut info, DeviceUnlock::Prompt);
@@ -632,7 +684,9 @@ pub extern "C" fn on_keyring_result(mut data: RefAny, mut info: CallbackInfo) ->
                     }
                     None => s.unlock.message = t("azpasswordmanager-keyring-not-a-key"),
                 },
-                KeyringResult::NotFound => {
+                // Gone, or invalidated (the enrolled biometrics changed since it was stored): this
+                // device unlocks no more; the password does, and the user can turn it on again.
+                KeyringResult::NotFound | KeyringResult::Invalidated => {
                     kit::set_value(&s.kit, &mut info, &device_unlock_key(&vault_id), "");
                     s.unlock.message = t("azpasswordmanager-device-key-gone");
                 }

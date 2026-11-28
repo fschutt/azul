@@ -1616,6 +1616,15 @@ pub struct WindowFlags {
     /// Wayland give a program no way to do it and the flag has no effect there.
     /// Default: `false`, and a window that does not ask is left as the system made it.
     pub exclude_from_capture: bool,
+    /// What the app asks of the system bars (status bar, navigation bar) and of the cutout area: hide
+    /// them, light or dark icons, draw into the area of the camera cutout. APPENDED for ABI stability.
+    /// A shell without such bars (a desktop) ignores it. Default: everything as the system has it.
+    pub system_bars: crate::display_features::SystemBarsOptions,
+    /// The test hook of `display_features`: make this window behave as if it sat on the display of
+    /// a Pixel 8 or an iPhone (insets, cutouts, bars, corners, sensor), on any platform, so host
+    /// tests and screenshots of a desktop window show what a phone shows. `Off` (the default) leaves
+    /// what the shell reports. APPENDED for ABI stability.
+    pub display_preset: crate::display_features::DisplayPreset,
 }
 
 impl_option!(
@@ -1730,6 +1739,13 @@ impl Default for WindowFlags {
             fullscreen_mode: FullScreenMode::FastFullScreen,
             extend_into_safe_area: false,
             exclude_from_capture: false,
+            system_bars: crate::display_features::SystemBarsOptions {
+                status: crate::display_features::SystemBarMode::Visible,
+                navigation: crate::display_features::SystemBarMode::Visible,
+                icons: crate::display_features::SystemBarIcons::Auto,
+                draw_into_cutout: false,
+            },
+            display_preset: crate::display_features::DisplayPreset::Off,
         }
     }
 }

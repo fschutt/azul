@@ -354,6 +354,9 @@ pub mod compact;
 pub mod diagnostics;
 /// DOM diffing: what changed between two `StyledDom`s, and how far it has to be re-solved.
 pub mod diff;
+/// A phone's cutouts, rounded corners, system bars and fingerprint sensor, in window coordinates.
+///
+pub mod display_features;
 /// DOM construction: `Dom`, `NodeData`, `NodeType`, and the CSS-in-Rust API.
 pub mod dom;
 /// Drag context for text selection, scrollbar, node, and window drags.
@@ -423,7 +426,8 @@ pub mod tls;
 /// Throwaway certificate authorities and a loopback TLS server, for tests only.
 #[cfg(all(feature = "tls-testing", not(target_arch = "wasm32")))]
 pub mod tls_testing;
-/// System-keyring POD types — `KeyringRequest` + `KeyringResult`.
+/// System-keyring POD types — `KeyringRequest` + `KeyringResult`, the protection levels
+/// (`KeyringProtection`) and the quiet probes (`KeyringNeed`, `KeyringSupport`).
 ///
 /// Stateful manager lives in `azul_layout::managers::keyring`.
 pub mod keyring;

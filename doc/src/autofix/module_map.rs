@@ -759,6 +759,19 @@ const DIFFICULT_TYPE_MODULES: &[(&str, &str)] = &[
     // `SystemSound` beside `SystemStyle` in css, and it is an audio vocabulary. Spelled in
     // full: a "System" prefix would capture `SystemStyle`, `SystemColors` and the rest.
     ("SystemSound", "audio"),
+    // The display's own hardware as a phone reports it (`LayoutCallbackInfo::get_display_features`):
+    // the cutouts, the rounded corners, the system bars and the fingerprint sensor, with the
+    // window flags that hide a bar and the simulated phone that stands in for them. Window
+    // vocabulary: the keywords scattered them over css ("Display"), misc, option ("Options") and
+    // sensor ("Sensor"). "SystemBar" covers SystemBars, SystemBarMode, SystemBarIcons and
+    // SystemBarsOptions and no other name; the structural rules settle OptionFoo and FooVec first.
+    ("DisplayCutout", "window"),
+    ("DisplayFeatures", "window"),
+    ("DisplayPreset", "window"),
+    ("CutoutShape", "window"),
+    ("CornerRadii", "window"),
+    ("SystemBar", "window"),
+    ("Fingerprint", "window"),
 ];
 
 /// Module for a known-difficult type name, if it is one.

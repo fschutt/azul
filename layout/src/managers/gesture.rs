@@ -63,9 +63,21 @@ const DRAIN_BATCH_SIZE: usize = 100;
 /// the dll's mouse path so drag heuristics treat touch like a held button.
 pub const TOUCH_CONTACT_BUTTON_STATE: u8 = 0x01;
 
-/// Configuration for gesture detection thresholds
+/// THE constants of gesture detection, in ONE struct: what separates a tap from a drag, a click from a double
+/// click, a press from a long press, a swipe from a fling; the scroll wheel's step. A window holds one
+/// ([`GestureAndDragManager::config`], set through `LayoutWindow::set_gesture_config`), and the recognisers
+/// read it instead of constants of their own.
+///
+/// The shells fill it once per window from what the system says: Android from `ViewConfiguration`
+/// (`getScaledTouchSlop`, `getScaledPagingTouchSlop`, `getScaledDoubleTapSlop`, `getDoubleTapTimeout`,
+/// `getTapTimeout`, `getLongPressTimeout`, `getScaledMinimumFlingVelocity`, `getScaledMaximumFlingVelocity`,
+/// `getScaledOverscrollDistance`, `getScaledVerticalScrollFactor` / `getScaledHorizontalScrollFactor`,
+/// `getScaledAmbiguousGestureMultiplier`), iOS from `UIKit`'s own numbers (a pan starts after about 10 pt,
+/// `UILongPressGestureRecognizer.minimumPressDuration` is 0.5 s). The defaults below are the numbers those
+/// platforms use when nothing is read (the Android ones at 1 dp = 1 logical px, the iOS touch slop being the
+/// only one `UIKit` does not publish); a field is in logical pixels, milliseconds, or logical pixels per second.
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub struct GestureDetectionConfig {
+pub struct GestureConfig {
     /// Minimum distance (pixels) to consider movement a drag, not a click
     pub drag_distance_threshold: f32,
     /// Maximum time between clicks for double-click detection (milliseconds)
@@ -86,9 +98,103 @@ pub struct GestureDetectionConfig {
     pub rotation_angle_threshold: f32,
     /// How often to clear old samples (milliseconds)
     pub sample_cleanup_interval_ms: u64,
+    /// A finger is a tap candidate until it has moved this far from where it landed (logical px): Android's
+    /// `getScaledTouchSlop` (8 dp), iOS's pan threshold (10 pt, `UIKit` publishes none).
+    pub touch_slop: f32,
+    /// The distance a finger moves before a pager or a carousel takes the drag from its content (logical
+    /// px): Android's `getScaledPagingTouchSlop` (twice the touch slop, 16 dp).
+    pub paging_slop: f32,
+    /// How far the second tap of a double tap may land from the first (logical px): Android's
+    /// `getScaledDoubleTapSlop` (100 dp).
+    pub double_tap_slop: f32,
+    /// How long after the first tap the second one may come to be a double tap (milliseconds): Android's
+    /// `getDoubleTapTimeout` (300 ms).
+    pub double_tap_timeout_ms: u64,
+    /// How long a touch is still a tap candidate, whatever its movement (milliseconds): Android's
+    /// `getTapTimeout` (100 ms).
+    pub tap_timeout_ms: u64,
+    /// How long a still touch is held before it is a long press (milliseconds): Android's
+    /// `getLongPressTimeout` (the user's accessibility setting 'touch and hold delay', 400 ms by default),
+    /// iOS's `minimumPressDuration` (500 ms).
+    pub long_press_timeout_ms: u64,
+    /// The slowest a lift may be to start a fling (logical px per second): Android's
+    /// `getScaledMinimumFlingVelocity` (50 dp/s).
+    pub min_fling_velocity: f32,
+    /// The fastest a fling may be (logical px per second): Android's `getScaledMaximumFlingVelocity`
+    /// (8000 dp/s).
+    pub max_fling_velocity: f32,
+    /// How far a scroll box may be pulled past its end (logical px): Android's `getScaledOverscrollDistance`
+    /// (0 dp: a stretch effect, not a pull).
+    pub overscroll_distance: f32,
+    /// How many logical pixels one step of a mouse wheel scrolls horizontally: Android's
+    /// `getScaledHorizontalScrollFactor`; on the desktop one line (20 px).
+    pub wheel_scroll_factor_x: f32,
+    /// How many logical pixels one step of a mouse wheel scrolls vertically: Android's
+    /// `getScaledVerticalScrollFactor`; on the desktop one line (20 px).
+    pub wheel_scroll_factor_y: f32,
+    /// By how much the touch slop grows where a gesture is ambiguous (a press that could be a swipe or a
+    /// long press): Android's `getScaledAmbiguousGestureMultiplier` (2, API 29).
+    pub ambiguous_gesture_multiplier: f32,
 }
 
-impl Default for GestureDetectionConfig {
+/// The name this struct had when it held the detection thresholds only.
+pub type GestureDetectionConfig = GestureConfig;
+
+/// How far from each edge of the window the system takes a swipe, in logical pixels: the numbers of one kind of
+/// system gesture region ([`SystemGestureInsets`]).
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub struct EdgeInsetsPx {
+    /// From the left edge.
+    pub left: f32,
+    /// From the top edge.
+    pub top: f32,
+    /// From the right edge.
+    pub right: f32,
+    /// From the bottom edge.
+    pub bottom: f32,
+}
+
+impl EdgeInsetsPx {
+    /// The insets made usable: a side that is not a number or is negative is 0 (no region), and none is more
+    /// than `limit` (a region wider than the window is a unit mixed up).
+    #[must_use]
+    pub fn usable(self, limit: f32) -> Self {
+        let side = |v: f32| if v.is_finite() { v.clamp(0.0, limit) } else { 0.0 };
+        Self {
+            left: side(self.left),
+            top: side(self.top),
+            right: side(self.right),
+            bottom: side(self.bottom),
+        }
+    }
+}
+
+/// Where the system takes the swipes of its own gestures (the back swipe from the side edges, the home and
+/// app-switch swipes at the bottom, the shade at the top) - the three kinds of region Android reports in
+/// `WindowInsets` (`getSystemGestureInsets`, `getMandatorySystemGestureInsets`, `getTappableElementInsets`).
+/// A touch that starts inside one of them may be taken by the system before the app sees the end of it (the
+/// app gets a cancel: [`crate::window::LayoutWindow::cancel_touch_gestures`]); a slider or a drawer handle
+/// there should be moved in, or its rect excluded
+/// ([`crate::window::LayoutWindow::set_system_gesture_exclusion_rects`]). A shell fills it at window creation
+/// and whenever the insets change; a window nobody filled it for has no regions (the desktop).
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub struct SystemGestureInsets {
+    /// The edges where the system takes a swipe, and the app may ask it not to
+    /// (`WindowInsets.getSystemGestureInsets`).
+    pub normal: EdgeInsetsPx,
+    /// The edges where the system takes a swipe whatever the app asks: the navigation gesture's home swipe
+    /// (`WindowInsets.getMandatorySystemGestureInsets`).
+    pub mandatory: EdgeInsetsPx,
+    /// The edges taken by elements a tap lands on: the navigation bar's buttons
+    /// (`WindowInsets.getTappableElementInsets`).
+    pub tappable: EdgeInsetsPx,
+}
+
+/// The most height of rects at one edge of the window the system honours as an exclusion of its gestures: Android
+/// takes at most 200 dp per edge (`View.setSystemGestureExclusionRects`), in logical pixels here.
+pub const SYSTEM_GESTURE_EXCLUSION_LIMIT_PX: f32 = 200.0;
+
+impl Default for GestureConfig {
     fn default() -> Self {
         Self {
             drag_distance_threshold: 5.0,
@@ -101,7 +207,113 @@ impl Default for GestureDetectionConfig {
             pinch_scale_threshold: 0.1,      // 10% scale change
             rotation_angle_threshold: 0.1,   // ~5.7 degrees in radians
             sample_cleanup_interval_ms: DEFAULT_SAMPLE_TIMEOUT_MS,
+            touch_slop: 8.0,
+            paging_slop: 16.0,
+            double_tap_slop: 100.0,
+            double_tap_timeout_ms: 300,
+            tap_timeout_ms: 100,
+            long_press_timeout_ms: 500,
+            min_fling_velocity: 50.0,
+            max_fling_velocity: 8000.0,
+            overscroll_distance: 0.0,
+            wheel_scroll_factor_x: 20.0,
+            wheel_scroll_factor_y: 20.0,
+            ambiguous_gesture_multiplier: 2.0,
         }
+    }
+}
+
+/// The most a time of the configuration may be (a minute): what a shell reads from the system is a few hundred
+/// milliseconds, and a number beyond this is a unit mixed up.
+const MAX_CONFIG_MS: u64 = 60_000;
+
+/// `value` made usable: not finite is the default, outside `lo..=hi` is cut to it; the name goes on `replaced`.
+fn float_within(
+    value: &mut f32,
+    default: f32,
+    (lo, hi): (f32, f32),
+    name: &'static str,
+    replaced: &mut Vec<&'static str>,
+) {
+    if !value.is_finite() {
+        *value = default;
+        replaced.push(name);
+    } else if *value < lo || *value > hi {
+        *value = value.clamp(lo, hi);
+        replaced.push(name);
+    }
+}
+
+/// `value` cut to [`MAX_CONFIG_MS`]; the name goes on `replaced` when it was.
+fn millis_within(value: &mut u64, name: &'static str, replaced: &mut Vec<&'static str>) {
+    if *value > MAX_CONFIG_MS {
+        *value = MAX_CONFIG_MS;
+        replaced.push(name);
+    }
+}
+
+impl GestureConfig {
+    /// The configuration a shell hands over, made usable: a number that is not a number (NaN, infinite) is
+    /// the default's, one outside what a touch screen can mean (a slop of a thousand pixels, a long press
+    /// of an hour) is cut to the limit - a NaN touch slop would make every touch a drag. The names of the
+    /// fields that were replaced or cut come back, so the shell can say so; empty when all was usable.
+    #[must_use]
+    pub fn sanitized(mut self) -> (Self, Vec<&'static str>) {
+        let default = Self::default();
+        let mut replaced = Vec::new();
+        let px = (0.0, 1000.0);
+        float_within(&mut self.drag_distance_threshold, default.drag_distance_threshold, px, "drag_distance_threshold", &mut replaced);
+        float_within(&mut self.double_click_distance_threshold, default.double_click_distance_threshold, px, "double_click_distance_threshold", &mut replaced);
+        float_within(&mut self.long_press_distance_threshold, default.long_press_distance_threshold, px, "long_press_distance_threshold", &mut replaced);
+        float_within(&mut self.touch_slop, default.touch_slop, px, "touch_slop", &mut replaced);
+        float_within(&mut self.paging_slop, default.paging_slop, px, "paging_slop", &mut replaced);
+        float_within(&mut self.double_tap_slop, default.double_tap_slop, px, "double_tap_slop", &mut replaced);
+        float_within(&mut self.overscroll_distance, default.overscroll_distance, px, "overscroll_distance", &mut replaced);
+        let velocity = (0.0, 100_000.0);
+        float_within(&mut self.swipe_velocity_threshold, default.swipe_velocity_threshold, velocity, "swipe_velocity_threshold", &mut replaced);
+        float_within(&mut self.min_fling_velocity, default.min_fling_velocity, velocity, "min_fling_velocity", &mut replaced);
+        float_within(&mut self.max_fling_velocity, default.max_fling_velocity, velocity, "max_fling_velocity", &mut replaced);
+        float_within(&mut self.pinch_scale_threshold, default.pinch_scale_threshold, (0.0, 10.0), "pinch_scale_threshold", &mut replaced);
+        float_within(&mut self.rotation_angle_threshold, default.rotation_angle_threshold, (0.0, core::f32::consts::TAU), "rotation_angle_threshold", &mut replaced);
+        let factor = (0.0, 1000.0);
+        float_within(&mut self.wheel_scroll_factor_x, default.wheel_scroll_factor_x, factor, "wheel_scroll_factor_x", &mut replaced);
+        float_within(&mut self.wheel_scroll_factor_y, default.wheel_scroll_factor_y, factor, "wheel_scroll_factor_y", &mut replaced);
+        float_within(&mut self.ambiguous_gesture_multiplier, default.ambiguous_gesture_multiplier, (1.0, 10.0), "ambiguous_gesture_multiplier", &mut replaced);
+        millis_within(&mut self.double_click_time_threshold_ms, "double_click_time_threshold_ms", &mut replaced);
+        millis_within(&mut self.long_press_time_threshold_ms, "long_press_time_threshold_ms", &mut replaced);
+        millis_within(&mut self.double_tap_timeout_ms, "double_tap_timeout_ms", &mut replaced);
+        millis_within(&mut self.tap_timeout_ms, "tap_timeout_ms", &mut replaced);
+        millis_within(&mut self.long_press_timeout_ms, "long_press_timeout_ms", &mut replaced);
+        millis_within(&mut self.sample_cleanup_interval_ms, "sample_cleanup_interval_ms", &mut replaced);
+        if self.min_samples_for_gesture == 0 {
+            self.min_samples_for_gesture = 1;
+            replaced.push("min_samples_for_gesture");
+        }
+        (self, replaced)
+    }
+
+    /// The values with the platform's numbers where the shell read them: the touch-side thresholds of the
+    /// detection (`drag_distance_threshold`, the double-click and long-press ones) follow the touch slop,
+    /// the double-tap slop and timeout and the long-press timeout, so a recogniser that reads the
+    /// detection fields (every one of the manager's does) and one that reads the platform's fields agree.
+    #[must_use]
+    pub const fn with_platform_touch(
+        mut self,
+        touch_slop: f32,
+        double_tap_slop: f32,
+        double_tap_timeout_ms: u64,
+        long_press_timeout_ms: u64,
+    ) -> Self {
+        self.touch_slop = touch_slop;
+        self.double_tap_slop = double_tap_slop;
+        self.double_tap_timeout_ms = double_tap_timeout_ms;
+        self.long_press_timeout_ms = long_press_timeout_ms;
+        self.drag_distance_threshold = touch_slop;
+        self.double_click_distance_threshold = double_tap_slop;
+        self.double_click_time_threshold_ms = double_tap_timeout_ms;
+        self.long_press_time_threshold_ms = long_press_timeout_ms;
+        self.long_press_distance_threshold = touch_slop;
+        self
     }
 }
 
@@ -785,7 +997,7 @@ pub struct DragImage {
 #[allow(clippy::struct_excessive_bools)]
 pub struct GestureAndDragManager {
     /// Configuration for gesture detection
-    pub config: GestureDetectionConfig,
+    pub config: GestureConfig,
     /// All recorded input sessions (multiple button press sequences)
     pub input_sessions: Vec<InputSession>,
     /// **NEW**: Unified drag context for all drag types
@@ -949,7 +1161,7 @@ impl GestureAndDragManager {
     #[must_use]
     pub fn new() -> Self {
         Self {
-            config: GestureDetectionConfig::default(),
+            config: GestureConfig::default(),
             input_sessions: Vec::new(),
             next_session_id: 1,
             next_event_id: 1,
@@ -1157,7 +1369,7 @@ impl GestureAndDragManager {
 
     /// Create with custom configuration
     #[must_use]
-    pub fn with_config(config: GestureDetectionConfig) -> Self {
+    pub fn with_config(config: GestureConfig) -> Self {
         Self {
             config,
             ..Self::new()
@@ -3692,6 +3904,7 @@ mod autotest_generated {
             pinch_scale_threshold: f32::MAX,
             rotation_angle_threshold: -0.0,
             sample_cleanup_interval_ms: 0,
+            ..GestureConfig::default()
         };
         let mut m = GestureAndDragManager::with_config(cfg);
         assert!(m.config.drag_distance_threshold.is_nan());

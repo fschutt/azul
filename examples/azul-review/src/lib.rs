@@ -132,6 +132,8 @@ pub mod recorder_track;
 pub mod recorder_wb;
 pub mod recorder_writer;
 pub mod request_strokes;
+pub mod review_ctl;
+pub mod review_session;
 pub mod seen_watch;
 pub mod session;
 pub mod slash;
@@ -236,7 +238,7 @@ pub fn window_renderer() -> RendererOptions {
 }
 
 /// The keys AzReview answers (the kit adds Mod+, / F1 / Escape).
-pub const SHORTCUTS: [Shortcut; 10] = [
+pub const SHORTCUTS: [Shortcut; 12] = [
     Shortcut::new("azreview-shortcuts-review", "Mod+S", "azreview-shortcut-save"),
     Shortcut::new("azreview-shortcuts-review", "Mod+O", "azreview-shortcut-open-folder"),
     Shortcut::new("azreview-shortcuts-review", "Mod+B", "azreview-shortcut-files"),
@@ -244,6 +246,8 @@ pub const SHORTCUTS: [Shortcut; 10] = [
     Shortcut::new("azreview-shortcuts-review", "Mod+Z", "azreview-shortcut-undo"),
     Shortcut::new("azreview-shortcuts-review", "Mod+Shift+R", "azreview-shortcut-not-reviewed"),
     Shortcut::new("azreview-shortcuts-review", "Mod+Shift+C", "azreview-shortcut-continue"),
+    Shortcut::new("azreview-shortcuts-review", "Mod+Shift+M", "azreview-shortcut-review-toggle"),
+    Shortcut::new("azreview-shortcuts-review", "Mod+Shift+H", "azreview-shortcut-review-pause"),
     Shortcut::new("azreview-shortcuts-review", "Pen rest", "azreview-shortcut-dictate"),
     Shortcut::new("azreview-shortcuts-review", "1 to 5", "azreview-shortcut-meaning"),
     Shortcut::new("azreview-shortcuts-review", "Right click", "azreview-shortcut-previous-nib"),
@@ -1530,6 +1534,7 @@ pub fn run() {
         chips_op::register_ops(&mut config);
         notes_op::register_ops(&mut config);
         companion_cmd::register_ops(&mut config);
+        review_ctl::register_ops(&mut config);
         state_op::register_ops(&mut config);
     }
     // The session recorder: its settings from the settings file (what was capped is said), the machine's facts once.
@@ -1914,6 +1919,10 @@ pub extern "C" fn on_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
         info.prevent_default();
         let panel = if mods.shift { layout::Panel::Right } else { layout::Panel::Tree };
         return toggle_panel(&mut data, &mut info, panel);
+    }
+    // Mod+Shift+M starts or stops the review session, Mod+Shift+H pauses or resumes it: the only keys that make anything listen.
+    if let Some(update) = review_ctl::on_key(&mut data, &mut info, key) {
+        return update;
     }
     // Mod+Shift+C: continue reviewing, back to where the jump to a conversation began.
     if matches!(key, VirtualKeyCode::C) && mods.primary_down() && mods.shift {

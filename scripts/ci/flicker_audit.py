@@ -549,6 +549,18 @@ def ios_audit(args):
     first_frame = q.first_frame_timeout_for(backend, args.first_frame_timeout)
     report = {"idle": None, "flash": None, "pan": "not verified on iOS: the Simulator has no touch from the command line"}
     lines = [f"# Flicker and jitter audit (iOS Simulator, {backend} renderer)", ""]
+    # THE APP ON THE SIMULATOR FIRST: both runs of this audit before this line recorded the home screen for 80 s because nothing installed the app
+    # (`simctl launch` of an app that is not there starts nothing): the verdicts of those runs say nothing about the app
+    rc, install_text = dev.to_file("install.log", "xcrun", "simctl", "install", args.udid, str(args.app), timeout=600)
+    if rc != 0:
+        text = f"the app did not install on the Simulator: {install_text.strip()[-300:]}"
+        report["idle"] = {"ok": False, "detail": text, "first_picture_s": None}
+        report["flash"] = {"ok": None, "detail": "not run: " + text}
+        lines += ["## 1. Idle", "", f"- FAIL: {text}", "", "## 2. Flash frames", "", "- not run: the app is not installed", ""]
+        (out / "flicker.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
+        (out / "flicker.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
+        print("\n".join(lines))
+        return 1
     dev.simctl("ui", args.udid, "appearance", "light")
     # THE HOME SCREEN FIRST: without its signature `wait_for_front` takes the springboard for the app (it is not one flat colour), and the first
     # run of this audit recorded twenty seconds of the home screen as "the cold start" and judged an idle springboard

@@ -63,8 +63,12 @@ run layout_check cargo check -p azul-layout --lib --tests --features "$features"
 run dll_check cargo check -p azul-dll --features build-dll --lib --message-format short
 run android_check bash scripts/ci/android_check.sh
 run ios_cross_check bash scripts/ci/ios_cross_check.sh
-# the apps compile against the generated API (the Sounds section of AzWidgets names SystemSound and the new CallbackInfo methods)
-run apps_check cargo check -p azul-appkit -p AzWidgets --lib --profile test --features azul-appkit/azul --message-format short
+# the apps compile against the generated API (the Sounds section of AzWidgets names SystemSound and the new CallbackInfo methods).
+# They link the dll dynamically, and the build script of the dll refuses a build into a target directory that holds a
+# libazul.so (dll/build_link.rs, "Refusing to build azul-dll for 'link-dynamic'"). The runner's cache can hold one in
+# target/debug (run 46100618383: the first step of the run, a restored cache, the refusal), so the apps build into a
+# target directory of their own.
+run apps_check env CARGO_TARGET_DIR=target/apps cargo check -p azul-appkit -p AzWidgets --lib --profile test --features azul-appkit/azul --message-format short
 
 # 4b. every test of the dll compiles (the lib's tests and the integration tests): a check of the test targets, which the
 #     CI's `cd dll && cargo test` runs; the lib's own check above is reused, so this is the test builds only

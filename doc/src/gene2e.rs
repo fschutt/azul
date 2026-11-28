@@ -552,6 +552,10 @@ const OP_POLICY: &[(&str, Option<DenyReason>)] = &[
     // a DOM rebuild for the theme.
     ("set_mode",                  None),
     ("set_theme",                 None),
+    // `WindowFlags::display_preset`: the window behaves as if it sat on the display of a phone (the
+    // test hook of the cutout / system bar / fingerprint API), and `get_display_features` reads
+    // what the window has. A window flag like any an app sets, so a legitimate drive surface.
+    ("set_display_preset",        None),
 
     // -- ALLOW: HARNESS CONTROL --------------------------------------------
     ("mount",                     None),
@@ -594,6 +598,7 @@ const OP_POLICY: &[(&str, Option<DenyReason>)] = &[
     // The app's mode choice and what the window shows; the app theme.
     ("get_mode",                  None),
     ("get_theme",                 None),
+    ("get_display_features",      None),
     ("get_selection_state",       None),
     ("dump_selection_manager",    None),
     ("get_scroll_states",         None),

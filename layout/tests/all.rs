@@ -228,6 +228,8 @@ mod demo_layout_regressions;
 mod direction_and_unicode_bidi_order_the_glyphs_of_a_line;
 #[path = "display_list_ids.rs"]
 mod display_list_ids;
+#[path = "display_preset_insets.rs"]
+mod display_preset_insets;
 #[path = "dl_patch_golden.rs"]
 mod dl_patch_golden;
 #[path = "document_edit_notify.rs"]
@@ -1507,3 +1509,9 @@ mod a_typed_field_keeps_laying_out_when_the_page_shrinks_before_it;
 mod a_rotated_window_paints_its_canvas_across_its_new_width;
 #[path = "a_gpu_frame_is_put_on_the_frame_report_with_what_it_drew.rs"]
 mod a_gpu_frame_is_put_on_the_frame_report_with_what_it_drew;
+#[path = "the_gesture_config_is_one_struct_a_shell_sets_and_the_engine_keeps_usable.rs"]
+mod the_gesture_config_is_one_struct_a_shell_sets_and_the_engine_keeps_usable;
+#[path = "a_touch_the_system_cancelled_fires_no_click_no_long_press_no_drag.rs"]
+mod a_touch_the_system_cancelled_fires_no_click_no_long_press_no_drag;
+#[path = "the_system_gesture_regions_and_the_rects_an_app_excludes.rs"]
+mod the_system_gesture_regions_and_the_rects_an_app_excludes;

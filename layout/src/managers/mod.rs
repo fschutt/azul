@@ -68,6 +68,7 @@ pub mod selection;
 pub mod sensors;
 /// A queue that every clone of it shares: how the platform's threads hand things to a window.
 pub mod shared_queue;
+pub mod stand_in_user;
 pub mod text_edit;
 pub mod text_input;
 /// Which node a background thread belongs to; the workers of unmounted nodes.

@@ -388,6 +388,7 @@ azpasswordmanager-copied-clears = Copied the { $label }; the clipboard clears in
 azpasswordmanager-clipboard-cleared = The clipboard is cleared.
 azpasswordmanager-keyring-busy = The system keyring is still answering; try again in a moment.
 azpasswordmanager-biometric-reason = Unlock the vault “{ $name }”
+azpasswordmanager-biometric-store-reason = Turn on unlocking this vault with this device
 azpasswordmanager-use-password = Use the password
 azpasswordmanager-waiting-keyring = Waiting for the system keyring…
 azpasswordmanager-no-device-key = This device keeps no key of this vault yet: unlock it with the master password, then turn on device unlock in the settings.
