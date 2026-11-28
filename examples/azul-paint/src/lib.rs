@@ -1,6 +1,6 @@
 use azul::{
     callbacks::{
-        ButtonOnClickCallbackType, CallbackType, DialogOnCloseCallbackType, RenderImageCallbackInfo,
+        ButtonOnClickCallbackType, CallbackType, DialogOnCloseCallbackType, LifecycleEvent, RenderImageCallbackInfo,
         StandardDialogOnEventCallbackType,
     },
     css::PhysicalSizeU32,
@@ -10,7 +10,7 @@ use azul::{
     file::{FilePath, FileReadBytesResult},
     gl::{GlContextPtr, Texture},
     image::{Brush, ImageRef, RawImage, RawImageData, RawImageFormat},
-    option::OptionFileTypeList,
+    option::{OptionFileTypeList, OptionLifecycleEvent},
     prelude::*,
     str::String as AzString,
     vec::{F32VecRef, StringVec, U8VecRef},
@@ -62,6 +62,9 @@ const SHORTCUTS: [Shortcut; 5] = [
     Shortcut::new("azpaint-menu-file", "Mod+Shift+S", "azpaint-shortcut-export-svg"),
 ];
 
+mod autosave;
+#[cfg(test)]
+mod autosave_test;
 mod l10n;
 #[cfg(test)]
 mod l10n_tests;
@@ -182,6 +185,9 @@ struct PaintState {
     close_after_export: bool,
     /// A picture named on the command line, read once the window is up.
     picture_to_open: Option<std::path::PathBuf>,
+    /// The `edits` the last autosave holds: the app leaves the foreground without writing again while they are
+    /// the drawing's.
+    autosaved_edits: u64,
     /// Which of the two pipes a phone's finger arrives in (touch, and the mouse the shell mirrors it into)
     /// owns the gesture in progress: the other one is its echo ([`pointer`]).
     gesture: pointer::Gesture,
@@ -213,6 +219,7 @@ impl PaintState {
             asking_close: false,
             close_after_export: false,
             picture_to_open: None,
+            autosaved_edits: 0,
             gesture: pointer::Gesture::default(),
         }
     }
@@ -1434,10 +1441,24 @@ extern "C" fn on_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
 /// The window is up: the kit's `--shot` timer.
 extern "C" fn on_window_created(mut data: RefAny, mut info: CallbackInfo) -> Update {
     let mut picture = None;
+    let mut root = None;
     if let Some(mut s) = data.downcast_mut::<PaintState>() {
         kit::on_window_created(&s.kit, &mut info);
         say_strokes(&s);
         picture = s.picture_to_open.take();
+        root = s.kit.clone().downcast_ref::<kit::Kit>().map(|k| k.data_root.clone());
+    }
+    // The app's life: the drawing is written when the app leaves the foreground, and read back here.
+    info.set_lifecycle_handler(data.clone(), on_lifecycle);
+    if let (Some(root), None) = (root, picture.as_ref()) {
+        kit::spawn_file_jobs(
+            &mut info,
+            &root,
+            vec![FileJob::Get { key: autosave::key() }],
+            data.clone(),
+            TAG_AUTOSAVE_READ,
+            on_files_done,
+        );
     }
     if let Some(path) = picture {
         // Read off the UI thread; File > Import's answer decodes it into the background.
@@ -1851,6 +1872,9 @@ extern "C" fn on_import_bytes(mut data: RefAny, _info: CallbackInfo, result: Ref
 
 /// The tag of the export file jobs.
 const TAG_EXPORT: u64 = 1;
+/// The drawing written when the app left the foreground, and the one read back at start.
+const TAG_AUTOSAVE_WRITE: u64 = 2;
+const TAG_AUTOSAVE_READ: u64 = 3;
 
 /// `paint/exports/<stem>-<unix seconds>-<n>.<ext>`: an export's key in the
 /// data tree (the counter keeps two exports of one second apart).
@@ -1935,6 +1959,43 @@ extern "C" fn on_export_svg(mut data: RefAny, mut info: CallbackInfo) -> Update 
     Update::DoNothing
 }
 
+/// The app's life (`CallbackInfo::set_lifecycle_handler`): a phone ends a background process without another word,
+/// so the drawing is written when the app leaves the foreground (and once more when it is about to end), unless
+/// nothing changed since the last write.
+extern "C" fn on_lifecycle(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let leaving = matches!(
+        info.get_lifecycle_event(),
+        OptionLifecycleEvent::Some(LifecycleEvent::Paused | LifecycleEvent::WillTerminate)
+    );
+    if !leaving {
+        return Update::DoNothing;
+    }
+    let handle = data.clone();
+    let Some(mut s) = data.downcast_mut::<PaintState>() else {
+        return Update::DoNothing;
+    };
+    // A stroke still being drawn joins the strokes: the finger is gone with the app.
+    s.end_stroke();
+    if s.edits == s.autosaved_edits {
+        return Update::DoNothing;
+    }
+    let Some(root) = s.kit.clone().downcast_ref::<kit::Kit>().map(|k| k.data_root.clone()) else {
+        return Update::DoNothing;
+    };
+    let bytes = autosave::encode(&s.strokes).into_bytes();
+    s.autosaved_edits = s.edits;
+    drop(s);
+    kit::spawn_file_jobs(
+        &mut info,
+        &root,
+        vec![FileJob::Put { key: autosave::key(), bytes }],
+        handle,
+        TAG_AUTOSAVE_WRITE,
+        on_files_done,
+    );
+    Update::DoNothing
+}
+
 /// An export was written (or not): `AZPAINT_EXPORTED <key> <bytes>`.
 extern "C" fn on_files_done(mut data: RefAny, mut msg: RefAny, mut info: CallbackInfo) -> Update {
     let Some(reply) = kit::take_reply(&mut msg) else {
@@ -1943,14 +2004,46 @@ extern "C" fn on_files_done(mut data: RefAny, mut msg: RefAny, mut info: Callbac
     let Some(mut s) = data.downcast_mut::<PaintState>() else {
         return Update::DoNothing;
     };
+    let mut restored = false;
     for outcome in reply.outcomes {
-        if let FileOutcome::Put { key, result } = outcome {
-            let size = s.export_answered(&key, result.is_ok()).unwrap_or(0);
-            match result {
-                Ok(()) => say(&format!("AZPAINT_EXPORTED {key} {size}")),
-                Err(e) => eprintln!("[azpaint] {key}: {e}"),
+        match outcome {
+            FileOutcome::Put { key, result } if key == autosave::key() => match result {
+                Ok(()) => say(&format!("AZPAINT_AUTOSAVED {} strokes", s.strokes.len())),
+                Err(e) => {
+                    // The write did not land: the next time the app leaves the foreground writes again.
+                    s.autosaved_edits = s.edits.wrapping_sub(1);
+                    eprintln!("[azpaint] {key}: {e}");
+                }
+            },
+            FileOutcome::Put { key, result } => {
+                let size = s.export_answered(&key, result.is_ok()).unwrap_or(0);
+                match result {
+                    Ok(()) => say(&format!("AZPAINT_EXPORTED {key} {size}")),
+                    Err(e) => eprintln!("[azpaint] {key}: {e}"),
+                }
             }
+            // The drawing of the last run, back on a canvas nobody has drawn on yet.
+            FileOutcome::Got { key, result: Ok(Some(bytes)) } if key == autosave::key() => {
+                let drawn = !s.strokes.is_empty() || s.current.is_some();
+                let strokes = std::str::from_utf8(&bytes).ok().and_then(autosave::decode);
+                match strokes {
+                    Some(strokes) if !drawn && !strokes.is_empty() => {
+                        s.strokes = strokes;
+                        s.autosaved_edits = s.edits;
+                        s.rev += 1;
+                        say(&format!("AZPAINT_RESTORED {} strokes", s.strokes.len()));
+                        say_strokes(&s);
+                        restored = true;
+                    }
+                    Some(_) => {}
+                    None => eprintln!("[azpaint] {key}: not a drawing: the canvas starts empty"),
+                }
+            }
+            _ => {}
         }
+    }
+    if restored {
+        return Update::RefreshDom;
     }
     if s.close_after_export && s.exports.is_empty() {
         s.close_after_export = false;
