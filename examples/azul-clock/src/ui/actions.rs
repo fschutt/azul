@@ -1,14 +1,14 @@
 //! What the buttons, switches, pickers and keys of AzClock do. Every button
 //! carries an [`Act`] (the app and an [`Action`]) and reaches [`on_act`]; the
-//! controls with a value of their own (a switch, the time picker, the repeat
-//! picker, a text field) have their own callbacks. Each change goes through
+//! controls with a value of their own (a switch, the time picker, a text
+//! field) have their own callbacks. Each change goes through
 //! `with_app`, which writes the files and hands the OS the new schedule.
 
 use azul::{
     dom::VirtualKeyCode,
     prelude::*,
     widgets::{
-        DateRepeatRule, NumberInputState, OnTextInputReturn, SwitchState,
+        NumberInputState, OnTextInputReturn, SwitchState,
         TextInputState, TextInputValid, TimePickerState,
     },
 };
@@ -16,7 +16,7 @@ use azul_appkit::ui as kit;
 use chrono::{Local, Utc};
 
 use super::{
-    copy_laps, first_of, now_ms, rule_of, save_alarm, save_stopwatch, save_timer, save_world,
+    copy_laps, first_of, now_ms, repeat, rule_of, save_alarm, save_stopwatch, save_timer, save_world,
     with_app, AlarmDraft, ClockApp, Screen,
 };
 use crate::{
@@ -44,6 +44,8 @@ pub enum Action {
     Back,
     /// The weekday chips' shortcuts: no repeat, every day, weekdays, weekends.
     RepeatPreset(u8),
+    /// A weekday chip of the editor (0 = Monday .. 6 = Sunday): lights the day or puts it out.
+    RepeatDay(u8),
     /// Add the city of a zone (the search's result).
     CityAdd(String),
     CityRemove(usize),
@@ -177,6 +179,15 @@ fn repeat_preset(d: &mut AlarmDraft, preset: u8) {
     d.rule = rule_of(rrule, first);
 }
 
+/// A weekday chip of the editor: the day lit if it was out, out if it was lit, the rule made of the
+/// days that are lit ([`repeat`](super::repeat)).
+fn repeat_day(d: &mut AlarmDraft, chip: u8) {
+    let today = Local::now().date_naive();
+    let first = first_of(&d.rule).unwrap_or(today);
+    let days = repeat::toggled(repeat::days_of(d.rule.to_rrule().as_str()), chip);
+    d.rule = rule_of(&repeat::rrule_of(days), first);
+}
+
 /// What a button does to the state.
 pub(crate) fn run(s: &mut ClockApp, info: &mut CallbackInfo, action: Action) {
     let now = now_ms();
@@ -221,6 +232,11 @@ pub(crate) fn run(s: &mut ClockApp, info: &mut CallbackInfo, action: Action) {
         Action::RepeatPreset(p) => {
             if let Some(d) = s.editor.as_mut() {
                 repeat_preset(d, p);
+            }
+        }
+        Action::RepeatDay(chip) => {
+            if let Some(d) = s.editor.as_mut() {
+                repeat_day(d, chip);
             }
         }
         Action::CityAdd(zone) => {
@@ -377,11 +393,6 @@ pub extern "C" fn on_editor_time(mut data: RefAny, mut info: CallbackInfo, state
         d.hour = hour;
         d.minute = minute;
     })
-}
-
-/// The editor's repeat (azul's DateRepeatPicker).
-pub extern "C" fn on_editor_repeat(mut data: RefAny, mut info: CallbackInfo, rule: DateRepeatRule) -> Update {
-    edit_draft(&mut data, &mut info, |d| d.rule = rule)
 }
 
 /// The editor's snooze length.

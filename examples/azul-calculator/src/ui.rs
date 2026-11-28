@@ -1096,7 +1096,9 @@ fn micro_view(s: &CalcApp, app: &RefAny) -> Dom {
         standard_pad(s, app, false)
     };
     surface(app)
-        .with_css("width: 100%; max-width: 560px; align-self: center;")
+        // `border-box`: the surface has padding, and `width: 100%` of the content box made it 16 px wider
+        // than a 411 dp window (the audit: the box crossed both edges by 8 dp).
+        .with_css("width: 100%; max-width: 560px; box-sizing: border-box; align-self: center;")
         .with_child(display(s, View::Micro))
         .with_child(below)
 }
@@ -1408,10 +1410,10 @@ fn icon_button(app: &RefAny, icon: &str, name: &str, id: AzString, cb: ButtonOnC
 
 /// The mode tabs, then History (in the views that have it) and Settings. On a desktop the row is
 /// the window's top edge (no title bar): the controls' room is kept free at its ends and the
-/// empty part of it moves the window. In a desktop window narrower than [`STACK_MODES_BELOW`] the
-/// tabs get a row of their own under History and Settings (the window's controls, the tabs and
-/// two buttons do not fit one row of the default window); a phone's row scrolls the tabs sideways
-/// if they do not fit.
+/// empty part of it moves the window. In a window narrower than [`STACK_MODES_BELOW`] the tabs get
+/// a row of their own under History and Settings: the default desktop window's controls, the tabs
+/// and two buttons do not fit one row, and neither do a phone's (the strip of three tabs was 315 dp
+/// in a 283 dp room on a Pixel 6, run 46129541989: the third tab lay half under the history button).
 fn modes_row(
     s: &CalcApp,
     app: &RefAny,
@@ -1544,9 +1546,9 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
     let by_size = view_of_window(&info);
     let narrow = info.window_width_less_than(STACK_MODES_BELOW);
     let phone = azul_appkit::phone::phone_window(&info);
-    // A phone's three tabs and two buttons fit one row; the default desktop window's controls
-    // (the traffic lights) leave no room for them, so the tabs get a row of their own there.
-    let stacked = narrow && !phone;
+    // A narrow window (the default desktop window, whose controls take the traffic lights' room,
+    // and a phone) gives the tabs a row of their own under the buttons.
+    let stacked = narrow;
     // A phone on its side: short, and wide enough for a column of keys beside the display.
     let landscape = is_landscape_phone(
         phone,

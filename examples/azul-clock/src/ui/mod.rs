@@ -32,6 +32,7 @@
 //! `AZCLOCK_NOTIFICATION <kind> <payload>`.
 
 pub mod actions;
+pub mod repeat;
 pub mod views;
 
 use std::path::PathBuf;
@@ -177,7 +178,8 @@ pub struct AlarmDraft {
     pub hour: u32,
     pub minute: u32,
     pub label: String,
-    /// The repeat as azul's `DateRepeatPicker` edits it.
+    /// The repeat: what the weekday chips and the presets set (`repeat`), kept as the rule azul's
+    /// `DateRepeatRule` makes of an RRULE.
     pub rule: DateRepeatRule,
     pub sound: Sound,
     pub snooze_minutes: u32,

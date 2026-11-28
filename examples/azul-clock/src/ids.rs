@@ -48,7 +48,9 @@ names! {
     ALARM_SWITCH = "alarm-switch";
     EDITOR = "editor";
     EDITOR_TIME = "editor-time";
+    /// The weekday chips of the editor (a row of seven), and the class of one chip.
     EDITOR_REPEAT = "editor-repeat";
+    EDITOR_DAY = "editor-day";
     EDITOR_LABEL = "editor-label";
     EDITOR_SOUND = "editor-sound";
     EDITOR_SNOOZE = "editor-snooze";

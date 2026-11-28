@@ -1,5 +1,5 @@
-//! An alarm: a time of day, a repeat (an RFC 5545 RRULE, the one azul's
-//! `DateRepeatPicker` edits - `azul_pim::rrule` makes its dates), a label, a
+//! An alarm: a time of day, a repeat (an RFC 5545 RRULE: the editor's weekday chips
+//! write the plain ones, `azul_pim::rrule` makes its dates), a label, a
 //! sound and a snooze length - and the instants it rings at.
 //!
 //! The time is WALL time in a zone (the device's, `chrono::Local`, in the

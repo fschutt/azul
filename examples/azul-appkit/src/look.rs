@@ -93,7 +93,12 @@ pub fn row(label_text: &str, control: Dom) -> Dom {
 #[must_use]
 pub fn note(content: &str) -> Dom {
     Dom::create_div()
-        .with_css(format!("padding: 4px 0px; font-size: 12px; color: {QUIET_TEXT};"))
+        // A path or an address is one long word: it breaks where the pane ends instead of running
+        // out of it (a phone's pane cut "/data/user/0/com.azul.AzCalculator/files/..." there).
+        .with_css(format!(
+            "padding: 4px 0px; font-size: 12px; color: {QUIET_TEXT}; overflow-wrap: anywhere; \
+             min-width: 0px;"
+        ))
         .with_child(text(label(content)))
 }
 

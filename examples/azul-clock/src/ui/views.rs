@@ -14,10 +14,8 @@
 
 use azul::{
     callbacks::{
-        ButtonOnClickCallbackType, DateRepeatPickerOnChangeCallbackType,
-        MobileShellOnTabCallbackType, NumberInputOnValueChangeCallbackType,
-        SwitchOnToggleCallbackType, TextInputOnTextInputCallbackType,
-        TimePickerOnChangeCallbackType,
+        ButtonOnClickCallbackType, MobileShellOnTabCallbackType, NumberInputOnValueChangeCallbackType,
+        SwitchOnToggleCallbackType, TextInputOnTextInputCallbackType, TimePickerOnChangeCallbackType,
     },
     dom::{AccessibilityInfo, AccessibilityRole},
     menu::{Menu, MenuItem, StringMenuItem},
@@ -26,8 +24,7 @@ use azul::{
     shells::{MobileShell, ShellBottomTab},
     str::String as AzString,
     widgets::{
-        ButtonType, DatePickerWeekStart, DateRepeatPicker, Gauge, GaugeKind, NumberInput,
-        Switch, TextInput, TimePicker,
+        ButtonType, Gauge, GaugeKind, NumberInput, Switch, TextInput, TimePicker,
     },
 };
 use azul_appkit::{
@@ -39,7 +36,7 @@ use chrono::{DateTime, Local, Timelike, Utc};
 
 use super::{
     actions::{self, act, Action},
-    now_ms, ClockApp, Ringing, Screen,
+    now_ms, repeat, ClockApp, Ringing, Screen,
 };
 use crate::{fmt, ids, stopwatch::LapMark, tone::Sound, world};
 
@@ -648,6 +645,30 @@ fn field(label: &str, control: Dom) -> Dom {
         .with_child(control)
 }
 
+/// The seven weekday chips, Monday first: a tap lights a day or puts it out (the presets above
+/// them light several at once). Each is a finger-sized button named with the day's whole name.
+fn day_chips(d: &super::AlarmDraft, app: &RefAny) -> Dom {
+    let lit = repeat::days_of(d.rule.to_rrule().as_str());
+    let mut row = Dom::create_div()
+        .with_id(ids::EDITOR_REPEAT)
+        .with_css(format!("{} flex-wrap: wrap; row-gap: 8px;", row_css(6)));
+    for (chip, day) in repeat::WEEK.iter().enumerate() {
+        let on = lit & (1 << chip) != 0;
+        row.add_child(
+            Button::with_type(label(azul_pim::dates::weekday_short_message_id(*day)), if on { ButtonType::Primary } else { ButtonType::Default })
+                .with_on_click(act(app, Action::RepeatDay(chip as u8)), actions::on_act as ButtonOnClickCallbackType)
+                .dom()
+                .with_class(ids::EDITOR_DAY)
+                .with_css("flex-grow: 1;")
+                .with_accessibility_assign(AccessibilityInfo::named(
+                    label(azul_pim::dates::weekday_message_id(*day)),
+                    AccessibilityRole::PushButton,
+                )),
+        );
+    }
+    row
+}
+
 /// The page of the alarm editor: time, repeat, label, sound, snooze (and Delete, for an alarm
 /// that exists); Back cancels, Save in the top bar saves.
 fn editor_page(s: &ClockApp, d: &super::AlarmDraft, app: &RefAny) -> Dom {
@@ -690,16 +711,9 @@ fn editor_page(s: &ClockApp, d: &super::AlarmDraft, app: &RefAny) -> Dom {
                 .dom()
                 .with_id(ids::EDITOR_TIME),
         ))
-        .with_child(field("azclock-repeat", presets))
         .with_child(field(
-            "",
-            DateRepeatPicker::create(d.rule)
-                .with_week_start(DatePickerWeekStart::Monday)
-                .with_end_option(true)
-                .with_accessibility_name(label("azclock-repeat"))
-                .with_on_change(app.clone(), actions::on_editor_repeat as DateRepeatPickerOnChangeCallbackType)
-                .dom()
-                .with_id(ids::EDITOR_REPEAT),
+            "azclock-repeat",
+            Dom::create_div().with_css(format!("{COLUMN} row-gap: 8px;")).with_child(presets).with_child(day_chips(d, app)),
         ))
         .with_child(field(
             "azclock-label",
@@ -760,14 +774,20 @@ fn city_page(query: &str, app: &RefAny) -> Dom {
     }
     Dom::create_div()
         .with_css(format!("{COLUMN} padding: 8px 20px 24px 20px; min-width: 0px; box-sizing: border-box; overflow-y: auto; flex-grow: 1; min-height: 0px;"))
+        // In a row of its own: a text field grows (flex-grow: 1) to fill the line it is in, which in
+        // this column was the page's height - the field floated in the middle of the page.
         .with_child(
-            TextInput::create_search()
-                .with_text(query)
-                .with_placeholder(label("azclock-search-cities"))
-                .with_accessibility_name(label("azclock-search-cities"))
-                .with_on_text_input(app.clone(), actions::on_city_query as TextInputOnTextInputCallbackType)
-                .dom()
-                .with_id(ids::CITY_QUERY),
+            Dom::create_div()
+                .with_css("display: flex; flex-direction: row; flex-shrink: 0;")
+                .with_child(
+                    TextInput::create_search()
+                        .with_text(query)
+                        .with_placeholder(label("azclock-search-cities"))
+                        .with_accessibility_name(label("azclock-search-cities"))
+                        .with_on_text_input(app.clone(), actions::on_city_query as TextInputOnTextInputCallbackType)
+                        .dom()
+                        .with_id(ids::CITY_QUERY),
+                ),
         )
         .with_child(results)
 }
@@ -876,7 +896,8 @@ pub fn settings_sections(s: &ClockApp, app: &RefAny) -> Vec<AppSection> {
     let minutes = s.ring_minutes();
     let ring_index = RING_MINUTES.iter().position(|m| *m == minutes).unwrap_or(2);
     let os_line = if s.os_rings.0 {
-        t_args("azclock-os-rings", &[("how", Arg::from(&s.os_rings.1))])
+        // The words, not the name of the platform's mechanism (`os_rings.1` is that, for the log).
+        t("azclock-os-rings")
     } else {
         t_args("azclock-only-while-running", &[("why", Arg::from(&s.os_rings.1))])
     };
