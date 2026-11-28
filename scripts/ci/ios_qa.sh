@@ -100,7 +100,7 @@ if [ "$session" = matrix ]; then
   # (space separated; the app of this session when unset)
   apps=()
   for z in ${AZ_QA_MATRIX_APPS:-$app}; do apps+=(--app "$z"); done
-  python3 "$here/e2e_matrix.py" ios --repo . --out "$out" --udid "$udid" ${AZ_QA_MATRIX_ONLY:+--only "$AZ_QA_MATRIX_ONLY"} ${apps[@]+"${apps[@]}"} 2>&1 | tee "$out/e2e-matrix.log"
+  python3 "$here/e2e_matrix.py" ios --repo . --out "$out" --udid "$udid" --shots "$out/shots" ${AZ_QA_MATRIX_ONLY:+--only "$AZ_QA_MATRIX_ONLY"} ${apps[@]+"${apps[@]}"} 2>&1 | tee "$out/e2e-matrix.log"
 fi
 if [ "$session" = tabs ]; then
   # THE TAB STRIP on the phone: per orientation (1) the device's own pictures of a plain start, light and dark, (2) per file of AZ_QA_TABS_FILES a
