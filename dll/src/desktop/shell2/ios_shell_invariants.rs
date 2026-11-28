@@ -811,9 +811,12 @@ fn url_open_on_ios_asks_uikit_on_the_main_thread() {
         "URLWithString:",
         "if nsurl.is_null()",
         "CString::new(",
+        "resolve_open_alias(url)",
     ] {
         assert!(code.contains(needed), "ios/open_url.rs: `{needed}` is missing");
     }
+    // the alias is resolved before anything reads the URL (the main thread asks, or the queue is handed it)
+    in_order(&code, "resolve_open_alias(url)", "isMainThread", "azul_ios_open_url");
     at(IOS_MOD_RS, "mod open_url;", "the iOS shell declares the opener");
 }
 
