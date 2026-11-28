@@ -2124,6 +2124,10 @@ pub(crate) struct StripScrollData {
     /// `false` for a strip whose pills are placed by other means (a row of icons at positions of its
     /// own).
     pub(crate) camera_room: bool,
+    /// The room a pill keeps from the edge of a lane when the strip scrolls the selected one into place
+    /// ([`crate::widgets::tab_strip::LANE_INSET`]): never more than the room the first pill has at rest, or
+    /// the first pill would be scrolled out of its place.
+    pub(crate) inset: f32,
 }
 
 impl StripScrollData {
@@ -2145,6 +2149,7 @@ impl StripScrollData {
             lanes,
             pill_classes,
             camera_room: true,
+            inset: crate::widgets::tab_strip::LANE_INSET,
         }
     }
 }
@@ -2319,7 +2324,7 @@ fn scroll_selected_into_lane(
     } else {
         data.lanes
     };
-    let target = tab_strip::scroll_for_pill(spans[index], now, max, &lanes);
+    let target = tab_strip::scroll_for_pill_inset(spans[index], now, max, &lanes, data.inset);
     if (target - now).abs() >= 0.5 {
         info.scroll_to_animated(strip.dom, strip_id, LogicalPosition { x: target, y: 0.0 });
     }

@@ -108,6 +108,9 @@ impl TabHeader {
         scroll.trail = lead_px;
         scroll.gap = gap_px;
         scroll.camera_room = false;
+        // The first pill stands 10 px in at rest: a selected first (or last) pill is in its place, and the
+        // strip does not scroll it out of it.
+        scroll.inset = lead_px.min(scroll.inset);
 
         let dataset = TabLocalDataset {
             tab_idx: 0,
