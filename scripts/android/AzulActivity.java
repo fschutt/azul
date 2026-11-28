@@ -38,6 +38,7 @@ import com.azul.gamepad.AzulGamepad;
 import com.azul.permission.AzulPermissions;
 import com.azul.media.AzulMediaSession;
 import com.azul.notify.AzulNotifications;
+import com.azul.geolocation.AzulGeolocation;
 import com.azul.sensors.AzulSensors;
 
 public class AzulActivity extends NativeActivity {
@@ -80,6 +81,8 @@ public class AzulActivity extends NativeActivity {
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
+        // Android 12+: the system's starting window stays until the engine's first picture (see holdStartingWindow).
+        holdStartingWindow();
         prepareAppDirs();
         // NativeActivity dlopens the cdylib NATIVELY during super.onCreate —
         // which does NOT register it with this ClassLoader for Java
@@ -217,6 +220,80 @@ public class AzulActivity extends NativeActivity {
         AzulNotifications.onIntent(this, intent, false);
     }
 
+    // ---- the system's starting window, held until the first picture (Android 12 and later) ----------------------------
+
+    /**
+     * How long the starting window may stay when the engine never says it posted a picture: it must never trap the app
+     * behind it.
+     */
+    private static final long SPLASH_HOLD_MS = 2000;
+    /** UI thread only: the engine has posted its first picture. */
+    private static boolean firstFrameShown;
+    /** UI thread only: removes the starting window the system handed over, once. */
+    private static Runnable removeSplash;
+
+    /**
+     * The starting window (the app icon on the window colour) leaves when the activity's window has drawn, which for a
+     * NativeActivity is before its surface has any buffer: a second of the platform's empty window followed on the CPU
+     * renderer (QA's flicker audit, ledger E46). With an exit listener the system hands the window over and waits for it to
+     * be removed: it is removed when the engine says its first picture is posted ({@link #firstFramePresented}), or after
+     * {@link #SPLASH_HOLD_MS}.
+     */
+    private void holdStartingWindow() {
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
+            Splash31.hold(this);
+        }
+    }
+
+    /** The engine posted its first picture (CPU or GPU), from any thread: the starting window may go. */
+    public static void firstFramePresented(final android.app.Activity activity) {
+        if (activity == null) {
+            return;
+        }
+        activity.runOnUiThread(() -> {
+            firstFrameShown = true;
+            Runnable remove = removeSplash;
+            removeSplash = null;
+            if (remove != null) {
+                remove.run();
+            }
+        });
+    }
+
+    /** The Android 12 API in a class of its own: an older system never loads it. */
+    private static final class Splash31 {
+        static void hold(android.app.Activity activity) {
+            try {
+                activity.getSplashScreen().setOnExitAnimationListener(view -> {
+                    final Runnable remove = new Runnable() {
+                        private boolean done;
+
+                        @Override
+                        public void run() {
+                            if (done) {
+                                return;
+                            }
+                            done = true;
+                            try {
+                                view.remove();
+                            } catch (RuntimeException ignored) {
+                                // already gone
+                            }
+                        }
+                    };
+                    if (firstFrameShown) {
+                        remove.run();
+                        return;
+                    }
+                    removeSplash = remove;
+                    new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(remove, SPLASH_HOLD_MS);
+                });
+            } catch (RuntimeException e) {
+                // The system's own exit then.
+            }
+        }
+    }
+
     /**
      * Runtime-permission results.
      *
@@ -267,6 +344,8 @@ public class AzulActivity extends NativeActivity {
         // app unless something stops them; nothing did. Paused, not stopped: the
         // app asked for the readings once and expects them again after onResume.
         AzulSensors.pause(this);
+        // Location updates too: a listener nobody can see the result of is battery for nothing.
+        AzulGeolocation.pause();
         // A sign-in's Custom Tab covers the app: noted, so a return without the
         // redirect reads as a cancel (onResume).
         AzulAuthSession.onPause();
@@ -281,6 +360,7 @@ public class AzulActivity extends NativeActivity {
         AzulAuthSession.onResume();
         // The readings the app asked for before the pause.
         AzulSensors.resume(this);
+        AzulGeolocation.resume(this);
     }
 
     @Override

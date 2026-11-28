@@ -184,6 +184,10 @@ impl AndroidWindow {
             }
             let outcome = self.with_gpu(GlesGpu::present);
             self.after_gpu(outcome);
+            // A GPU window that is still a GPU window posted its picture (one that fell back to the CPU signals from the CPU path).
+            if self.backend == RenderBackend::Gpu {
+                self.first_frame_posted();
+            }
         }
     }
 
