@@ -79,3 +79,47 @@ fn logical_px_and_the_shape_of_a_hole() {
     assert_eq!(guess_shape(hole), ShapeGuess::Circle);
     assert_eq!(guess_shape(Px { left: 400, top: 0, right: 680, bottom: 90 }), ShapeGuess::RoundedRect);
 }
+
+/// The engine asks Java for the window's first insets when its surface is created: five insets, then the features array. The split gives
+/// back what [`decode`] reads, and a snapshot with no features (a platform that refused them) is the insets alone.
+///
+/// Mutation: the split taken at 4 (the keyboard's inset read as the version of the features).
+#[test]
+fn the_first_insets_snapshot_is_five_insets_then_the_features_array() {
+    let mut snapshot = vec![128, 126, 0, 0, 0];
+    snapshot.extend(pixel_8());
+    let (insets, features) = split_snapshot(&snapshot).expect("a snapshot");
+    assert_eq!(insets, [128, 126, 0, 0, 0]);
+    assert_eq!(features, pixel_8().as_slice());
+    assert!(decode(features).is_some(), "the rest is the array the decoder reads");
+
+    let (insets, features) = split_snapshot(&[48, 126, 0, 0, 0]).expect("insets alone");
+    assert_eq!(insets, [48, 126, 0, 0, 0]);
+    assert!(features.is_empty());
+
+    assert!(split_snapshot(&[1, 2, 3, 4]).is_none(), "too short to hold the insets");
+    assert!(split_snapshot(&[]).is_none());
+}
+
+/// The system applies what the app asked of the system bars in the window's first dispatches: the very first shows the window before the request (the
+/// status bar still shown), the next one, a few milliseconds later, the bar hidden. A bar the app asked to hide that the snapshot still shows, or says
+/// nothing of, is a request the snapshot does not show yet; an app that asks nothing never waits.
+///
+/// Mutation: the answer true whenever the app asks for something (the gate that skipped the snapshot for AzWriter although it showed the request done).
+#[test]
+fn a_request_the_snapshot_shows_done_moves_nothing() {
+    let bar = |visible| Some(Bar { rect: Px { left: 0, top: 0, right: 1080, bottom: 128 }, visible });
+    let features = |status, navigation| DisplayFeaturesPx { cutouts: vec![], corners: [0; 4], status, navigation, fingerprint: false };
+    let shown = features(bar(true), bar(true));
+    let hidden = features(bar(false), bar(true));
+    assert!(!bars_request_moves_insets(Some(&shown), false, false, false), "an app that asks nothing never waits");
+    assert!(!bars_request_moves_insets(None, false, false, false), "nor without features");
+    assert!(bars_request_moves_insets(Some(&shown), true, false, false), "the status bar the app hides, still shown in the snapshot of the first dispatch");
+    assert!(!bars_request_moves_insets(Some(&hidden), true, false, false), "the next dispatch shows it hidden: the request is in the insets");
+    assert!(bars_request_moves_insets(Some(&hidden), true, true, false), "the navigation bar the app hides is still shown");
+    assert!(!bars_request_moves_insets(Some(&features(bar(false), bar(false))), true, true, false));
+    assert!(bars_request_moves_insets(Some(&features(None, bar(true))), true, false, false), "a snapshot that says nothing of the bar does not show it hidden");
+    assert!(!bars_request_moves_insets(Some(&shown), false, false, true), "the cutout area: the mode is set before the window's first dispatch, the features show the cutout");
+    assert!(bars_request_moves_insets(None, true, false, false), "no features at all: as before, the request is a reason to wait");
+    assert!(bars_request_moves_insets(None, false, false, true), "the cutout area without features");
+}

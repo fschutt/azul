@@ -115,6 +115,32 @@ fn bar(flat: &[i32], at: usize) -> Option<Option<Bar>> {
     Some(Some(Bar { rect, visible: b[5] != 0 }))
 }
 
+/// Whether what the app asks of the system bars is still to change the insets the snapshot shows.
+///
+/// The system applies the request in the window's first dispatches: the very first shows the window before it (the status bar still shown), the next,
+/// a few milliseconds later (6 and 9 ms in the lab), the bar hidden. A bar the app asks to hide that the snapshot still shows, or says nothing of, is a
+/// request the snapshot does not show yet; a window that draws into the cutout area has its cutout mode set before its first dispatch, so its features
+/// show the cutout from the start. Without features the request is a reason to wait, as it was before the features were read.
+#[must_use]
+pub fn bars_request_moves_insets(shown: Option<&DisplayFeaturesPx>, status_hidden: bool, navigation_hidden: bool, draw_into_cutout: bool) -> bool {
+    let still_shown = |hidden_wanted: bool, bar: Option<Bar>| hidden_wanted && bar.is_none_or(|b| b.visible);
+    match shown {
+        None => status_hidden || navigation_hidden || draw_into_cutout,
+        Some(features) => still_shown(status_hidden, features.status) || still_shown(navigation_hidden, features.navigation),
+    }
+}
+
+/// Split what `NativeTextBridge.insetsSnapshot` hands the engine into the insets and the display features.
+///
+/// The snapshot is asked for when the surface is created, before the first layout: the insets of the window's first dispatch (five ints: top,
+/// bottom, left, right, the keyboard, physical px) followed by its display features (the array [`decode`] reads, absent when the platform refused
+/// them). `None` for an array too short to hold the insets.
+#[must_use]
+pub fn split_snapshot(snapshot: &[i32]) -> Option<([i32; 5], &[i32])> {
+    let head = snapshot.get(..5)?;
+    Some(([head[0], head[1], head[2], head[3], head[4]], &snapshot[5..]))
+}
+
 /// Read the array of `NativeTextBridge.featuresArray`. `None` for a version this code does not know or an array that is
 /// cut short (a half-written report is no report). A cutout without an area is dropped (the platform reports empty rects for
 /// edges that have none).
