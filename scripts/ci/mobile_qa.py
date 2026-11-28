@@ -346,6 +346,21 @@ def summarize_frames(lines):
     return out
 
 
+# The engine says when the first frame of its GPU path is out (shell2/ios/gpu.rs):
+#     [iOS GPU] first frame 1206x2622: 21 draw calls, drawn in 1285 ms, 9653 ms after the GPU path began
+FIRST_GPU_FRAME_LINE = re.compile(r"\[iOS GPU\] first frame (\d+)x(\d+): (\d+) draw calls, drawn in (\d+) ms, (\d+) ms after the GPU path began")
+
+
+def first_gpu_frame(text):
+    """The engine's first GPU frame line -> {"w", "h", "draw_calls", "draw_ms", "since_ms"}, or None when there is none (yet)."""
+    for line in text.splitlines():
+        m = FIRST_GPU_FRAME_LINE.search(line)
+        if m:
+            return {"w": int(m.group(1)), "h": int(m.group(2)), "draw_calls": int(m.group(3)), "draw_ms": int(m.group(4)),
+                    "since_ms": int(m.group(5))}
+    return None
+
+
 # What proves that no GL command went out while the app was in the background: the GPU window writes a line when its GL commands
 # stop (after the last command of the answer to `didEnterBackground`) and one when they are allowed again (before the first command
 # of the answer to the return). A frame or a failed action between the two lines is a command in the background.
@@ -798,7 +813,10 @@ def device_is_software(device):
 
 
 GPU_FIRST_FRAME_SECONDS = 240       # the emulator's software GL takes a minute or two for the first GL frame (every shader compiles at first use)
-IDLE_SECONDS = 4.0         # an idle window is watched this long for frames lines (a window that draws while nothing moves)
+GPU_SILENCE_SECONDS = 20       # an app asked for the GPU that says nothing of its renderer in this time has no GPU path to wait for
+GPU_FALLBACK_SECONDS = 150     # a fallback that comes after a first frame (a context lost twice) needs two first frames of a software GL
+IDLE_SECONDS = 5.0         # an idle window is watched this long for frames lines (a window that draws while nothing moves) ...
+IDLE_SETTLE_SECONDS = 3.0  # ... after the frames of its start have followed one another and stopped
 SWIPE_SECONDS = 4.0        # the scripted swipe of the render-mode step: at least three full seconds of frames lines
 
 
@@ -1878,6 +1896,8 @@ class IOS:
         self.launch_count = 0
         # the launch that STARTED the running process: its console is the process's (a warm launch of a running app writes none)
         self.process_launch = 0
+        # the renderer the running process asked for (AZ_BACKEND of its cold launch; the e2e session sets it in the environment)
+        self.process_backend = ""
         self.started = time.strftime("%Y-%m-%dT%H:%M:%S")
         self.gui = False
         # what EVERY launch of this run sets in the app's environment (`--backend gpu`: AZ_BACKEND=gpu), under the extra_env of a launch
@@ -1988,6 +2008,25 @@ class IOS:
         """What the RUNNING process wrote since it started: the console of the cold launch that started it."""
         return self.console_text(self.process_launch or None)
 
+    def process_marker(self):
+        """How much the running process has written so far: the line counts of its two console files. `process_since` gives what it
+        wrote after. (Not `len(process_console().splitlines())`: that text has a blank line where the two files are joined, which
+        moves by one every time the file grows, and the first new line would be lost.)"""
+        counts = []
+        for suffix in ("out", "err"):
+            f = self.run.logs_dir / f"console-{self.process_launch or self.launch_count}.{suffix}.txt"
+            counts.append(len(f.read_text(errors="replace").splitlines()) if f.exists() else 0)
+        return tuple(counts)
+
+    def process_since(self, marker):
+        """The lines the running process wrote after `marker` (from `process_marker`): stdout's, then stderr's."""
+        lines = []
+        for suffix, seen in zip(("out", "err"), marker):
+            f = self.run.logs_dir / f"console-{self.process_launch or self.launch_count}.{suffix}.txt"
+            if f.exists():
+                lines += f.read_text(errors="replace").splitlines()[seen:]
+        return lines
+
     # -- the engine's debug server (a `mobile-e2e` app; the Simulator shares the host's loopback)
     def server_op(self, port, op, timeout=30, **params):
         """One request to the debug server. -> the decoded answer; raises OSError / URLError when nothing answers."""
@@ -2023,7 +2062,7 @@ class IOS:
         width = find_key(state, "logical_width") or self.dims[0] / scale
         height = find_key(state, "logical_height") or self.dims[1] / scale
         x, top, bottom = width * 0.5, height * 0.3, height * 0.7
-        before = len(self.process_console().splitlines())
+        before = self.process_marker()
         self.server_op(port, "touch_start", id=1, x=x, y=bottom)
         self.server_op(port, "wait_frame")
         t0 = time.time()
@@ -2040,16 +2079,16 @@ class IOS:
         self.server_op(port, "touch_end", id=1)
         self.server_op(port, "wait_frame")
         self.settle(1.5)
-        lines = self.process_console().splitlines()[before:]
+        lines = self.process_since(before)
         return summarize_frames(swipe_windows("\n".join(lines))), made, took
 
     def idle_windows(self, seconds=4.0):
         """Nothing touches the app for `seconds`: the engine's frames lines of full seconds written meanwhile. A window that is not
         animating presents nothing, so there must be none: one is a window that draws continuously while it shows the same picture
         (power). -> [the dicts of `engine_frames`]"""
-        before = len(self.process_console().splitlines())
+        before = self.process_marker()
         time.sleep(seconds)
-        return swipe_windows("\n".join(self.process_console().splitlines()[before:]))
+        return swipe_windows("\n".join(self.process_since(before)))
 
     def look(self, step, name, expect_changed_from=None, allow_launcher=False):
         sig, w, h, fname = self.capture(name)
@@ -2080,6 +2119,8 @@ class IOS:
             env["SIMCTL_CHILD_" + k] = v
         for k, v in (extra_env or {}).items():
             env["SIMCTL_CHILD_" + k] = v
+        if cold:
+            self.process_backend = env.get("SIMCTL_CHILD_AZ_BACKEND", "").strip().lower()
         out_f = self.run.logs_dir / f"console-{self.launch_count}.out.txt"
         err_f = self.run.logs_dir / f"console-{self.launch_count}.err.txt"
         cmd = ["launch"] + (["--terminate-running-process"] if cold else []) + [f"--stdout={out_f}", f"--stderr={err_f}", self.udid, self.bundle]
@@ -2103,10 +2144,31 @@ class IOS:
     def open_other_app(self, bundle="com.apple.Preferences"):
         return self.fire("launch", self.udid, bundle)
 
-    def wait_for_front(self, timeout=45):
+    def wait_for_console(self, done, timeout, every=1.0):
+        """Poll the running process's console until `done(text)` is true. -> the seconds it took, or None at the timeout."""
         t0 = time.time()
+        while True:
+            if done(self.process_console()):
+                return time.time() - t0
+            if time.time() - t0 >= timeout:
+                return None
+            time.sleep(every)
+
+    def wait_for_front(self, timeout=45):
+        """Seconds from now until the app shows a picture (alive, not flat, not the home screen); None when it dies or does not."""
+        t0 = time.time()
+        if self.process_backend in ("gpu", "auto"):
+            # The first frame of a GL renderer on a software GL comes late (every shader is compiled at its first use: ten seconds on
+            # the Simulator) and the window is black until then: the picture of a GPU run taken before it is a black window (the third
+            # macOS run's was). The engine says when its first GPU frame is out, or that the GPU path ended and the CPU draws: wait for
+            # that first (`wait_for_gpu_frame`: 0.0 = nothing to wait for, a fallback or a build with no GPU path; None = the time ran
+            # out). Then the picture decides, as for the CPU renderer.
+            if wait_for_gpu_frame(self.process_console, timeout, sleep=time.sleep, clock=time.time, silence=GPU_SILENCE_SECONDS) is None:
+                return None       # the GPU path began and its first frame never came
         seen_alive = False
-        while time.time() - t0 < timeout:
+        started = time.time()
+        rest = max(5.0, timeout - (started - t0))
+        while time.time() - started < rest:
             if self.alive():
                 seen_alive = True
                 try:
@@ -2118,7 +2180,7 @@ class IOS:
                     return time.time() - t0
             elif seen_alive:
                 return None           # it was running and is gone: it died, waiting longer shows nothing
-            elif time.time() - t0 > 15:
+            elif time.time() - started > 15:
                 return None           # it never started
             time.sleep(1.0)
         return None
@@ -2302,16 +2364,22 @@ def ios_scenarios(args):
             if args.debug_port:
                 extra["AZ_DEBUG"] = str(args.debug_port)
             dev.launch(extra_env=extra, cold=True)
+            # (a `gpu` start is waited for until the engine says its GPU path presented a frame, or fell back: IOS.wait_for_front)
             t = dev.wait_for_front(timeout=first_frame_timeout_for(mode, args.first_frame_timeout))
-            if mode == "gpu" and t is not None:
-                g = wait_for_gpu_frame(dev.console_text, first_frame_timeout_for(mode, args.first_frame_timeout))
-                s.note("AZ_BACKEND=gpu: " + ("the engine says the GPU path presented a frame after " + f"{g:.1f} s more" if g else
-                       ("the request fell back to the CPU: nothing to wait for" if g == 0.0 else "no GPU frame line within the wait: the picture may be black")))
             dev.settle(2.5)
             sig = dev.look(s, f"AZ_BACKEND-{mode}")
             full = dev.last_rgba_full()
             ran, requested, device = backend_ran(dev.console_text())
             s.check(f"AZ_BACKEND={mode}: the app draws", t is not None and not is_flat(sig), f"first frame after {t:.1f} s" if t is not None else "no frame")
+            if t is not None:
+                # Nothing has touched the app since its first frame: it must draw nothing now. The first frames of a start follow one another
+                # for a moment (IDLE_SETTLE_SECONDS lets them end); the swipe comes AFTER this, so its frames cannot be taken for an idle window's.
+                dev.settle(IDLE_SETTLE_SECONDS)
+                idle = dev.idle_windows(IDLE_SECONDS)
+                s.check(f"AZ_BACKEND={mode}: an idle window draws no frames ({IDLE_SECONDS:.0f} s with nothing touching it)", not idle,
+                        (f"{len(idle)} frames line(s) while idle, the last: n={idle[-1]['n']} median {idle[-1]['median']} ms: the window draws "
+                         "continuously while it shows the same picture") if idle else "no frames line",
+                        required=(mode == "gpu" and args.expect_gpu))
             frames = None
             if args.debug_port and t is not None:
                 state_answer = dev.server_up(args.debug_port)
@@ -2323,12 +2391,6 @@ def ios_scenarios(args):
                            f"each waits for a frame)" + ("" if frames else "; no frames line of a full second (fewer than 8 frames in a second)"))
                     if frames and frames.get("draw_median") is not None:
                         s.note(f"AZ_BACKEND={mode}: the draw alone takes median {frames['draw_median']:.1f} / p95 {frames['draw_p95']:.1f} ms")
-            if t is not None:
-                idle = dev.idle_windows(IDLE_SECONDS)
-                s.check(f"AZ_BACKEND={mode}: an idle window draws no frames ({IDLE_SECONDS:.0f} s with nothing touching it)", not idle,
-                        (f"{len(idle)} frames line(s) while idle, the last: n={idle[-1]['n']} median {idle[-1]['median']} ms: the window draws "
-                         "continuously while it shows the same picture") if idle else "no frames line",
-                        required=(mode == "gpu" and args.expect_gpu))
             rss = dev.rss_mb()
             if rss is not None:
                 run.meta[f"rss_mb_{mode}"] = round(rss)
@@ -2359,6 +2421,11 @@ def ios_scenarios(args):
             want = gpu_fail_stage(spec)
             dev.launch(extra_env={"AZ_BACKEND": "gpu", "AZ_GPU_FAIL": spec}, cold=True)      # a new console file for every launch
             t = dev.wait_for_front(timeout=first_frame_timeout_for("gpu", args.first_frame_timeout))
+            # The fallback line comes when the GPU path ends: at once for a stage that fails in the bring-up, but a context lost twice
+            # (`lost:2`) is lost AFTER a first frame, and the rebuilt renderer draws its own first frame (every shader compiled again on
+            # the new context: ten seconds each on a software GL) before the second loss ends it. Wait for the line, not for a time:
+            # a build that is known to have the hook (an earlier stage fell back) is given the time, the first stage only a moment.
+            dev.wait_for_console(lambda text: bool(gpu_fallbacks(text)), GPU_FALLBACK_SECONDS if injected else 8.0, every=2.0)
             dev.settle(2.5)
             sig = dev.look(s, f"AZ_GPU_FAIL-{spec.replace(':', '-')}")
             text = dev.console_text()
@@ -2416,7 +2483,7 @@ def ios_scenarios(args):
 
     def s_background(s):
         pid0 = dev.pid()
-        console_before = len(dev.process_console().splitlines())
+        console_before = dev.process_marker()
         before = dev.look(s, "before-background")
         dev.open_other_app()
         dev.settle(3.0)
@@ -2438,7 +2505,7 @@ def ios_scenarios(args):
         if gpu_run:
             # Apple's rule: an app in the background issues no GL command. The Simulator does not enforce it (a phone kills the app);
             # the engine's own lines do prove it: it says when its GL commands stop and when they are allowed again
-            g = gl_in_background(dev.process_console().splitlines()[console_before:])
+            g = gl_in_background(dev.process_since(console_before))
             s.check("GL: the engine stopped its GL commands when the app went to the background", g["stopped"] >= 1,
                     f"{g['stopped']} `GL commands stopped` line(s) on the console")
             s.check("GL: no GL command between the background and the return (no frame, no failed GL action)", not g["inside"],
@@ -2488,7 +2555,7 @@ def ios_scenarios(args):
     run.step("08-rotate", "rotate the device left and back while the app runs (Simulator menu through osascript)", s_rotate, needs_app=True)
 
     def s_memory(s):
-        console_before = len(dev.process_console().splitlines())
+        console_before = dev.process_marker()
         before = dev.look(s, "before-memory-warning")
         ok, msg = dev.gui_menu("Debug", "Simulate Memory Warning")
         s.note(f"Debug > Simulate Memory Warning: {'sent' if ok else 'FAILED: ' + msg}")
@@ -2497,7 +2564,7 @@ def ios_scenarios(args):
         dev.look(s, "after-memory-warning")
         dev.alive_step(s)
         if gpu_run:
-            released = [l for l in dev.process_console().splitlines()[console_before:] if MEMORY_RELEASED.search(l)]
+            released = [l for l in dev.process_since(console_before) if MEMORY_RELEASED.search(l)]
             s.check("GL: the engine released the renderer's caches at the memory warning", bool(released), f"{len(released)} line(s) on the console",
                     required=ok)
 

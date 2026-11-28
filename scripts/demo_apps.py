@@ -5,7 +5,7 @@
                                        release-page generator agree (fails with every disagreement)
     demo_apps.py plan [--e2e]          the build matrices of a `demos` run, as GITHUB_OUTPUT lines (--e2e: also the
                                        artifact-only QA variant of the phone libazul and the apps that ask for it)
-    demo_apps.py features <leg> <variant>   the cargo features of one phone library of the plan (android-x86_64 mobile-e2e, ...)
+    demo_apps.py features <leg> <variant>   the cargo features of one library of the plan (android-x86_64 mobile-e2e, linux desktop-e2e)
     demo_apps.py mobile-lib <package>       the library variant a phone app links (mobile, mobile-iroh)
     demo_apps.py e2e-lib <package>          the QA library variant of its QA build (mobile-e2e, mobile-e2e-iroh)
     demo_apps.py assets [<package>]    the file names every app is built as, one per line
@@ -55,6 +55,7 @@ LEG_RUNNER = {
 LEG_CODEGEN_OS = {"linux": "Linux", "macos-arm64": "macOS", "macos-intel": "macOS", "windows": "Windows"}
 MAX_DESCRIPTION = 110
 DEFAULT_E2E_LIB = "mobile-e2e"
+DEFAULT_E2E_DESKTOP_LIB = "desktop-e2e"
 # What an app's sources say when it uses the engine's iroh API (azul.iroh: the endpoint of a meeting, the link to AzReview).
 IROH_USE = re.compile(r"\bIroh(?:Endpoint|Config|Connection|Event|RelayMode)\b|\bazul::iroh\b")
 # The Info.plist text iOS wants for what an Android permission stands for (the engine refuses the feature without it, naming the key).
@@ -83,6 +84,7 @@ def load(path=MANIFEST):
         app.setdefault("engine_ok", {})
         app.setdefault("e2e", False)
         app.setdefault("e2e_lib", DEFAULT_E2E_LIB)
+        app.setdefault("e2e_desktop_lib", DEFAULT_E2E_DESKTOP_LIB)
         app.setdefault("iroh", False)
     return m
 
@@ -93,12 +95,11 @@ def apps_of(m, platform=None):
 
 def staged_name(app, column, e2e=False):
     """The file a build produces for `column` (a desktop platform or a MOBILE_TARGETS key). `e2e`: the QA build against the
-    artifact-only lib with the engine's debug server, <Name>-e2e-<column>: a phone file only, never a release asset."""
+    artifact-only lib with the engine's debug server, <Name>-e2e-<column> (AzWidgets-e2e-linux, AzWidgets-e2e-android-x86_64.apk):
+    never a release asset."""
     p = app["package"]
     if column in DESKTOP:
-        if e2e:
-            raise ValueError(f"the QA variant is a phone build, not {column}")
-        return f"{p}-{OS_SUFFIX[column]}{BIN_EXT.get(column, '')}"
+        return f"{p}{'-e2e' if e2e else ''}-{OS_SUFFIX[column]}{BIN_EXT.get(column, '')}"
     if e2e:
         p += "-e2e"
     return {
@@ -138,9 +139,19 @@ def has_iroh(lib):
     return "iroh" in str((lib or {}).get("features", "")).split(",")
 
 
-def artifact_only_libs(m):
-    """{name: lib} of the library variants that are QA artifacts and never ship."""
-    return {k: v for k, v in m.get("lib", {}).items() if v.get("artifact_only")}
+def lib_family(lib):
+    """"phone" when a lib's targets are all phone columns, "desktop" when all are desktop legs, None otherwise (none, mixed, unknown)."""
+    targets = set((lib or {}).get("targets", []))
+    if targets and targets <= set(MOBILE_TARGETS):
+        return "phone"
+    if targets and targets <= set(DESKTOP):
+        return "desktop"
+    return None
+
+
+def artifact_only_libs(m, family=None):
+    """{name: lib} of the library variants that are QA artifacts and never ship; `family`: only the "phone" or the "desktop" ones."""
+    return {k: v for k, v in m.get("lib", {}).items() if v.get("artifact_only") and (family is None or lib_family(v) == family)}
 
 
 def release_name(app, column):
@@ -214,9 +225,9 @@ def check(m=None):
             err(f"lib {name} has the cargo feature test-hooks and is not artifact_only: a build that reads stand-ins and failure "
                 f"injections from the environment must never ship (scripts/check_no_test_hooks.py)")
     for name, lib in artifact_only_libs(m).items():
-        bad = [t for t in lib.get("targets", []) if t not in MOBILE_TARGETS]
-        if bad or not lib.get("targets"):
-            err(f"lib {name}: targets {lib.get('targets')} must be a non-empty subset of the phone columns {list(MOBILE_TARGETS)}")
+        if lib_family(lib) is None:
+            err(f"lib {name}: targets {lib.get('targets')} must be a non-empty subset of the phone columns {list(MOBILE_TARGETS)} "
+                f"or of the desktop legs {list(DESKTOP)}, not a mix")
         if "debug-server" not in str(lib.get("features", "")).split(","):
             err(f"lib {name} is artifact_only (the QA variant with the engine's debug server) and carries no debug-server feature")
     assets = {}
@@ -273,12 +284,21 @@ def check(m=None):
                 if key and key not in usage:
                     err(f"{where} asks for {perm} on Android but has no {key} in [app.ios.usage]: iOS refuses it without the text")
         if a.get("e2e"):
-            qa = libs.get(a["e2e_lib"])
-            if qa is None or not qa.get("artifact_only"):
-                err(f"{where} e2e_lib {a['e2e_lib']!r} must name an artifact_only lib ({sorted(artifact_only_libs(m))})")
-            elif not set(columns_of(a)) & set(qa.get("targets", [])):
-                err(f"{where} says e2e = true but its QA lib {a['e2e_lib']} builds no column of it "
-                    f"({sorted(columns_of(a))} against {sorted(qa.get('targets', []))})")
+            # a QA build is linked against an artifact_only lib of the family of the column: `e2e_lib` for the phone columns of the app,
+            # `e2e_desktop_lib` for its desktop ones (a shipped lib would put the debug server into what ships: never)
+            qa_built = set()
+            for key, family in (("e2e_lib", "phone"), ("e2e_desktop_lib", "desktop")):
+                cols = [c for c in columns_of(a) if (c in MOBILE_TARGETS) == (family == "phone")]
+                if not cols:
+                    continue
+                qa = libs.get(a[key])
+                if qa is None or not qa.get("artifact_only") or lib_family(qa) != family:
+                    err(f"{where} {key} {a[key]!r} must name an artifact_only {family} lib ({sorted(artifact_only_libs(m, family))})")
+                else:
+                    qa_built |= set(cols) & set(qa.get("targets", []))
+            if not qa_built:
+                err(f"{where} says e2e = true but no QA lib builds a column of it ({sorted(columns_of(a))}; "
+                    f"e2e_lib {a['e2e_lib']!r}, e2e_desktop_lib {a['e2e_desktop_lib']!r})")
         # An app that uses the engine's iroh API needs a library that has it: with the lean `mobile` one its endpoint cannot bind on a phone
         # (bind_failure), and its QA build needs the iroh twin of the QA library as well. iOS drops the local-network traffic of an app that
         # says nothing about it, and the call goes through the relay only.
@@ -401,7 +421,7 @@ def plan(m=None, e2e=False):
                 os="ubuntu-22.04" if kind == "android" else "macos-15", codegen_os="Linux" if kind == "android" else "macOS",
                 artifact=f"demolib-{col}-{variant}"))
     if e2e:
-        for variant, lib in sorted(artifact_only_libs(m).items()):
+        for variant, lib in sorted(artifact_only_libs(m, "phone").items()):
             wanting = [a for a in m["app"] if a.get("e2e") and a["e2e_lib"] == variant]
             for col in lib["targets"]:
                 if not any(col in columns_of(a) for a in wanting):
@@ -412,6 +432,17 @@ def plan(m=None, e2e=False):
                     features=lib["features"] + (",android-activity" if kind == "android" else ""), target=MOBILE_TARGETS[col],
                     os="ubuntu-22.04" if kind == "android" else "macos-15", codegen_os="Linux" if kind == "android" else "macOS",
                     artifact=f"demolib-{col}-{variant}"))
+    if e2e:   # the desktop QA libraries: the shipped one plus the debug server, for the apps that say e2e = true
+        for variant, lib in sorted(artifact_only_libs(m, "desktop").items()):
+            wanting = [a for a in m["app"] if a.get("e2e") and a["e2e_desktop_lib"] == variant]
+            for leg in lib["targets"]:
+                if not any(leg in a["platforms"] for a in wanting):
+                    continue
+                t = desktop_targets[leg]
+                lib_jobs[family[leg]].append(dict(
+                    id=f"lib-{leg}-{variant}", kind="desktop", leg=leg, variant=variant, features=lib["features"],
+                    profile=lib.get("profile", "prod-release"), codegen_os=LEG_CODEGEN_OS[leg],
+                    artifact=f"demolib-{leg}-{variant}", **{k: v for k, v in t.items() if k != "lib_file"}))
     for k, v in lib_jobs.items():
         out["libs_" + k] = v
     # --- the desktop apps: one job per (leg, group)
@@ -428,7 +459,19 @@ def plan(m=None, e2e=False):
                 leg=leg, group=i, groups=len(groups), apps=" ".join(group), os=LEG_RUNNER[leg], os_suffix=OS_SUFFIX[leg],
                 bin_ext=BIN_EXT.get(leg, ""), codegen_os=LEG_CODEGEN_OS[leg], lib_artifact=f"demolib-{leg}",
                 lib_file=t["lib_file"], target=t["target"], deployment_target=t.get("deployment_target", ""),
-                artifact=f"demoapps-{leg}-{i}", results_artifact=f"demoresults-{leg}-{i}"))
+                artifact=f"demoapps-{leg}-{i}", results_artifact=f"demoresults-{leg}-{i}", variant=""))
+    if e2e:   # the QA builds of the desktop apps: one job per leg, against the QA library, in artifacts the shipped-files patterns never match
+        for variant, lib in sorted(artifact_only_libs(m, "desktop").items()):
+            for leg in lib["targets"]:
+                qa_apps = [a["package"] for a in m["app"] if a.get("e2e") and a["e2e_desktop_lib"] == variant and leg in a["platforms"]]
+                if not qa_apps:
+                    continue
+                t = desktop_targets[leg]
+                apps_by_family[family[leg]].append(dict(
+                    leg=leg, group=1, groups=1, apps=" ".join(qa_apps), os=LEG_RUNNER[leg], os_suffix=OS_SUFFIX[leg],
+                    bin_ext=BIN_EXT.get(leg, ""), codegen_os=LEG_CODEGEN_OS[leg], lib_artifact=f"demolib-{leg}-{variant}",
+                    lib_file=t["lib_file"], target=t["target"], deployment_target=t.get("deployment_target", ""),
+                    artifact=f"demoe2e-{leg}", results_artifact=f"demoresults-{leg}-e2e", variant=variant))
     for k, v in apps_by_family.items():
         out["apps_" + k] = v
     # --- the phone apps: one job per target, every app of it against its own variant of the library
@@ -446,7 +489,7 @@ def plan(m=None, e2e=False):
                 lib_artifacts=" ".join(sorted({f"demolib-{col}-{a['mobile_lib']}" for a in apps})),
                 artifact=f"demoapps-{col}", results_artifact=f"demoresults-{col}", variant=""))
         if e2e:   # the QA builds: the same app build against the artifact-only lib, in artifacts the shipped-files patterns never match
-            for variant, lib in sorted(artifact_only_libs(m).items()):
+            for variant, lib in sorted(artifact_only_libs(m, "phone").items()):
                 for col, target in MOBILE_TARGETS.items():
                     apps = [a for a in m["app"] if a.get("e2e") and a["e2e_lib"] == variant and col in columns_of(a)]
                     if col.startswith(kind) and col in lib["targets"] and apps:
@@ -817,13 +860,13 @@ def main(argv):
             print(line)
         return 0
     if cmd == "features":
-        # demo_apps.py features <leg> <variant>: the cargo features of one phone library of the plan (the QA variant included), for the
-        # scripts that build one by hand (scripts/ci/ios_build_qa.sh)
+        # demo_apps.py features <leg> <variant>: the cargo features of one library of the plan (the QA variants included), for the
+        # scripts that build one by hand (scripts/ci/ios_build_qa.sh, scripts/ci/desktop_e2e_build.sh)
         if len(rest) != 2:
-            print("usage: demo_apps.py features <leg> <variant>   (leg: android-arm64, android-x86_64, ios-device, ios-sim)", file=sys.stderr)
+            print("usage: demo_apps.py features <leg> <variant>   (leg: android-*, ios-*, linux, macos-*, windows)", file=sys.stderr)
             return 2
         planned = plan(e2e=True)
-        for key in ("libs_android", "libs_ios"):
+        for key in ("libs_android", "libs_ios", "libs_linux", "libs_macos", "libs_windows"):
             for entry in planned[key]:
                 if entry["leg"] == rest[0] and entry["variant"] == rest[1]:
                     print(entry["features"])
