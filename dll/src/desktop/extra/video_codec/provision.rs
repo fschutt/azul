@@ -122,10 +122,10 @@ pub fn probe_hw_decode() -> HwDecodeProbe {
         };
     }
     // Android ships MediaCodec, but the probe says what `VideoDecoder::open` does: it asks the
-    // build's own decode engine (a codec really created, or why not), never the OS alone.
+    // build's own decode engine, proven (a codec really created, or why not), never the OS alone.
     #[cfg(target_os = "android")]
     {
-        return probe_of_engine("MediaCodec", super::decode_engine());
+        return probe_of_engine("MediaCodec", super::decode_engine_proven());
     }
     #[cfg(any(target_os = "linux", target_os = "windows"))]
     {
@@ -1098,7 +1098,7 @@ impl VideoEncodeCheck {
     /// Inspection only.
     pub fn run() -> VideoEncodeCheck {
         let (hw, backend, hw_detail) = probe_hw_encode();
-        let build = super::encode_engine();
+        let build = super::encode_engine_proven();
         let ready = hw && build.is_ok();
         let software_fallback = software_x264_available();
         let summary = if ready {
@@ -1159,10 +1159,11 @@ fn probe_hw_encode() -> (bool, &'static str, String) {
             String::from("Apple VideoToolbox (built into the OS)"),
         );
     }
-    // As the decode probe: what `VideoEncoder::open` does, from the build's own encode engine.
+    // As the decode probe: what `VideoEncoder::open` does, from the build's own encode engine,
+    // proven.
     #[cfg(target_os = "android")]
     {
-        let probe = probe_of_engine("MediaCodec", super::encode_engine());
+        let probe = probe_of_engine("MediaCodec", super::encode_engine_proven());
         return (probe.available, probe.backend, probe.detail);
     }
     #[cfg(any(target_os = "linux", target_os = "windows"))]

@@ -9136,6 +9136,46 @@ mod audit_a9_report_tests {
     }
 }
 
+/// Writes a file a scenario asked for (a damage picture) at `path`, creating its folders. A RELATIVE path that cannot be written - a phone's
+/// app has no writable working directory (`target/e2e/x.png` failed with "Read-only file system" on the iOS Simulator and no scenario that
+/// asks for such a file could pass there) - is written under `fallback_dir` (the temp dir) with its file name instead; an absolute path is the
+/// scenario's own decision and fails as it is. -> the path written.
+#[cfg(feature = "std")]
+fn write_e2e_artifact(
+    path: &str,
+    bytes: &[u8],
+    fallback_dir: &std::path::Path,
+) -> std::io::Result<std::path::PathBuf> {
+    write_e2e_artifact_with(path, bytes, fallback_dir, &|target: &std::path::Path, data: &[u8]| {
+        if let Some(parent) = target.parent().filter(|p| !p.as_os_str().is_empty()) {
+            std::fs::create_dir_all(parent)?;
+        }
+        std::fs::write(target, data)
+    })
+}
+
+/// [`write_e2e_artifact`] with the writer given, so a test can fail the first write the way a sandbox does.
+#[cfg(feature = "std")]
+fn write_e2e_artifact_with(
+    path: &str,
+    bytes: &[u8],
+    fallback_dir: &std::path::Path,
+    write: &dyn Fn(&std::path::Path, &[u8]) -> std::io::Result<()>,
+) -> std::io::Result<std::path::PathBuf> {
+    let target = std::path::Path::new(path);
+    match write(target, bytes) {
+        Ok(()) => Ok(target.to_path_buf()),
+        Err(first) if target.is_relative() => {
+            let name = target
+                .file_name()
+                .map_or_else(|| std::ffi::OsString::from("e2e-artifact.png"), std::ffi::OsString::from);
+            let fallback = fallback_dir.join(name);
+            write(&fallback, bytes).map(|()| fallback).map_err(|_| first)
+        }
+        Err(first) => Err(first),
+    }
+}
+
 /// Render the PARTIAL SCREEN UPDATE as a PNG: the current frame masked to the
 /// damage region (pixels outside the damaged rects are transparent), optionally
 /// cropped to the damage bounding box.
@@ -18632,12 +18672,8 @@ fn serve_debug_event(
                     // left the directory behind. A scenario must not depend on
                     // leftover build artefacts to pass.
                     Ok(png) => {
-                        let parent_ok = std::path::Path::new(path.as_str())
-                            .parent()
-                            .filter(|p| !p.as_os_str().is_empty())
-                            .map_or(Ok(()), std::fs::create_dir_all);
-                        match parent_ok.and_then(|()| std::fs::write(path, &png)) {
-                            Ok(()) => send_ok(request, None, None),
+                        match write_e2e_artifact(path, &png, &std::env::temp_dir()) {
+                            Ok(_) => send_ok(request, None, None),
                             Err(e) => send_err(
                                 request,
                                 format!("capture_damage_png: cannot write {path}: {e}"),
@@ -26133,5 +26169,72 @@ mod display_list_gradient_tests {
         );
         let unresolved = gradient_item_info(0, "conic_gradient", bounds, &[], 0, 0);
         assert_eq!(unresolved.color, None, "no concrete stop: no colour");
+    }
+}
+
+#[cfg(all(test, feature = "std"))]
+mod e2e_artifact_write_tests {
+    use super::write_e2e_artifact_with;
+    use std::{
+        cell::RefCell,
+        io::{Error, ErrorKind},
+        path::{Path, PathBuf},
+    };
+
+    /// A writer that refuses every path under `/readonly` and remembers what it was asked to write, as an app's sandbox refuses its working
+    /// directory (the iOS Simulator: "Read-only file system").
+    fn sandbox<'a>(written: &'a RefCell<Vec<PathBuf>>) -> impl Fn(&Path, &[u8]) -> std::io::Result<()> + 'a {
+        move |target: &Path, _data: &[u8]| {
+            if target.is_relative() || target.starts_with("/readonly") {
+                Err(Error::new(ErrorKind::PermissionDenied, "Read-only file system"))
+            } else {
+                written.borrow_mut().push(target.to_path_buf());
+                Ok(())
+            }
+        }
+    }
+
+    /// A relative artefact path that cannot be written lands in the temp dir under its file name: the scenario that asked for a damage picture
+    /// (`target/e2e/mount_damage_smoke_patch.png`) must not fail on a phone for want of a writable working directory.
+    ///
+    /// Mutation: no fallback (the first error is returned) fails the `Ok`; a fallback that keeps the folders (`target/e2e/...` under the temp
+    /// dir) fails the path.
+    #[test]
+    fn a_relative_path_that_cannot_be_written_goes_to_the_temp_dir() {
+        let written = RefCell::new(Vec::new());
+        let got = write_e2e_artifact_with("target/e2e/patch.png", b"png", Path::new("/tmp/app-cache"), &sandbox(&written))
+            .expect("the temp dir takes it");
+        assert_eq!(got, PathBuf::from("/tmp/app-cache/patch.png"));
+        assert_eq!(written.borrow().as_slice(), [PathBuf::from("/tmp/app-cache/patch.png")]);
+    }
+
+    /// An absolute path is the scenario's own decision: it is not moved, and its failure is reported as it is.
+    #[test]
+    fn an_absolute_path_that_cannot_be_written_fails_as_it_is() {
+        let written = RefCell::new(Vec::new());
+        let err = write_e2e_artifact_with("/readonly/x.png", b"png", Path::new("/tmp/app-cache"), &sandbox(&written)).unwrap_err();
+        assert_eq!(err.kind(), ErrorKind::PermissionDenied);
+        assert!(written.borrow().is_empty(), "nothing was written anywhere else");
+    }
+
+    /// A path that can be written is written where it says (the repo-relative `target/e2e` of the desktop CI keeps working).
+    #[test]
+    fn a_path_that_can_be_written_is_written_where_it_says() {
+        let written = RefCell::new(Vec::new());
+        let writer = |target: &Path, _data: &[u8]| -> std::io::Result<()> {
+            written.borrow_mut().push(target.to_path_buf());
+            Ok(())
+        };
+        let got = write_e2e_artifact_with("target/e2e/patch.png", b"png", Path::new("/tmp/app-cache"), &writer).expect("written");
+        assert_eq!(got, PathBuf::from("target/e2e/patch.png"));
+        assert_eq!(written.borrow().len(), 1);
+    }
+
+    /// When the fallback cannot be written either, the FIRST error is the one reported (it names the path the scenario asked for).
+    #[test]
+    fn when_the_fallback_fails_too_the_first_error_is_reported() {
+        let writer = |_: &Path, _: &[u8]| -> std::io::Result<()> { Err(Error::new(ErrorKind::PermissionDenied, "first")) };
+        let err = write_e2e_artifact_with("a/b.png", b"png", Path::new("/tmp/app-cache"), &writer).unwrap_err();
+        assert_eq!(err.to_string(), "first");
     }
 }

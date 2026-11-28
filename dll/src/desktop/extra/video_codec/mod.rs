@@ -14,10 +14,11 @@
 //!   - anything else: none (encode/decode no-op).
 //! [`VideoEncoder::backend_name`] reports the selection. The handles are
 //! honest: `open` returns an invalid handle (`is_open()` false) wherever this
-//! build has no working engine (today: encode and decode via VideoToolbox, or
+//! build has no working engine (today: encode and decode via VideoToolbox,
+//! MediaCodec on Android (`mediacodec.rs`: the NDK's `AMediaCodec` through a
+//! dlopen'd `libmediandk.so`, hardware or the system's software codec), or
 //! Vulkan Video on x86_64 + `video-native` - encode where the GPU has
-//! `VK_KHR_video_encode_h264`; no MediaCodec backend yet - an Android build
-//! reports "not available" with that reason - and no H.265 anywhere),
+//! `VK_KHR_video_encode_h264`; no H.265 anywhere),
 //! so an open handle always produces output. `VideoEncodeCheck`,
 //! `VideoStartupCheck` and `PlatformCapability::video_codec` answer from the
 //! same engine checks.
@@ -56,7 +57,7 @@ pub mod pipeline;
 
 // Real Vulkan Video H.264 decoder (Linux + Windows). Behind `video-native`; the
 // gpu-video wiring + NV12->RGBA CPU conversion live here. Other platforms keep
-// the stub (Apple: VideoToolbox / Android: MediaCodec land later).
+// the stub (Apple: VideoToolbox / Android: MediaCodec have their own backends).
 #[cfg(az_gpu_video)]
 mod decode_vulkan;
 
@@ -78,6 +79,18 @@ mod videotoolbox;
 // drivers for me?" flow.
 pub mod provision;
 
+// The MediaCodec backend (Android): the NDK's AMediaCodec through a dlopen'd libmediandk.so. Its
+// pure parts (the H.264 bitstream helpers, the YUV layouts, the limits and the waits) are
+// compiled for the host's tests too, so a Linux runner tests them.
+#[cfg(any(target_os = "android", test))]
+mod h264;
+#[cfg(any(target_os = "android", test))]
+mod mediacodec_plan;
+#[cfg(any(target_os = "android", test))]
+mod yuv420;
+#[cfg(target_os = "android")]
+mod mediacodec;
+
 // The one-call startup readiness check + its outcome — the FFI/DLL surface an
 // app uses at launch to verify the box is ready for hardware video decode.
 pub use provision::{VideoProvisionOutcome, VideoStartupCheck};
@@ -96,24 +109,30 @@ fn backend() -> &'static str {
 }
 
 /// Whether this build contains a real DECODE engine that `DecoderInner` can
-/// hold (Vulkan Video on x86_64 Linux/Windows behind `video-native`, or the
-/// dlopen'd VideoToolbox on Apple behind `libloading`). Without one,
-/// `VideoDecoder::open` hands out an invalid handle.
+/// hold (Vulkan Video on x86_64 Linux/Windows behind `video-native`, the
+/// dlopen'd VideoToolbox on Apple behind `libloading`, or MediaCodec on
+/// Android). Without one, `VideoDecoder::open` hands out an invalid handle.
 const fn decode_engine_compiled() -> bool {
     cfg!(az_gpu_video)
         || cfg!(all(
             any(target_os = "macos", target_os = "ios"),
             feature = "libloading"
         ))
+        || cfg!(target_os = "android")
 }
 
 /// The H.264 ENCODE engine of this BUILD on this machine: `Ok(backend)` when
 /// one is compiled in and loads here, `Err(why not)` otherwise: VideoToolbox
-/// (Apple + `libloading`), or Vulkan Video (`az_gpu_video`) where the driver
-/// encodes H.264; MediaCodec is not wired. `VideoEncoder::open` and
-/// `VideoEncodeCheck` both answer
-/// from here, so neither claims an encoder that cannot give a packet back.
+/// (Apple + `libloading`), Vulkan Video (`az_gpu_video`) where the driver
+/// encodes H.264, or MediaCodec (Android: the NDK's media library loads).
+/// `VideoEncoder::open` asks it before it makes an engine; the capability and
+/// `VideoEncodeCheck` ask [`encode_engine_proven`]. Neither claims an encoder
+/// that cannot give a packet back.
 pub(crate) fn encode_engine() -> Result<String, String> {
+    #[cfg(target_os = "android")]
+    {
+        mediacodec::availability().map(|()| String::from("MediaCodec"))
+    }
     #[cfg(az_gpu_video)]
     {
         // Asked of the driver once per process (a Vulkan instance each time
@@ -140,13 +159,12 @@ pub(crate) fn encode_engine() -> Result<String, String> {
     }
     #[cfg(not(any(
         all(any(target_os = "macos", target_os = "ios"), feature = "libloading"),
-        az_gpu_video
+        az_gpu_video,
+        target_os = "android"
     )))]
     {
         let why = if cfg!(any(target_os = "macos", target_os = "ios")) {
             "this build has no `libloading` feature, so the VideoToolbox backend is compiled out"
-        } else if cfg!(target_os = "android") {
-            "the MediaCodec backend is not implemented yet"
         } else if cfg!(any(target_os = "linux", target_os = "windows")) {
             "this build has no Vulkan Video (H.264 encode needs `video-native` on x86_64 \
              Linux (glibc) or Windows)"
@@ -174,9 +192,45 @@ pub(crate) fn decode_engine() -> Result<String, String> {
             ))
         }
     }
-    #[cfg(not(all(any(target_os = "macos", target_os = "ios"), feature = "libloading")))]
+    #[cfg(target_os = "android")]
+    {
+        mediacodec::availability().map(|()| String::from("MediaCodec"))
+    }
+    #[cfg(not(any(
+        all(any(target_os = "macos", target_os = "ios"), feature = "libloading"),
+        target_os = "android"
+    )))]
     {
         Ok(String::from("Vulkan Video"))
+    }
+}
+
+/// [`encode_engine`], proven: where the engine is the OS's codec service
+/// (Android) a codec is really created, named and deleted, so the answer is
+/// `Ok("MediaCodec (c2.android.avc.encoder, software)")` only for a device that
+/// has one, and the reason otherwise. The capability probes and the check
+/// structs ask this; `VideoEncoder::open` does not (it creates the codec
+/// itself next, and says why not).
+pub(crate) fn encode_engine_proven() -> Result<String, String> {
+    #[cfg(target_os = "android")]
+    {
+        mediacodec::prove(true)
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        encode_engine()
+    }
+}
+
+/// [`decode_engine`], proven (see [`encode_engine_proven`]).
+pub(crate) fn decode_engine_proven() -> Result<String, String> {
+    #[cfg(target_os = "android")]
+    {
+        mediacodec::prove(false)
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        decode_engine()
     }
 }
 
@@ -198,9 +252,7 @@ fn say_not_open(what: &str, why: &str) {
 /// "no data yet" — same say-so-when-inert contract as
 /// `shell2::run::warn_about_inert_env_knobs`.
 fn decode_engine_missing_reason() -> String {
-    if cfg!(target_os = "android") {
-        "the MediaCodec backend is not implemented yet".to_string()
-    } else if cfg!(any(target_os = "macos", target_os = "ios")) {
+    if cfg!(any(target_os = "macos", target_os = "ios")) {
         "this build has no `libloading` feature, so the VideoToolbox backend is compiled out"
             .to_string()
     } else if !cfg!(feature = "video-native") {
@@ -226,7 +278,8 @@ fn decode_engine_missing_reason() -> String {
 #[cfg_attr(
     not(any(
         all(any(target_os = "macos", target_os = "ios"), feature = "libloading"),
-        az_gpu_video
+        az_gpu_video,
+        target_os = "android"
     )),
     allow(dead_code)
 )]
@@ -376,7 +429,8 @@ impl<J: Send + 'static> Drop for CodecThread<J> {
 #[cfg_attr(
     not(any(
         all(any(target_os = "macos", target_os = "ios"), feature = "libloading"),
-        az_gpu_video
+        az_gpu_video,
+        target_os = "android"
     )),
     allow(dead_code)
 )]
@@ -394,7 +448,8 @@ enum EncodeJob {
 #[cfg_attr(
     not(any(
         all(any(target_os = "macos", target_os = "ios"), feature = "libloading"),
-        az_gpu_video
+        az_gpu_video,
+        target_os = "android"
     )),
     allow(dead_code)
 )]
@@ -420,18 +475,22 @@ struct EncoderInner {
 /// [`DecodeEngine`] for decoding.
 #[cfg(any(
     all(any(target_os = "macos", target_os = "ios"), feature = "libloading"),
-    az_gpu_video
+    az_gpu_video,
+    target_os = "android"
 ))]
 enum EncodeEngine {
     #[cfg(all(any(target_os = "macos", target_os = "ios"), feature = "libloading"))]
     Vt(videotoolbox::VtEncoder),
     #[cfg(az_gpu_video)]
     Vulkan(encode_vulkan::VulkanVideoEncoder),
+    #[cfg(target_os = "android")]
+    MediaCodec(mediacodec::MediaCodecEncoder),
 }
 
 #[cfg(any(
     all(any(target_os = "macos", target_os = "ios"), feature = "libloading"),
-    az_gpu_video
+    az_gpu_video,
+    target_os = "android"
 ))]
 impl EncodeEngine {
     /// A live `width` x `height` H.264 engine at `bitrate_kbps`, and whether
@@ -456,6 +515,13 @@ impl EncodeEngine {
             let vulkan = encode_vulkan::VulkanVideoEncoder::open(width, height, bitrate_kbps)?;
             Ok((EncodeEngine::Vulkan(vulkan), true))
         }
+        #[cfg(target_os = "android")]
+        {
+            // MediaCodec says by its codec's name whether it is hardware.
+            let encoder = mediacodec::MediaCodecEncoder::open(width, height, bitrate_kbps)?;
+            let hardware = encoder.hardware();
+            Ok((EncodeEngine::MediaCodec(encoder), hardware))
+        }
     }
 
     /// The rate the engine spends now (kbit/s).
@@ -465,6 +531,8 @@ impl EncodeEngine {
             EncodeEngine::Vt(vt) => vt.bitrate_kbps(),
             #[cfg(az_gpu_video)]
             EncodeEngine::Vulkan(vulkan) => vulkan.bitrate_kbps(),
+            #[cfg(target_os = "android")]
+            EncodeEngine::MediaCodec(codec) => codec.bitrate_kbps(),
         }
     }
 
@@ -475,22 +543,78 @@ impl EncodeEngine {
             EncodeEngine::Vt(vt) => vt.set_bitrate(kbps),
             #[cfg(az_gpu_video)]
             EncodeEngine::Vulkan(vulkan) => vulkan.set_bitrate(kbps),
+            #[cfg(target_os = "android")]
+            EncodeEngine::MediaCodec(codec) => codec.set_bitrate(kbps),
         }
     }
 
-    /// One frame's Annex-B packets: stamped `micros` (an export), else with
-    /// the wall clock (a live call).
-    fn encode(&mut self, frame: &VideoFrame, force_keyframe: bool, micros: Option<i64>) -> Vec<u8> {
+    /// The Annex-B packets that came out of this frame: stamped `micros` (an
+    /// export), else with the wall clock (a live call). VideoToolbox and
+    /// Vulkan Video give this frame's own packet at once; MediaCodec gives what
+    /// its codec has ready, which can be an earlier frame's or none yet.
+    fn encode(
+        &mut self,
+        frame: &VideoFrame,
+        force_keyframe: bool,
+        micros: Option<i64>,
+    ) -> Vec<Vec<u8>> {
+        #[cfg(any(
+            all(any(target_os = "macos", target_os = "ios"), feature = "libloading"),
+            az_gpu_video
+        ))]
+        let one = |chunk: Vec<u8>| if chunk.is_empty() { Vec::new() } else { vec![chunk] };
         match self {
             #[cfg(all(any(target_os = "macos", target_os = "ios"), feature = "libloading"))]
-            EncodeEngine::Vt(vt) => match micros {
+            EncodeEngine::Vt(vt) => one(match micros {
                 Some(micros) => vt.encode_at(frame, force_keyframe, micros),
                 None => vt.encode(frame, force_keyframe),
-            },
+            }),
             #[cfg(az_gpu_video)]
-            EncodeEngine::Vulkan(vulkan) => vulkan.encode(frame, force_keyframe, micros),
+            EncodeEngine::Vulkan(vulkan) => one(vulkan.encode(frame, force_keyframe, micros)),
+            #[cfg(target_os = "android")]
+            EncodeEngine::MediaCodec(codec) => codec.encode(frame, force_keyframe, micros),
         }
     }
+
+    /// The packets the engine still owes for the frames it took: what `flush`
+    /// of the handle waits for. VideoToolbox and Vulkan Video owe none (they
+    /// answer inside `encode`); a MediaCodec answers a little later.
+    fn flush(&mut self) -> Vec<Vec<u8>> {
+        match self {
+            #[cfg(all(any(target_os = "macos", target_os = "ios"), feature = "libloading"))]
+            EncodeEngine::Vt(_) => Vec::new(),
+            #[cfg(az_gpu_video)]
+            EncodeEngine::Vulkan(_) => Vec::new(),
+            #[cfg(target_os = "android")]
+            EncodeEngine::MediaCodec(codec) => codec.flush(),
+        }
+    }
+}
+
+/// How many encoded packets wait for `recv_packet` before the oldest is
+/// dropped: an app that does not take them (a call that stopped reading) must
+/// not grow the queue for ever. An export takes every packet after its frame.
+const ENCODED_PACKET_CAP: usize = 1024;
+
+/// Queues one encoded packet for `recv_packet`, dropping the oldest when the
+/// queue is full.
+#[cfg_attr(
+    not(any(
+        all(any(target_os = "macos", target_os = "ios"), feature = "libloading"),
+        az_gpu_video,
+        target_os = "android"
+    )),
+    allow(dead_code)
+)]
+fn push_packet(queue: &std::sync::Mutex<std::collections::VecDeque<U8Vec>>, chunk: Vec<u8>) {
+    if chunk.is_empty() {
+        return;
+    }
+    let mut queue = lock(queue);
+    while queue.len() >= ENCODED_PACKET_CAP {
+        queue.pop_front();
+    }
+    queue.push_back(U8Vec::from_vec(chunk));
 }
 
 impl EncoderInner {
@@ -500,7 +624,8 @@ impl EncoderInner {
     fn open_h264(width: u32, height: u32, bitrate_kbps: u32) -> Result<EncoderInner, String> {
         #[cfg(any(
             all(any(target_os = "macos", target_os = "ios"), feature = "libloading"),
-            az_gpu_video
+            az_gpu_video,
+            target_os = "android"
         ))]
         {
             let packets = std::sync::Arc::new(std::sync::Mutex::new(
@@ -530,12 +655,15 @@ impl EncoderInner {
                         // (VideoToolbox: NV12 into a pooled buffer as it is,
                         // BGRA as it is, RGBA swizzled; Vulkan Video: NV12 as
                         // it is, RGB converted once).
-                        let chunk = engine.encode(&frame, force_keyframe, micros);
-                        if !chunk.is_empty() {
-                            lock(&out).push_back(U8Vec::from_vec(chunk));
+                        for chunk in engine.encode(&frame, force_keyframe, micros) {
+                            push_packet(&out, chunk);
                         }
                     }
                     EncodeJob::Flush(done) => {
+                        // Packets a codec still owes come out now.
+                        for chunk in engine.flush() {
+                            push_packet(&out, chunk);
+                        }
                         let _ = done.send(());
                     }
                 },
@@ -551,7 +679,8 @@ impl EncoderInner {
         }
         #[cfg(not(any(
             all(any(target_os = "macos", target_os = "ios"), feature = "libloading"),
-            az_gpu_video
+            az_gpu_video,
+            target_os = "android"
         )))]
         {
             let _ = (width, height, bitrate_kbps);
@@ -569,17 +698,24 @@ struct DecodeEngine {
     vulkan: Option<decode_vulkan::VulkanVideoDecoder>,
     #[cfg(all(any(target_os = "macos", target_os = "ios"), feature = "libloading"))]
     vt: Option<videotoolbox::VtDecoder>,
+    #[cfg(target_os = "android")]
+    media_codec: Option<mediacodec::MediaCodecDecoder>,
 }
 
 impl DecodeEngine {
     /// A live H.264 decode engine, or why none opens here. Only called once
     /// [`decode_engine`] said this build has one.
     fn open_h264() -> Result<DecodeEngine, String> {
+        // MediaCodec says why it did not open; the others only that they did not.
+        #[cfg(target_os = "android")]
+        let media_codec = mediacodec::MediaCodecDecoder::open_h264()?;
         let engine = DecodeEngine {
             #[cfg(az_gpu_video)]
             vulkan: decode_vulkan::VulkanVideoDecoder::open_h264(),
             #[cfg(all(any(target_os = "macos", target_os = "ios"), feature = "libloading"))]
             vt: videotoolbox::VtDecoder::open_h264(),
+            #[cfg(target_os = "android")]
+            media_codec: Some(media_codec),
         };
         if engine.is_live() {
             Ok(engine)
@@ -600,6 +736,10 @@ impl DecodeEngine {
         if self.vt.is_some() {
             return true;
         }
+        #[cfg(target_os = "android")]
+        if self.media_codec.is_some() {
+            return true;
+        }
         false
     }
 
@@ -612,6 +752,10 @@ impl DecodeEngine {
         #[cfg(all(any(target_os = "macos", target_os = "ios"), feature = "libloading"))]
         if let Some(vt) = self.vt.as_mut() {
             out.extend(vt.decode(data));
+        }
+        #[cfg(target_os = "android")]
+        if let Some(codec) = self.media_codec.as_mut() {
+            out.extend(codec.decode(data));
         }
         let _ = (data, out);
     }
@@ -626,6 +770,10 @@ impl DecodeEngine {
         if let Some(vt) = self.vt.as_mut() {
             out.extend(vt.flush());
         }
+        #[cfg(target_os = "android")]
+        if let Some(codec) = self.media_codec.as_mut() {
+            out.extend(codec.flush());
+        }
         let _ = out;
     }
 
@@ -637,6 +785,10 @@ impl DecodeEngine {
         #[cfg(all(any(target_os = "macos", target_os = "ios"), feature = "libloading"))]
         if let Some(vt) = self.vt.as_mut() {
             vt.set_output_format(format);
+        }
+        #[cfg(target_os = "android")]
+        if let Some(codec) = self.media_codec.as_mut() {
+            codec.set_output_format(format);
         }
         let _ = format;
     }
@@ -692,9 +844,45 @@ enum DecodeRunner {
     Here(DecodeEngine),
 }
 
+/// How many chunks may wait for a decoder's thread before `decode` refuses the next: a codec
+/// that stalled must not grow its queue for ever. A call's decoder is a few chunks behind;
+/// 512 is seventeen seconds of 30 fps video.
+const DECODE_QUEUE_CHUNKS: usize = 512;
+
+/// The chunks queued for a decoder's thread and not decoded yet. Shared by the handle (which
+/// counts one in) and the codec thread (which counts one out): a counter of the queue, owned by
+/// the decoder it belongs to.
+#[derive(Debug, Clone, Default)]
+struct Backlog(std::sync::Arc<core::sync::atomic::AtomicUsize>);
+
+impl Backlog {
+    /// Counts one more chunk in, unless `cap` of them wait already.
+    fn try_add(&self, cap: usize) -> bool {
+        use core::sync::atomic::Ordering;
+        self.0
+            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |n| (n < cap).then_some(n + 1))
+            .is_ok()
+    }
+
+    /// One chunk is decoded, or was not queued after all.
+    fn done(&self) {
+        use core::sync::atomic::Ordering;
+        let _ = self
+            .0
+            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |n| Some(n.saturating_sub(1)));
+    }
+
+    /// How many chunks wait.
+    fn len(&self) -> usize {
+        self.0.load(core::sync::atomic::Ordering::Acquire)
+    }
+}
+
 struct DecoderInner {
     /// Chunks handed to `decode` so far.
     frames_decoded: u64,
+    /// The chunks that wait for the codec thread.
+    backlog: Backlog,
     /// Decoded frames not yet pulled with `recv_frame` / `next_frame`,
     /// whichever backend produced them.
     ready: std::sync::Arc<std::sync::Mutex<std::collections::VecDeque<VideoFrame>>>,
@@ -706,19 +894,28 @@ impl DecoderInner {
     /// on the caller's thread; or why none opens here.
     fn open_h264(threaded: bool) -> Result<DecoderInner, String> {
         let ready = std::sync::Arc::new(std::sync::Mutex::new(std::collections::VecDeque::new()));
+        let backlog = Backlog::default();
         let runner = if threaded {
             let into = std::sync::Arc::clone(&ready);
+            let counted = backlog.clone();
             DecodeRunner::Thread(CodecThread::spawn(
                 "azul-video-decode",
                 None,
                 DecodeEngine::open_h264,
-                move |engine: &mut DecodeEngine, job: DecodeJob| engine.run(job, &into),
+                move |engine: &mut DecodeEngine, job: DecodeJob| {
+                    let chunk = matches!(job, DecodeJob::Chunk(_));
+                    engine.run(job, &into);
+                    if chunk {
+                        counted.done();
+                    }
+                },
             )?)
         } else {
             DecodeRunner::Here(DecodeEngine::open_h264()?)
         };
         Ok(DecoderInner {
             frames_decoded: 0,
+            backlog,
             ready,
             runner,
         })
@@ -727,7 +924,18 @@ impl DecoderInner {
     /// Hands `job` to the engine: queued on its thread, or run right here.
     fn submit(&mut self, job: DecodeJob) -> bool {
         match &mut self.runner {
-            DecodeRunner::Thread(thread) => thread.offer(job),
+            DecodeRunner::Thread(thread) => {
+                // A chunk is refused when the thread is DECODE_QUEUE_CHUNKS behind.
+                let chunk = matches!(job, DecodeJob::Chunk(_));
+                if chunk && !self.backlog.try_add(DECODE_QUEUE_CHUNKS) {
+                    return false;
+                }
+                let taken = thread.offer(job);
+                if chunk && !taken {
+                    self.backlog.done();
+                }
+                taken
+            }
             DecodeRunner::Here(engine) => {
                 engine.run(job, &self.ready);
                 true
@@ -765,10 +973,12 @@ impl VideoEncoder {
     /// Open an encoder for `width` x `height`, H.265 if `h265` else H.264, at
     /// `bitrate_kbps`. Uses the platform-native backend ([`backend_name`]).
     /// Returns an invalid handle (`is_open()` false) wherever this build
-    /// cannot encode: no engine compiled in (Android today; Linux / Windows
-    /// without `video-native`), a GPU without Vulkan Video H.264 encode, the
-    /// engine does not load or refuses the size, or H.265 (no backend
-    /// implements it yet). An open handle gives packets back.
+    /// cannot encode: no engine compiled in (Linux / Windows without
+    /// `video-native`), a GPU without Vulkan Video H.264 encode, a device
+    /// without an H.264 MediaCodec encoder, the engine does not load or
+    /// refuses the size (MediaCodec takes even sides from 16 to 4096 pixels),
+    /// or H.265 (no backend implements it yet). An open handle gives packets
+    /// back.
     pub fn open(width: u32, height: u32, h265: bool, bitrate_kbps: u32) -> VideoEncoder {
         let engine = if h265 {
             Err(String::from("H.265 encode is not wired yet (H.264 only)"))
@@ -1238,7 +1448,8 @@ impl VideoDecoder {
     }
 
     /// Submit one encoded chunk (Annex-B H.264). Returns `true` if the chunk
-    /// was taken (the decoder is open). It is decoded on the decoder's own
+    /// was taken (the decoder is open and not 512 chunks behind: a codec that
+    /// stalled refuses chunks instead of queueing them for ever). It is decoded on the decoder's own
     /// thread; the frames come out of [`recv_frame`](Self::recv_frame) once
     /// decoded - later than this call, and decode is pipelined and B-frame
     /// reordered, so one chunk can yield zero or several frames. The same
@@ -1719,3 +1930,7 @@ mod codec_thread_tests {
         drop(thread);
     }
 }
+
+#[cfg(test)]
+#[path = "backlog_test.rs"]
+mod backlog_test;
