@@ -48,7 +48,7 @@ use azul::{
         AboutDialog, CheckBoxState, ComboBox, ComboBoxState, SummaryList,
         SummaryListEvent, Modal, ModalState, StandardDialogEvent,
         SummaryListEventKind, SummaryRow,
-        Ribbon, RibbonArrow, RibbonBehavior, RibbonButton, RibbonGallery,
+        Ribbon, RibbonArrow, RibbonBehavior, RibbonButton, RibbonButtonFace, RibbonGallery,
         RibbonGalleryCell, RibbonGroup, RibbonItem, RibbonStyle, RibbonTab,
         StatusBar, SliderState, StatusBarSegment, StatusBarSync, StatusBarSyncKind, StatusBarZoom,
         TabLabels, TabStyle, ToDoBar, ToDoBarEvent, ToDoBarEventKind, ToDoTask,
@@ -1357,6 +1357,9 @@ pub(crate) fn ribbon(s: &MailApp, app: &RefAny, file_open: bool, strip: &ui_fram
         // on a desktop.
         .with_tab_style(if phone { TabStyle::TouchPills } else { TabStyle::Pills })
         .with_labels(TabLabels::Auto)
+        // Apple's rule, as the wireframe has it: a button shows its words OR its icon, never both
+        // (the label is the name and the tooltip of an icon): words on a desktop, icons on a phone.
+        .with_button_face(if phone { RibbonButtonFace::Icon } else { RibbonButtonFace::Text })
         .with_available_width(strip.width);
     if file_open {
         // File is lit and its band is hidden; no double click can bring the band back (the
