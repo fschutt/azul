@@ -2554,6 +2554,11 @@ impl IOSWindow {
     pub fn rerender_cpu(&mut self) {
         #[cfg(feature = "cpurender")]
         {
+            // VirtualViews whose content arrives later (the map's tiles, delivered by a background writeback that asked for a re-render) are
+            // re-invoked HERE, as on every other shell: the GPU path does it inside `generate_frame`, the CPU path has none, and without this the
+            // queue was never drained: AzMaps showed no tile on the CPU renderer of both phones (the controls and the attribution drew, the map did
+            // not). It also rebuilds the CPU hit tester when a view's content changed.
+            self.common.drain_virtual_view_updates();
             let ws = self.common.current_window_state();
             let width = ws.size.dimensions.width;
             let height = ws.size.dimensions.height;
@@ -2799,6 +2804,11 @@ impl IOSWindow {
         // ready for `displayLayer:` to blit into the layer (Sprint C-iOS).
         #[cfg(feature = "cpurender")]
         if self.backend == RenderBackend::Cpu {
+            // VirtualViews whose content arrives later (the map's tiles, delivered by a background writeback that asked for a re-render) are
+            // re-invoked HERE, as on every other shell: the GPU path does it inside `generate_frame`, the CPU path has none, and without this the
+            // queue was never drained: AzMaps showed no tile on the CPU renderer of both phones (the controls and the attribution drew, the map did
+            // not). It also rebuilds the CPU hit tester when a view's content changed.
+            self.common.drain_virtual_view_updates();
             let ws = self.common.current_window_state();
             let width = ws.size.dimensions.width;
             let height = ws.size.dimensions.height;

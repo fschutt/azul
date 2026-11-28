@@ -362,6 +362,25 @@ pub static UIKIT_GESTURES: UiKitGestures = UiKitGestures {
     deceleration_fast: 0.99,
 };
 
+/// The page of the app in the system's Settings app (`UIApplicationOpenSettingsURLString`): where a person changes a
+/// permission they refused.
+pub const SETTINGS_URL: &str = "app-settings:";
+
+/// The ONE address of "the settings page of this app" that an app writes the same on every platform (Android opens
+/// `ACTION_APPLICATION_DETAILS_SETTINGS` for the package): the iOS opener turns it into [`SETTINGS_URL`].
+pub const SETTINGS_ALIAS: &str = "azul-settings:app";
+
+/// The URL the system is asked to open for what the app asked: the cross-platform alias of the settings page becomes
+/// iOS's own address, every other URL is its own.
+#[must_use]
+pub fn resolve_open_alias(url: &str) -> &str {
+    if url.trim() == SETTINGS_ALIAS {
+        SETTINGS_URL
+    } else {
+        url
+    }
+}
+
 /// The phase of a `UITouch` event, as `handle_touch` reads it (`touchesBegan:` ... `touchesCancelled:`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TouchPhase {

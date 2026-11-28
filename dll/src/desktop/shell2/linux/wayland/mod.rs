@@ -7855,6 +7855,7 @@ impl WaylandWindow {
                             if results.stats.total_draw_calls > 0 {
                                 should_present = true;
                             }
+                            let drew = results.stats.total_draw_calls > 0;
                             // Store dirty rects for wl_surface_damage per-rect hints.
                             let dpi_scale =
                                 self.common.current_window_state().size.dpi as f32 / 96.0;
@@ -7872,6 +7873,15 @@ impl WaylandWindow {
                                     },
                                 })
                                 .collect();
+                            // The frame goes on the window's frame report, with what WebRender says it drew: the
+                            // e2e counters read the report (`LayoutWindow::record_frame`).
+                            let damage = azul_layout::window::FrameDamage::of_gpu_frame(
+                                drew,
+                                &self.gpu_damage_rects,
+                            );
+                            if let Some(lw) = self.common.layout_window.as_mut() {
+                                lw.record_frame(damage.clone(), damage);
+                            }
                         }
                         Err(e) => {
                             log_error!(
@@ -8012,6 +8022,7 @@ impl WaylandWindow {
                     // The both-buffers-held skip below re-raises needs_redraw
                     // deliberately; it must NOT count as "visually complete".
                     let mut present_skipped_buffers_held = false;
+                    let mut cpu_frame_rendered = false;
                     let rendered = if let Some(ref layout_window) = self.common.layout_window {
                         let dom_id = DomId { inner: 0 };
                         // render_frame looks up the layout result itself; we only
@@ -8168,6 +8179,7 @@ impl WaylandWindow {
                                         height,
                                         dpi,
                                     );
+                                    cpu_frame_rendered = true;
                                 }
                                 // Dangle guard: render_frame normally consumes
                                 // the target, but its early returns (no layout
@@ -8518,6 +8530,13 @@ impl WaylandWindow {
                     } else {
                         false
                     };
+                    // The frame goes on the window's frame report (the frames since the last counter reset and the
+                    // damage): the e2e counters read it, not the backend (`CpuBackend::record_last_frame_on`).
+                    if cpu_frame_rendered {
+                        if let Some(lw) = self.common.layout_window.as_mut() {
+                            self.cpu_backend.record_last_frame_on(lw);
+                        }
+                    }
 
                     if !rendered {
                         if cpu_state.acquire_slot().is_some() {
@@ -10483,6 +10502,10 @@ impl WaylandPopup {
                             logical_h,
                             dpi_factor,
                         );
+                        // The popup's frame goes on its window's frame report (`CpuBackend::record_last_frame_on`).
+                        if let Some(lw) = self.common.layout_window.as_mut() {
+                            self.cpu_backend.record_last_frame_on(lw);
+                        }
                         if let Some(ref pixmap) = self.cpu_backend.last_frame {
                             // #27: popups never arm the native target, but
                             // their pool shares the global format choice — an

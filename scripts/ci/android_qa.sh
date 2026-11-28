@@ -141,7 +141,7 @@ for mode in "${mode_list[@]}"; do
     # idle redraws, flash frames of a recording, pan jitter (scripts/ci/flicker_audit.py): $apk = the plain AzWidgets APK, AZ_QA_FLICKER_E2E = its e2e
     # APK, AZ_QA_FLICKER_MAPS = the AzMaps APK
     python3 "$here/flicker_audit.py" android --out "$d/flicker" --apk-plain "$apk" ${AZ_QA_FLICKER_E2E:+--apk-e2e "$AZ_QA_FLICKER_E2E"} \
-      ${AZ_QA_FLICKER_MAPS:+--maps "$AZ_QA_FLICKER_MAPS"} 2>&1 | tee "$d/flicker.log"
+      ${AZ_QA_FLICKER_MAPS:+--maps "$AZ_QA_FLICKER_MAPS"} ${AZ_QA_FLICKER_FLASH_ONLY:+--flash-only} 2>&1 | tee "$d/flicker.log"
   fi
   if [ "$session" = matrix ] && [ "$mode" = "${mode_list[0]}" ]; then
     # every e2e scenario file against its host app (scripts/ci/e2e_matrix.py): the e2e APK of each host (AZ_QA_MATRIX_APKS, space separated)
