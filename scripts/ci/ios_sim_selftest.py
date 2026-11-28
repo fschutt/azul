@@ -9,6 +9,10 @@ What it does, in this order (nothing is erased and nothing is uninstalled; only 
   1. finds the device (by name or UDID among the available ones), boots it when it is shut down;
   2. installs the app, resets ITS privacy decisions (`simctl privacy reset all <bundle>`), enrols Face ID / Touch ID, sets a
      location and the light appearance;
+  2b. FONTS: launches the app twice as a person starts it, with the startup timeline on (`AZ_STARTUP=1`), and prints the font cache
+     lines of each (`fonts:cache hit|miss|rebuilt ...`) and what the app's container holds of the cache (`Library/Caches/rfc/fonts`):
+     the second launch must be a HIT (the startup agent's proof of the cache guard on iOS; a `rebuilt (... first: <path>)` names the
+     path whose stat fails in the sandbox);
   3. RUN "fresh": launches the app unattended (`AZ_SELFTEST=1`) with `AZ_SELFTEST_FED=1`, which says that this script answers
      every `AZ_SELFTEST_AWAIT <key>` line the app prints while a row waits for a person (the biometric sheet: a face that
      matches). It saves two screenshots (a few seconds in, and at the end: a system permission sheet that nobody answered
@@ -220,6 +224,28 @@ def check_display(report, device_name):
     return [f"system.display_features on {device_name} lacks {missing}: {row.get('detail')}"] if missing else []
 
 
+def font_lines(text):
+    """The startup timeline's lines about the font cache (`fonts:cache hit|miss|rebuilt ...`, `fonts:cache_written ...`)."""
+    return [line.strip() for line in text.splitlines() if "fonts:" in line]
+
+
+def font_cache_findings(first, second):
+    """-> [str]: what the two launches' font lines say that is not a working cache. The first launch of an install builds it
+    (a miss) and writes it; the second must be a HIT, and the cache must not be written again (a `rebuilt (... first: <path>)`
+    verdict on every launch means a stat of a font path fails under the sandbox: the first path is named)."""
+    found = []
+    joined_first, joined_second = " | ".join(first), " | ".join(second)
+    if not first:
+        found.append("fonts: the first launch printed no font cache line (AZ_STARTUP=1 shows the timeline: is the build older than the cache guard?)")
+    if not second:
+        found.append("fonts: the second launch printed no font cache line")
+    elif "cache hit" not in joined_second:
+        found.append(f"fonts: the second launch did not hit the cache: {joined_second}")
+    if "rebuilt" in joined_second:
+        found.append(f"fonts: the cache was rebuilt on the SECOND launch (a path that cannot be stat'ed in the sandbox?): {joined_second}")
+    return found
+
+
 def sh(argv, timeout=120, check=False):
     try:
         p = subprocess.run(argv, capture_output=True, text=True, timeout=timeout)
@@ -296,6 +322,37 @@ def run_once(udid, bundle, name, out, seconds, touch):
     return {"console": text, "report": report, "asked": asked_lines(text), "why": why, "fed": fed_keys}
 
 
+def fonts_proof(udid, bundle, out, seconds=20):
+    """Two launches of the app after a fresh install, with the startup timeline on (`AZ_STARTUP=1`): the font cache lines of each, and
+    what the app's container holds of the cache. -> (first lines, second lines, [what the container holds])"""
+    lines, held = [], []
+    for n in (1, 2):
+        stdout = out / f"fonts-launch{n}.stdout.txt"
+        stderr = out / f"fonts-launch{n}.stderr.txt"
+        for f in (stdout, stderr):
+            f.write_text("", encoding="utf-8")
+        env = dict(os.environ, **launch_env(fed=False, extra={"AZ_STARTUP": "1"}))
+        # the self-test must not run unattended here: this is the app starting as a person starts it
+        env.pop("SIMCTL_CHILD_AZ_SELFTEST", None)
+        subprocess.run(["xcrun", "simctl", "launch", "--terminate-running-process", f"--stdout={stdout}", f"--stderr={stderr}", udid, bundle],
+                       capture_output=True, text=True, timeout=60, env=env)
+        t0, text = time.time(), ""
+        while time.time() - t0 < seconds:
+            time.sleep(0.5)
+            text = stdout.read_text(encoding="utf-8", errors="replace") + "\n" + stderr.read_text(encoding="utf-8", errors="replace")
+            if "fonts:cache_written" in text:
+                time.sleep(1.0)
+                text = stdout.read_text(encoding="utf-8", errors="replace") + "\n" + stderr.read_text(encoding="utf-8", errors="replace")
+                break
+        sh(["xcrun", "simctl", "terminate", udid, bundle], timeout=30)
+        lines.append(font_lines(text))
+        code, container = sh(["xcrun", "simctl", "get_app_container", udid, bundle, "data"], timeout=30)
+        if code == 0:
+            cache = Path(container.strip().splitlines()[-1]) / "Library" / "Caches" / "rfc" / "fonts"
+            held.append(f"launch {n}: " + (", ".join(f"{p.name} {p.stat().st_size} B" for p in sorted(cache.glob("*"))) if cache.is_dir() else f"{cache} does not exist"))
+    return lines[0], lines[1], held
+
+
 def table(report):
     width = max((len(r.get("id", "")) for r in report.get("rows", [])), default=10)
     return [f"  {r.get('verdict', '?'):<12} {r.get('id', ''):<{width}}  {r.get('detail', '')}" for r in report.get("rows", [])]
@@ -356,6 +413,15 @@ def main(argv):
         sh(["xcrun", "simctl", "bootstatus", udid, "-b"], timeout=300)
     sh(["xcrun", "simctl", "install", udid, str(app)], timeout=300, check=True)
     findings, summary = [], []
+    first, second, held = fonts_proof(udid, bundle, out)
+    print("\n================ font cache (two launches after the install) ================")
+    for n, lines in ((1, first), (2, second)):
+        for line in lines:
+            print(f"  launch {n}: {line}")
+    for line in held:
+        print(f"  {line}")
+    (out / "fonts.txt").write_text("\n".join([f"launch 1: {l}" for l in first] + [f"launch 2: {l}" for l in second] + held) + "\n", encoding="utf-8")
+    findings += font_cache_findings(first, second)
     plan = [
         ("fresh", [feed.privacy_commands(udid, "reset", "all", bundle), feed.enrollment_commands(udid, True),
                    feed.appearance_commands(udid, "light")]),

@@ -112,6 +112,32 @@ class Display(unittest.TestCase):
         self.assertEqual(sim.check_display({"rows": []}, "iPhone 16 Pro"), [], "a build without the row is not blamed")
 
 
+class Fonts(unittest.TestCase):
+    MISS = "fonts:cache miss, 0 faces, check 2.1 ms, load 0.0 ms"
+    WRITTEN = "fonts:cache_written Written, 1204 faces, 41.0 ms"
+    HIT = "fonts:cache hit, 1204 faces, check 3.0 ms, load 11.0 ms"
+
+    def test_the_lines_of_the_timeline_are_the_ones_that_name_fonts(self):
+        text = "noise\n[startup] fonts:cache miss, 0 faces\nother line\nfonts:cache_written Written, 3 faces, 1 ms"
+        self.assertEqual(font_lines_of(text), ["[startup] fonts:cache miss, 0 faces", "fonts:cache_written Written, 3 faces, 1 ms"])
+
+    def test_a_miss_then_a_hit_is_a_working_cache(self):
+        self.assertEqual(sim.font_cache_findings([self.MISS, self.WRITTEN], [self.HIT, "fonts:cache_written Unchanged"]), [])
+
+    def test_a_second_launch_that_rebuilds_names_the_path(self):
+        found = sim.font_cache_findings([self.MISS], ["fonts:cache rebuilt (2 font files changed, 0 gone, first: /System/Library/Fonts/SFNS.ttf)"])
+        self.assertEqual(len(found), 2, found)
+        self.assertTrue(any("SFNS.ttf" in f for f in found))
+
+    def test_a_second_launch_without_lines_is_a_finding(self):
+        self.assertTrue(sim.font_cache_findings([self.MISS], []))
+        self.assertTrue(sim.font_cache_findings([], [self.HIT]))
+
+
+def font_lines_of(text):
+    return sim.font_lines(text)
+
+
 class Launch(unittest.TestCase):
     def test_the_app_environment_goes_through_the_simctl_child_prefix(self):
         env = sim.launch_env()
