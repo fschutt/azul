@@ -321,6 +321,10 @@ pub(crate) struct CallView {
     pub tone_mic: bool,
     /// The camera and the screen share are test patterns, so no capture widget is mounted.
     pub pattern_video: bool,
+    /// The system refused the camera: the camera tile says so (and mounts no capture widget).
+    pub camera_denied: bool,
+    /// The system refused the microphone: the level meter says so.
+    pub mic_denied: bool,
     /// A still of the test pattern: this side's own camera tile and the waiting room's preview
     /// show it where a camera would show its picture.
     pub pattern_still: Option<ImageRef>,
@@ -439,6 +443,8 @@ pub(crate) struct Actions {
     pub join_camera_off: CheckBoxOnToggleCallbackType,
     /// A key pressed anywhere in the window (the kit's keys, then the call's shortcuts).
     pub key: CallbackType,
+    /// The system answered a permission request (the camera, the microphone).
+    pub permission: CallbackType,
     /// The keyring answered (a window event): this device's identity.
     pub keyring: CallbackType,
     /// The start screen: Retry (the meeting server), "New chat room", "Schedule" and its fields.
@@ -590,6 +596,12 @@ pub(crate) fn meet_view(
             EventFilter::Window(WindowEventFilter::VirtualKeyDown),
             data.clone(),
             actions.key,
+        )
+        // A refusal of the camera or the microphone is a window event: it is told where it hides.
+        .with_callback(
+            EventFilter::Window(WindowEventFilter::PermissionChanged),
+            data.clone(),
+            actions.permission,
         )
 }
 
@@ -793,6 +805,10 @@ fn remote_picture(t: &TileView) -> Dom {
 /// so), the test pattern's still (mirrored the same way), or the initials and "Camera is off".
 fn own_picture(view: &CallView, t: &TileView, data: &RefAny, large: bool) -> Dom {
     match t.kind {
+        // A refused camera is told, not shown as a black box.
+        TileKind::Camera if view.cam && !view.pattern_video && view.camera_denied => {
+            text(&l10n::t("azmeet-camera-denied"), SECONDARY)
+        }
         TileKind::Camera if view.cam && !view.pattern_video => {
             let mut camera = CameraWidget::create(CameraConfig {
                 facing: match view.settings.camera_choice {
@@ -1242,8 +1258,14 @@ fn microphone(data: &RefAny) -> Dom {
     .with_css("width: 1px; height: 1px; overflow: hidden;")
 }
 
-/// "Mic level" and the bar that moves with it (ten times a second at most).
+/// "Mic level" and the bar that moves with it (ten times a second at most); a refused microphone
+/// says so instead.
 fn level_meter(view: &CallView, data: &RefAny) -> Dom {
+    if view.mic_denied && !view.tone_mic {
+        return Dom::create_div()
+            .with_css(ROW)
+            .with_child(text(&t("azmeet-mic-denied"), SECONDARY));
+    }
     Dom::create_div()
         .with_css(ROW)
         .with_child(text(
