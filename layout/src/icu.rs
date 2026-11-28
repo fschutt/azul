@@ -3284,6 +3284,7 @@ mod layout_callback_locale_tests {
             active_route: None,
             monitors: azul_core::window::MonitorVec::from_const_slice(&[]),
             safe_area: azul_css::system::SafeAreaInsets::default(),
+            display_features: azul_core::display_features::DisplayFeatures::none(),
             global_hotkeys: azul_core::global_hotkey::GlobalHotkeyInfoVec::from_const_slice(&[]),
             window_id: &no_window_id,
         };
