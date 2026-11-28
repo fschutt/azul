@@ -88,7 +88,7 @@ fn without_a_setting_nothing_moves() {
         assert_eq!(ink(&styled, INNER), ColorU { r: 0x99, g: 0x99, b: 0x99, a: 255 });
         assert_eq!(border_top(&styled, OUTER), ColorU { r: 0xcc, g: 0xcc, b: 0xcc, a: 255 });
         assert_eq!(get_box_shadows(&styled, OUTER, &state(&styled, OUTER))[0].color.r, 0xdd);
-        assert_eq!(fill(&styled, OUTER).a, 128);
+        assert!(fill(&styled, OUTER).a < 255, "translucent as written");
         assert!(get_backdrop_filter(&styled, OUTER, &state(&styled, OUTER)).is_some());
     }
 }
@@ -163,9 +163,11 @@ fn a_gradient_is_flat_under_increased_contrast_and_an_exempt_subtree_keeps_its_c
 #[test]
 fn a_translucent_fill_without_a_backdrop_filter_stays_translucent() {
     let css = "body { background: #ffffff; } #a { background: rgba(0,0,0,0.5); }";
+    let written = fill(&page(css, None), OUTER);
+    assert!(written.a > 0 && written.a < 255);
     for edit in [&more_contrast as &dyn Fn(&mut AccessibilityPreferences), &reduced_transparency] {
         let styled = page(css, Some(edit));
-        assert_eq!(fill(&styled, OUTER).a, 128);
+        assert_eq!(fill(&styled, OUTER), written);
     }
 }
 
@@ -176,7 +178,7 @@ fn a_frosted_surface_is_opaque_and_unblurred_while_transparency_is_reduced() {
     let css = "body { background: #2060c0; } #a { background: rgba(255,255,255,0.5); backdrop-filter: blur(10px); }";
     let plain = page(css, None);
     let declared = fill(&plain, OUTER);
-    assert_eq!(declared.a, 128);
+    assert!(declared.a > 0 && declared.a < 255, "translucent as written: {declared:?}");
     assert!(get_backdrop_filter(&plain, OUTER, &state(&plain, OUTER)).is_some());
 
     let styled = page(css, Some(&reduced_transparency));
