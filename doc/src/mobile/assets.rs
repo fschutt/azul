@@ -30,7 +30,7 @@ use crate::settings::ToolSettings;
 /// Bumped whenever an embedded file changes in a way that must invalidate an
 /// already-materialized cache. Cheap insurance: the directory name carries it,
 /// so a stale cache is never read, only orphaned.
-const ASSET_REVISION: &str = "1";
+const ASSET_REVISION: &str = "2";
 
 /// `(relative path, contents, executable)`
 const ASSETS: &[(&str, &str, bool)] = &[
@@ -107,6 +107,24 @@ const ASSETS: &[(&str, &str, bool)] = &[
     (
         "scripts/android/AzulFilePicker.java",
         include_str!("../../../scripts/android/AzulFilePicker.java"),
+        false,
+    ),
+    // What a file shared to the app or opened with it needs: the provider that serves the files the app shares, the hand-over of the
+    // intents AzulActivity forwards (it imports it), and the generator of the intent filters / Info.plist keys of an app's declared
+    // document types (`build-android.sh` and `build-ios.sh` call it when the app declares any).
+    (
+        "scripts/android/AzulShareProvider.java",
+        include_str!("../../../scripts/android/AzulShareProvider.java"),
+        false,
+    ),
+    (
+        "scripts/android/AzulOpenIntent.java",
+        include_str!("../../../scripts/android/AzulOpenIntent.java"),
+        false,
+    ),
+    (
+        "scripts/documents_manifest.py",
+        include_str!("../../../scripts/documents_manifest.py"),
         false,
     ),
     // Every helper `build-android.sh` compiles (it takes all of
