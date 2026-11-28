@@ -3,6 +3,7 @@
 #
 #   scripts/ci/ios_cross_check.sh [features]        default: std,logging,link-static,a11y,map-tiles,pdf
 #   AZ_IOS_CHECK_TARGET=aarch64-apple-ios scripts/ci/ios_cross_check.sh      (the device target; default aarch64-apple-ios-sim)
+#   AZ_IOS_CHECK_TARGET=aarch64-apple-darwin scripts/ci/ios_cross_check.sh   (the macOS shell and the Apple code both share)
 #
 # The shell (dll/src/desktop/shell2/ios), the UIKit and AVFoundation parts of dll/src/desktop/extra and everything else behind
 # `#[cfg(target_os = "ios")]` compile under `cargo check` without an Apple SDK, because `check` compiles no C and links nothing:
@@ -38,10 +39,15 @@ status=$?
 # file it compiled: a feature set without the desktop module would leave shell2/ios out and say so)
 grep -n "^error" -A14 "$log" | head -300
 echo "ios_cross_check: target=$target features=$features"
-if grep -l "shell2/ios/mod.rs" "${CARGO_TARGET_DIR:-target}/$target/debug/deps/"*.d >/dev/null 2>&1; then
-  echo "ios_cross_check: shell2/ios/mod.rs was compiled"
+# the shell of the target: the proof that the Apple files of that target were part of the build
+case "$target" in
+  *-apple-darwin) shell="shell2/macos/mod.rs" ;;
+  *) shell="shell2/ios/mod.rs" ;;
+esac
+if grep -l "$shell" "${CARGO_TARGET_DIR:-target}/$target/debug/deps/"*.d >/dev/null 2>&1; then
+  echo "ios_cross_check: $shell was compiled"
 else
-  echo "ios_cross_check: shell2/ios/mod.rs was NOT part of this build (needs link-static or the desktop module)"
+  echo "ios_cross_check: $shell was NOT part of this build (needs link-static or the desktop module)"
   [ "$status" -eq 0 ] && status=3
 fi
 tail -3 "$log"

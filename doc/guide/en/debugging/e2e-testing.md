@@ -251,6 +251,24 @@ Under `AZ_BACKEND=headless` the notification backend records what the app posts 
 
 The in-crate headless runner (`azul-doc e2e`) has no notification service: there `notification_event` only queues the event, and nothing runs it.
 
+### System sounds
+
+`CallbackInfo::play_system_sound` asks for a sound by meaning (see [Sounds](../system/sounds.md)). The window's `SoundManager` decides each request and RECORDS it, with the route the platform has for it and the reason it did not play when it did not; a headless run plays nothing and records everything, so the same scenario runs unchanged on every desktop and on the phones:
+
+- `assert_sound` (params, all optional: `sound`, `class`, `route`, `suppressed_by`, `played`, `since`, `count`). The filters pick the requests of the recording: `sound` is the variant's name (`TabChange`, any case), `class` is `input` or `event`, `route` is the exact text of the route (`system:android:FX_KEY_CLICK`, `haptic:Selection`, `none:no-system-route`), `suppressed_by` is the exact reason a request did not play (`coalesced`, `min-interval`, `repeat-limit`, `app-muted`, `no-system-route`, `os:input-feedback-sounds-off`, `os:event-sounds-off`), `played` is whether the route was handed to the platform, and `since` keeps the requests after that sequence number (the first request of a window is 1). With `count` exactly that many requests match; without it at least one does.
+- `assert_no_sound` (the same filters, no `count`). No request matches.
+
+`count` counts REQUESTS, which is what the app did and is the same on every host; whether a request played depends on the platform (Android has a route for `TabChange`, a desktop has none), so a scenario that must run everywhere asserts `sound` and `count`, and one that is about a platform asserts `route` or `played` as well. A headless run applies no pacing (no clock), so five `TabChange` requests of a fling are five records.
+
+```json
+{ "op": "click", "text": "TabChange" },
+{ "op": "wait_frame" },
+{ "op": "assert_sound", "sound": "TabChange", "count": 1 },
+{ "op": "assert_no_sound", "sound": "Error" }
+```
+
+(`examples/azul-widgets/e2e/sounds.json` is the whole scenario.)
+
 ## Step results
 
 Each step returns:
