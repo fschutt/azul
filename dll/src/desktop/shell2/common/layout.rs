@@ -683,7 +683,10 @@ pub fn regenerate_layout(
     // `build_window_width_less_than`, which records its question with the
     // callback's own - drained below, replayed on every resize.
     let window_scope =
-        azul_core::callbacks::WindowSizeScope::enter(current_window_state.size.dimensions);
+        azul_core::callbacks::WindowSizeScope::enter_with(
+            current_window_state.size.dimensions,
+            current_window_state.flags.tab_content_hidden,
+        );
     // `invoke` hands the callback its stored ctx (host-handle for managed
     // FFIs, PyCallableWrapper for Python, None for native Rust) through
     // `info.get_ctx()`; calling `cb` directly, the host-invoker thunk would
