@@ -44,3 +44,6 @@ path = "src/lib.rs"
 [[bin]]
 name = "routing-tiles"
 path = "src/bin/routing-tiles.rs"
+# The tool has no tests of its own (the library's are in tests/); without this cargo builds an empty
+# test harness for it and the strict zero-test guard of the DLL tests job fails on "0 tests ran".
+test = false
