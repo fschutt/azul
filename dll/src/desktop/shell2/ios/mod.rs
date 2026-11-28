@@ -2007,12 +2007,13 @@ extern "C" fn app_did_become_active(_this: &Object, _cmd: Sel, _app: *mut Object
         // A GPU window: the context is current again, the frames run, one full frame is drawn (a
         // rotation or a memory request that came while the app was away is applied first).
         window.gpu_event(gpu_lifecycle::Event::Resumed);
-        // Force a redraw so the layer contents are fresh after
-        // returning from background.
-        window
-            .common
-            .request_regeneration(RelayoutReason::RefreshDom);
-        let _ = window.present();
+        // The layer's contents are fresh after a trip to the background: the frame is drawn again from the layout the
+        // window has and presented. NOT a new DOM: nothing the app's `layout()` reads changed because the app became
+        // active (the language is adopted just above, the mode by the display tick's appearance probe), and the
+        // request that stood here ran the app's whole layout a second time right after the first picture of every cold
+        // start, for the same picture (E76; the QA's iOS Simulator timeline: `late: layout_begin #2 reason=RefreshDom`
+        // 58 to 93 ms after `first_present`, right after the line of this handler).
+        window.request_redraw();
     }
 }
 

@@ -1084,3 +1084,23 @@ fn the_ios_delegate_tells_the_app_of_its_life() {
     in_order(terminate, "LifecycleEvent::WillTerminate", "gpu_event(gpu_lifecycle::Event::Shutdown)", "app_will_terminate");
     in_order(terminate, "LifecycleEvent::WillTerminate", "Box::from_raw(AZUL_IOS_WINDOW)", "app_will_terminate");
 }
+
+/// The app becoming active repaints the frame it has and asks for no new DOM (E76). Every cold start becomes active once,
+/// a moment after its first picture, and the handler used to raise `request_regeneration(RefreshDom)`: the app's whole
+/// `layout()` and the whole solve a second time, 58 to 93 ms after `first_present` on the QA's iOS Simulator timelines
+/// (`late: layout_begin #2 reason=RefreshDom`), for the same picture. What the app's layout reads has its own triggers:
+/// the language is adopted in the handler, the mode by the display tick's appearance probe, a permission by its event.
+///
+/// Mutation: the request back in the handler.
+#[test]
+fn the_app_becoming_active_repaints_and_asks_for_no_new_dom() {
+    let handler = code_of(body(IOS_MOD_RS, "extern \"C\" fn app_did_become_active"));
+    assert!(
+        !handler.contains("request_regeneration"),
+        "applicationDidBecomeActive asks for a new DOM: every cold start lays the page out a second time"
+    );
+    assert!(
+        handler.contains("request_redraw"),
+        "applicationDidBecomeActive repaints the frame the window holds (the layer's contents may be stale)"
+    );
+}
