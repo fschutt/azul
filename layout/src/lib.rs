@@ -387,6 +387,9 @@ pub use fluent::{
     TranslationCompletenessReport,
 };
 
+/// MIME types and file-name extensions, both ways (what a share tells a receiver a file is, what a file dialog filters by).
+pub mod mime;
+
 /// File system operations (C-compatible wrappers for `std::fs`).
 // Scoped (was crate-wide): `///` doc comments before `impl_vec!`/`impl_option!`
 // macro invocations, and an infallible inherent `FilePath::from_str` (returns
