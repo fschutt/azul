@@ -61,6 +61,9 @@ pub struct GeolocationManager {
     pub active_config: Option<GeolocationProbeConfig>,
     /// Diff queue drained once per frame by the platform backend.
     pending_events: Vec<GeolocationDiffEvent>,
+    /// A Subscribe that waits for the user's next gesture before the platform may start (and
+    /// ask the user for the location permission): [`GeolocationManager::take_admitted_events`].
+    held_subscribe: Option<GeolocationDiffEvent>,
     /// Refcount of `GeolocationProbe` nodes currently in the layout.
     refcount: u32,
     /// `true` when a fix advanced since the last event-pass drain. Set by
@@ -167,6 +170,47 @@ impl GeolocationManager {
     /// frame.
     pub fn take_pending_events(&mut self) -> Vec<GeolocationDiffEvent> {
         core::mem::take(&mut self.pending_events)
+    }
+
+    /// The diff events the platform backend may act on now. A `Subscribe` starts the native
+    /// subscription and, with no decision of the user yet, asks them for the permission: it goes
+    /// out only when `admit` says so (the permission manager's [`admit`] of the capability:
+    /// after a user gesture, or when the user decided already); until then it is held, and a
+    /// `Reconfigure` meanwhile changes the held config. A `Release` drops it. `admit` is asked
+    /// at most once per call, for the held or new Subscribe.
+    ///
+    /// [`admit`]: crate::managers::permission::PermissionManager::admit
+    pub fn take_admitted_events(
+        &mut self,
+        mut admit: impl FnMut() -> crate::managers::permission::Admission,
+    ) -> Vec<GeolocationDiffEvent> {
+        use crate::managers::permission::Admission;
+        let mut out = Vec::new();
+        let mut incoming = core::mem::take(&mut self.pending_events);
+        if let Some(held) = self.held_subscribe.take() {
+            incoming.insert(0, held);
+        }
+        for event in incoming {
+            match event {
+                GeolocationDiffEvent::Subscribe { .. } => match admit() {
+                    Admission::Go => out.push(event),
+                    Admission::Hold => self.held_subscribe = Some(event),
+                    Admission::Skip => {}
+                },
+                GeolocationDiffEvent::Reconfigure { config } => {
+                    if self.held_subscribe.is_some() {
+                        self.held_subscribe = Some(GeolocationDiffEvent::Subscribe { config });
+                    } else {
+                        out.push(event);
+                    }
+                }
+                GeolocationDiffEvent::Release => {
+                    self.held_subscribe = None;
+                    out.push(event);
+                }
+            }
+        }
+        out
     }
 
     /// Diff entry point. The layout pass walks the styled DOM for

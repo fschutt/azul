@@ -38,6 +38,8 @@ pub const SENSOR_INTERVAL_MS: u64 = 50;
 /// *pushed* into the channel by native callbacks on OS threads; this only
 /// bounds how long a parked fix waits for an otherwise-idle loop.
 pub const GEOLOCATION_INTERVAL_MS: u64 = 200;
+/// How often the platforms' quiet read of every permission is folded into the manager.
+pub const PERMISSION_PROBE_INTERVAL_MS: u64 = 1000;
 /// Drain cadence while an async prompt (biometric / keyring / permission)
 /// is in flight and its result may be parked by an OS completion handler.
 pub const ASYNC_RESULT_INTERVAL_MS: u64 = 100;
@@ -133,6 +135,15 @@ pub fn pump(lw: &mut LayoutWindow) -> bool {
     // Permission: async prompt outcomes parked by OS completion handlers.
     for (capability, state) in lw.app_services.permission.drain() {
         changed |= lw.permission_manager.set_status(capability, state);
+    }
+    // The platforms' QUIET read of every capability (it never prompts), at the start and then once a
+    // second: the OS knows more than the manager - a switch the user flipped in the settings, a
+    // camera a backend opened on its own - and `get_permission_status` reads the manager.
+    if lw.permission_manager.probe_due(PERMISSION_PROBE_INTERVAL_MS) {
+        for capability in azul_layout::managers::permission::Capability::ALL {
+            let probed = crate::desktop::extra::permission::probe_status(capability);
+            changed |= lw.permission_manager.observe(capability, probed);
+        }
     }
 
     // Biometric: availability probe (OnceLock-cached native call), then
@@ -349,3 +360,7 @@ extern "C" fn pump_timer_marker_callback(
     // timer semantics (run_count, tick bookkeeping) stay ordinary.
     azul_core::callbacks::TimerCallbackReturn::continue_unchanged()
 }
+
+#[cfg(test)]
+#[path = "capability_pump_test.rs"]
+mod capability_pump_test;

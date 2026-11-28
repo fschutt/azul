@@ -21339,6 +21339,28 @@
                                     }
                                 ],
                                 "fn_body": "object.keyring_unlock_in(namespace, key, prompt)"
+                            },
+                            "open_app_settings": {
+                                "doc": [
+                                    "Opens the system's settings page where the user can change the permission of",
+                                    "`capability`: Android's details page of the app, iOS's page of the app, macOS's Privacy &",
+                                    "Security pane of that permission, Windows's Privacy page of it. `Unsupported` where there",
+                                    "is no such page (Linux has no per-app permission settings): the app tells the user where",
+                                    "to look. For a `Denied` capability, from the callback of the user's tap on \"Open settings\"",
+                                    "- a denied permission is not asked again, this is the way back."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "capability": "Capability"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "SettingsOpened"
+                                },
+                                "fn_body": "object.open_app_settings(capability)"
                             }
                         },
                         "repr": "C"
@@ -200494,6 +200516,27 @@
                             }
                         ],
                         "repr": "C"
+                    },
+                    "SettingsOpened": {
+                        "external": "azul_layout::managers::permission::SettingsOpened",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash",
+                            "Default"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Opened": {},
+                                "Unsupported": {}
+                            }
+                        ],
+                        "repr": "C"
                     }
                 }
             },
@@ -211397,12 +211440,17 @@
                             },
                             "with_local_discovery": {
                                 "doc": [
-                                    "Returns the config with local-network discovery switched on or off. On (the default), the",
-                                    "endpoint finds peers on the local network by their endpoint id alone (mDNS), so a phone",
-                                    "finds a Mac whose address changed without the ticket's saved addresses or a relay, and it",
-                                    "announces itself there: its endpoint id (a public key) and its network addresses, to the",
-                                    "local link only (multicast, never routed; its relay is not announced). Turn it off for a",
-                                    "server or an app that must not announce itself to the network it sits on. An endpoint",
+                                    "Returns the config with local-network discovery switched on or off. Off (the default), the",
+                                    "endpoint uses tickets' addresses and relays only and touches the local network not at all:",
+                                    "no multicast, no announcement, and so no Local Network permission dialog on iOS and macOS.",
+                                    "On, the endpoint finds peers on the local network by their endpoint id alone (mDNS), so a",
+                                    "phone finds a Mac whose address changed without the ticket's saved addresses or a relay,",
+                                    "and it announces itself there: its endpoint id (a public key) and its network addresses, to",
+                                    "the local link only (multicast, never routed; its relay is not announced). Turn it on",
+                                    "where the user starts a feature that works on the local network (pairing, a call between",
+                                    "two devices of the same network): the system's permission dialog then comes at that moment,",
+                                    "not at launch; keep it off for a server or an app that must not announce itself to the",
+                                    "network it sits on. Android holds the multicast lock only while it is on. An endpoint",
                                     "that accepts nobody (`with_allowed_peers` with an empty list) only looks and does not",
                                     "announce, and `relay_only` never uses it. When the network or the OS refuses multicast",
                                     "the endpoint works without it; `IrohEndpoint::local_discovery_status` says why."

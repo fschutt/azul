@@ -17,8 +17,12 @@ use super::*;
 const ALPN: &str = "azul/iroh-discovery-test/1";
 
 /// A config without relays, so nothing leaves this computer; discovery as the default has it.
+/// A config with local discovery ON (it is off by default: an app opts in where the user starts a
+/// local-network feature); the tests of what discovery does start from it.
 fn config() -> IrohConfig {
-    IrohConfig::create(AzString::from_const_str(ALPN)).with_relay_mode(IrohRelayMode::Disabled)
+    IrohConfig::create(AzString::from_const_str(ALPN))
+        .with_relay_mode(IrohRelayMode::Disabled)
+        .with_local_discovery(true)
 }
 
 fn quiet() -> IrohConfig {
@@ -137,6 +141,7 @@ fn the_config_chooses_whether_discovery_starts_and_whether_it_announces() {
     let recording = Recording::default();
     let relay_only = IrohConfig::create(AzString::from_const_str(ALPN))
         .with_relay_url(AzString::from_const_str("http://127.0.0.1:9"))
+        .with_local_discovery(true)
         .with_relay_only(true);
     assert!(relay_only.local_discovery);
     let engine = bound(&relay_only, &recording);

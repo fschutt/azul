@@ -2169,7 +2169,10 @@ pub fn regenerate_layout(
             emit(*capability, *node_id);
         }
     });
-    let permission_events = layout_window.permission_manager.take_pending_events();
+    // Only what may ask the user now: a Subscribe waits for the user's next gesture (a probe in
+    // the first DOM never asks at launch), one capability is asked per gesture, and a decided
+    // capability (denied, restricted) is not asked again.
+    let permission_events = layout_window.permission_manager.take_dispatchable();
     if !permission_events.is_empty() {
         crate::desktop::extra::permission::apply_diff_events(
             &permission_events,
@@ -2202,7 +2205,13 @@ pub fn regenerate_layout(
             }
         });
     }
-    let geolocation_events = layout_window.geolocation_manager.take_pending_events();
+    // The same rule for the location prompt a Subscribe starts: after a user gesture, once.
+    let geolocation_events = {
+        let permissions = &mut layout_window.permission_manager;
+        layout_window.geolocation_manager.take_admitted_events(|| {
+            permissions.admit(azul_layout::managers::permission::Capability::Geolocation)
+        })
+    };
     if !geolocation_events.is_empty() {
         crate::desktop::extra::geolocation::apply_diff_events(
             &geolocation_events,

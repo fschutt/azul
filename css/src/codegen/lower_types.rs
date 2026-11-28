@@ -2754,6 +2754,7 @@ pub(crate) static API_MODULES: &[(&str, &str)] = &[
     ("SensorKind", "sensor"),
     ("SensorReading", "sensor"),
     ("SessionChange", "dom"),
+    ("SettingsOpened", "misc"),
     ("Shape", "css"),
     ("ShapeCircle", "svg"),
     ("ShapeEllipse", "css"),

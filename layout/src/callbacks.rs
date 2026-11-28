@@ -6285,6 +6285,38 @@ impl CallbackInfo {
             .get_status(capability)
     }
 
+    /// Opens the system's settings page where the user can change the permission of
+    /// `capability`: Android's details page of the app, iOS's page of the app, macOS's Privacy &
+    /// Security pane of that permission, Windows's Privacy page of it. `Unsupported` where there
+    /// is no such page (Linux has no per-app permission settings): the app tells the user where
+    /// to look. For a `Denied` capability, from the callback of the user's tap on "Open settings"
+    /// - a denied permission is not asked again, this is the way back.
+    pub fn open_app_settings(
+        &mut self,
+        capability: crate::managers::permission::Capability,
+    ) -> crate::managers::permission::SettingsOpened {
+        use crate::managers::permission::{settings_url, SettingsOpened, SettingsPlatform};
+        let Some(target) = settings_url(capability, SettingsPlatform::current()) else {
+            return SettingsOpened::Unsupported;
+        };
+        // The scheme is what is before the first colon of every target.
+        let scheme = target.split(':').next().unwrap_or_default();
+        let url = azul_core::url::Url {
+            href: AzString::from(target),
+            scheme: AzString::from(scheme),
+            host: AzString::default(),
+            port: 0,
+            path: AzString::default(),
+            query: AzString::default(),
+            fragment: AzString::default(),
+        };
+        if url.open() {
+            SettingsOpened::Opened
+        } else {
+            SettingsOpened::Unsupported
+        }
+    }
+
     /// The IME composition (preedit) text currently being composed on the
     /// focused node, if any.
     ///
