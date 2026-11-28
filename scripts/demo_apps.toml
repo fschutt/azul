@@ -88,6 +88,20 @@ targets = ["android-x86_64", "ios-sim"]
 artifact_only = true
 reason = "the engine's debug server for the QA builds of the apps that use iroh (never shipped)"
 
+[lib.desktop-e2e]
+# The desktop QA variant, ARTIFACT ONLY, of the shipped libazul: the dist features plus the engine's debug server, E2E scripting and test
+# hooks, as mobile-e2e is for the phones. An app cannot get them from its own dependency on azul-dll: `azul = link-dynamic` leaves the Az*
+# symbols to the library, and a feature that compiles the engine into the app (azul/e2e-scripting) neither links nor passes the engine
+# gate (scripts/demo_gate.py). So the E2E runs of the desktop apps link THIS library: the apps that say `e2e = true` are built against it
+# as <Name>-e2e-<platform> (AzWidgets-e2e-linux) when a run asks for it (rust.yml's demos_e2e), in artifacts named demoe2e-*, never a
+# release asset or a link of the page. scripts/demo_lib.sh checks the AZLIN-BUILD-MARKER:test-hooks both ways, as for the phones: the
+# shipped `desktop` library must not hold it, this one must. scripts/ci/desktop_e2e_build.sh builds the library and the apps in one job.
+features = "dist,debug-server,e2e-scripting,test-hooks"
+profile = "prod-release"
+targets = ["linux", "macos-arm64"]
+artifact_only = true
+reason = "the engine's debug server for the E2E runs of the desktop apps (never shipped)"
+
 # ---------------------------------------------------------------------------------------------------
 # The apps. `weight` (1 light .. 3 heavy) is what the plan job balances the build groups by: the guess
 # of the first run, replaced by the measured seconds of the status table.
@@ -101,7 +115,7 @@ platforms = ["linux", "macos-arm64", "macos-intel", "windows", "android", "ios"]
 weight = 1
 docker = true
 mobile_lib = "mobile"
-e2e = true   # also built against [lib.mobile-e2e] when a run asks for it (an artifact for the QA of the phone shells)
+e2e = true   # also built against [lib.mobile-e2e] (phones) and [lib.desktop-e2e] (linux, macos-arm64) when a run asks for it: artifacts for the QA, never shipped
 
 [[app]]
 package = "AzMaps"
