@@ -129,6 +129,9 @@ pub(crate) struct Strip {
     pub width: f32,
     /// Whether the window is a phone's: the tabs are icon squares.
     pub phone: bool,
+    /// How far the ribbon's content band keeps from the window's left edge: the phone's rail
+    /// stands beside it, below the tab row (`Sidebar::phone_content_inset`); 0 elsewhere.
+    pub content_inset: f32,
 }
 
 /// The tab strip's offsets: the platform's row of tab buttons that IS the title bar, with the room
@@ -170,6 +173,7 @@ fn frame(s: &MailApp, app: &RefAny, info: &LayoutCallbackInfo) -> Dom {
         right: insets.right,
         width: (width - sidebar.column().in_frame(width)).max(1.0),
         phone,
+        content_inset: sidebar.phone_content_inset(),
     };
     let header = ui_main::ribbon(s, app, false, &strip);
 
@@ -224,6 +228,7 @@ fn backstage_frame(s: &MailApp, app: &RefAny, info: &LayoutCallbackInfo, page: u
         right: insets.right,
         width: width.max(1.0),
         phone: is_phone(s.form, width, touch_platform()),
+        content_inset: 0.0,
     };
     let header = ui_main::ribbon(s, app, true, &strip);
     // the container the office shell gave the backstage: the page fills what the strip leaves

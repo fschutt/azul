@@ -1369,6 +1369,8 @@ pub(crate) fn ribbon(s: &MailApp, app: &RefAny, file_open: bool, strip: &ui_fram
         // Apple's rule, as the wireframe has it: a button shows its words OR its icon, never both
         // (the label is the name and the tooltip of an icon): words on a desktop, icons on a phone.
         .with_button_face(if phone { RibbonButtonFace::Icon } else { RibbonButtonFace::Text })
+        // the phone's 18 px rail stands beside the band, under the tab row: the band keeps clear
+        .with_content_inset(strip.content_inset)
         .with_available_width(strip.width);
     if file_open {
         // File is lit and its band is hidden; no double click can bring the band back (the
