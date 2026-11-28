@@ -458,9 +458,11 @@ or even a Mac:
 
 ## Local network on a phone
 
-An app that uses an `IrohEndpoint` finds the computer it controls by its endpoint id on the local
-network ([Networking](../data/networking.md#finding-a-peer-on-the-local-network)); a phone needs
-two things the engine cannot grant itself.
+An app that turns local discovery on (`IrohConfig::with_local_discovery(true)`; it is off by
+default, so nothing touches the local network and no Local Network dialog comes at launch: turn it
+on where the user starts pairing or a call) finds the computer it controls by its endpoint id on
+the local network ([Networking](../data/networking.md#finding-a-peer-on-the-local-network)); a
+phone needs two things the engine cannot grant itself.
 
 **Android.** `AndroidManifest.xml` declares `android.permission.CHANGE_WIFI_MULTICAST_STATE` (the
 template in `scripts/android/` already does; it is a normal permission, granted at install, no

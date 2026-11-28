@@ -52,7 +52,8 @@ use azul::{
     time::SystemTimeDiff,
     vec::StringVec,
     error::KeyringResult,
-    pdf::{PdfRect, PdfStamp},
+    pdf::PdfStamp,
+    svg::PdfRect,
     widgets::{CloseGuardEvent, CloseGuardEventKind, DialogState},
 };
 use azul_appkit::{
@@ -1507,7 +1508,7 @@ pub extern "C" fn on_pad_use(mut data: RefAny, mut info: CallbackInfo) -> Update
     let drawn_now = s.pad.as_ref().is_some_and(|p| !p.is_empty());
     if drawn_now && s.keyring_waiting.is_none() {
         s.keyring_waiting = Some(SignatureKeyring::Keep);
-        info.keyring_store(AzString::from(SIGNATURE_KEY), AzString::from(svg.as_str()), false);
+        info.keyring_store(AzString::from(SIGNATURE_KEY), AzString::from(svg.as_str()));
         s.saved_signature = Some(svg.clone());
     }
     s.pad = None;

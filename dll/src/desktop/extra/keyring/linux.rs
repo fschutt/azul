@@ -6,8 +6,16 @@
 //! lookup attribute; the namespace's service is the schema name (libsecret
 //! matches items by it), so two namespaces never see each other's items.
 //! If libsecret / a Secret Service isn't present, every op -> Unavailable.
-//! `require_biometry` has no libsecret equivalent (the secret-service has no
-//! per-item biometric gate) — stored normally, the flag ignored.
+//!
+//! The Secret Service has no per-item user check, so a PROTECTED item (`UserPresence` /
+//! `Biometric`) is guarded by the LIBRARY (`KeyringSupport::Library`): its record is a sibling
+//! item under [`record::meta_key`] (level, and for `Biometric` the digest of the enrolled
+//! fingers), and an `Unlock` runs the user's check - the desktop's polkit dialog for
+//! `UserPresence` (the action `io.azul.keyring.unlock`, a policy file packagers install:
+//! `scripts/linux/io.azul.keyring.policy`), the fingerprint reader (fprintd) for `Biometric` -
+//! and hands the secret over only when it passes (an item that is gone answers `NotFound`
+//! without the user being asked). Another process of the same user can read the item without
+//! the check: that is what `Library` says.
 
 use std::{
     ffi::{c_char, c_int, c_uint, c_void, CStr, CString},
@@ -15,9 +23,21 @@ use std::{
     sync::OnceLock,
 };
 
-use azul_core::keyring::{KeyringRequest, KeyringResult};
+use azul_core::{
+    biometric::BiometricResult,
+    keyring::{
+        KeyringNeed, KeyringProtection, KeyringPrompt, KeyringRequest, KeyringResult,
+        KeyringSupport,
+    },
+};
 
-use super::Collection;
+use super::{
+    record::{
+        fingers_digest, meta_key, need_of_record, run_check, Authorization, Fingers, GateRecord,
+        UserCheck,
+    },
+    Collection, Interaction,
+};
 use crate::{
     desktop::shell2::{
         common::{dlopen::load_first_available, DlError, DynamicLibrary as DynamicLibraryTrait},
@@ -270,10 +290,11 @@ unsafe fn gerror_text_and_free(lib: &SecretLib, err: *mut GError) -> String {
     }
 }
 
-/// One op on the items of `service`, on the calling thread. A `quiet` op shows no prompt: it asks
-/// libsecret whether the default collection is locked first, and answers `Denied` instead of
-/// letting the unlock dialog come ([`quiet_verdict`]).
-pub(super) fn handle(service: &str, req: &KeyringRequest, quiet: bool) -> KeyringResult {
+/// One op on the items of `service`, on the calling thread. A quiet op shows no prompt: it asks
+/// libsecret whether the default collection is locked first, and answers `WouldPrompt` instead of
+/// letting the unlock dialog come ([`quiet_verdict`]). The user-check sheet (polkit / fprintd)
+/// shows for an `Unlock` and a protected `Store` of a [`Interaction::UserCheck`] op only.
+pub(super) fn handle(service: &str, req: &KeyringRequest, interaction: Interaction) -> KeyringResult {
     let lib = match lib() {
         Some(l) => l,
         None => return KeyringResult::Unavailable, // no libsecret / Secret Service
@@ -281,83 +302,368 @@ pub(super) fn handle(service: &str, req: &KeyringRequest, quiet: bool) -> Keyrin
     let Ok(service_c) = CString::new(service) else {
         return KeyringResult::Error;
     };
-    if quiet {
+    if interaction.quiet() {
         if let Some(answer) = super::quiet_verdict(lib.default_collection(), req) {
             return answer;
         }
     }
     let sch = schema(&service_c);
     match req {
-        KeyringRequest::Store { key, secret, .. } => {
-            // A NUL ends a C string: `answer_with` refuses one first; this is the last line of
-            // that, so a secret is never stored as "".
-            let (Ok(key_c), Ok(label), Ok(pw)) = (
-                CString::new(key.as_str()),
-                CString::new(format!("{service}:{}", key.as_str())),
-                CString::new(secret.as_str()),
-            ) else {
-                return KeyringResult::Error;
-            };
-            unsafe {
-                let ht = lib.attrs(&key_c);
-                let mut err: *mut GError = ptr::null_mut();
-                let ok = (lib.storev)(
-                    &sch,
-                    ht,
-                    b"default\0".as_ptr() as *const c_char, // SECRET_COLLECTION_DEFAULT
-                    label.as_ptr(),
-                    pw.as_ptr(),
-                    ptr::null_mut(),
-                    &mut err,
-                ) != 0;
-                (lib.ht_unref)(ht);
-                if !err.is_null() {
-                    warn_gerror_and_free(lib, "secret_password_storev_sync", err);
-                    return KeyringResult::Unavailable;
-                }
-                if ok {
-                    KeyringResult::Stored
-                } else {
-                    KeyringResult::Error
-                }
-            }
-        }
+        KeyringRequest::Store {
+            key,
+            secret,
+            protection,
+            prompt,
+        } => store_item(lib, &sch, service, key.as_str(), secret.as_str(), *protection, prompt),
         KeyringRequest::Get { key } => {
-            let Ok(key_c) = CString::new(key.as_str()) else {
-                return KeyringResult::Error;
-            };
-            unsafe {
-                let ht = lib.attrs(&key_c);
-                let mut err: *mut GError = ptr::null_mut();
-                let p = (lib.lookupv)(&sch, ht, ptr::null_mut(), &mut err);
-                (lib.ht_unref)(ht);
-                if !err.is_null() {
-                    warn_gerror_and_free(lib, "secret_password_lookupv_sync", err);
-                    return KeyringResult::Unavailable;
+            // Without the user: an unprotected item is read, a protected one is not.
+            match record_of(lib, &sch, key.as_str()) {
+                Err(answer) => answer,
+                Ok(Some(record)) if record.protection.needs_user() => {
+                    match need_of_record(&record, &LinuxCheck.fingers()) {
+                        KeyringNeed::Invalidated => KeyringResult::Invalidated,
+                        _ => KeyringResult::WouldPrompt,
+                    }
                 }
-                if p.is_null() {
-                    return KeyringResult::NotFound;
-                }
-                let s = CStr::from_ptr(p).to_string_lossy().into_owned();
-                (lib.pw_free)(p);
-                KeyringResult::Retrieved(s.into())
+                Ok(_) => lookup_item(lib, &sch, key.as_str()),
             }
         }
+        KeyringRequest::Unlock { key, prompt } => match record_of(lib, &sch, key.as_str()) {
+            Err(answer) => answer,
+            Ok(Some(record)) if record.protection.needs_user() => {
+                match lookup_item(lib, &sch, key.as_str()) {
+                    // No item behind the record: nothing to open.
+                    KeyringResult::NotFound => KeyringResult::NotFound,
+                    KeyringResult::Retrieved(secret) => {
+                        match run_check(&record, &LinuxCheck, prompt.reason.as_str()) {
+                            Ok(()) => KeyringResult::Retrieved(secret),
+                            Err(answer) => answer,
+                        }
+                    }
+                    other => other,
+                }
+            }
+            Ok(_) => lookup_item(lib, &sch, key.as_str()),
+        },
         KeyringRequest::Delete { key } => {
-            let Ok(key_c) = CString::new(key.as_str()) else {
-                return KeyringResult::Error;
-            };
-            unsafe {
-                let ht = lib.attrs(&key_c);
-                let mut err: *mut GError = ptr::null_mut();
-                let _ = (lib.clearv)(&sch, ht, ptr::null_mut(), &mut err);
-                (lib.ht_unref)(ht);
-                if !err.is_null() {
-                    warn_gerror_and_free(lib, "secret_password_clearv_sync", err);
+            let answer = clear_item(lib, &sch, key.as_str());
+            if answer == KeyringResult::Deleted {
+                // Its record goes with it.
+                let _ = clear_item(lib, &sch, &meta_key(key.as_str()));
+            }
+            answer
+        }
+    }
+}
+
+/// The record of the item `key`: `None` for an item with none (it is unprotected).
+fn record_of(
+    lib: &SecretLib,
+    sch: &SecretSchema,
+    key: &str,
+) -> Result<Option<GateRecord>, KeyringResult> {
+    match lookup_item(lib, sch, &meta_key(key)) {
+        // A record this version cannot read (a newer azul's) is no unprotected item: the item
+        // behind it is not read without knowing what guards it.
+        KeyringResult::Retrieved(text) => GateRecord::parse(text.as_str())
+            .map(Some)
+            .ok_or(KeyringResult::Error),
+        KeyringResult::NotFound => Ok(None),
+        other => Err(other),
+    }
+}
+
+/// Stores `secret` under `key`; a protected one first checks the device can meet the level and
+/// writes the record after the item.
+fn store_item(
+    lib: &SecretLib,
+    sch: &SecretSchema,
+    service: &str,
+    key: &str,
+    secret: &str,
+    protection: KeyringProtection,
+    prompt: &KeyringPrompt,
+) -> KeyringResult {
+    let _ = prompt; // the library gate asks at the read; a store of a secret shows nothing
+    let record = if protection.needs_user() {
+        let fingers = LinuxCheck.fingers();
+        // Never weaker than asked: the level must be one this device can meet.
+        match (protection, &fingers) {
+            (KeyringProtection::Biometric, Fingers::Absent) => return KeyringResult::Unavailable,
+            (KeyringProtection::Biometric, Fingers::None) => return KeyringResult::NotEnrolled,
+            (KeyringProtection::UserPresence, _) => match LinuxCheck.authorize_registered() {
+                Authorization::Unregistered => return KeyringResult::NotEnrolled,
+                // No system bus, no polkit: nothing could ask the user at the read.
+                Authorization::Unavailable | Authorization::Error => {
                     return KeyringResult::Unavailable;
                 }
-                KeyringResult::Deleted // idempotent (no match also reports Deleted)
+                Authorization::Granted | Authorization::Cancelled => {}
+            },
+            _ => {}
+        }
+        Some(GateRecord {
+            protection,
+            enrolled: match fingers {
+                Fingers::Enrolled(digest) if protection == KeyringProtection::Biometric => {
+                    Some(digest)
+                }
+                _ => None,
+            },
+        })
+    } else {
+        None
+    };
+    let meta = meta_key(key);
+    match record {
+        Some(record) => {
+            // The record first: an item that is there with no record reads as an unprotected one.
+            let wrote = store_raw(lib, sch, service, &meta, &record.text());
+            if wrote != KeyringResult::Stored {
+                return wrote;
+            }
+            store_raw(lib, sch, service, key, secret)
+        }
+        None => {
+            let stored = store_raw(lib, sch, service, key, secret);
+            if stored != KeyringResult::Stored {
+                return stored;
+            }
+            // An item that was protected before is plain now: its record goes.
+            let _ = clear_item(lib, sch, &meta);
+            KeyringResult::Stored
+        }
+    }
+}
+
+/// One `secret_password_storev_sync` of `secret` under `key`.
+fn store_raw(
+    lib: &SecretLib,
+    sch: &SecretSchema,
+    service: &str,
+    key: &str,
+    secret: &str,
+) -> KeyringResult {
+    // A NUL ends a C string: `answer_with` refuses one first; this is the last line of
+    // that, so a secret is never stored as "".
+    let (Ok(key_c), Ok(label), Ok(pw)) = (
+        CString::new(key),
+        CString::new(format!("{service}:{key}")),
+        CString::new(secret),
+    ) else {
+        return KeyringResult::Error;
+    };
+    unsafe {
+        let ht = lib.attrs(&key_c);
+        let mut err: *mut GError = ptr::null_mut();
+        let ok = (lib.storev)(
+            sch,
+            ht,
+            b"default\0".as_ptr() as *const c_char, // SECRET_COLLECTION_DEFAULT
+            label.as_ptr(),
+            pw.as_ptr(),
+            ptr::null_mut(),
+            &mut err,
+        ) != 0;
+        (lib.ht_unref)(ht);
+        if !err.is_null() {
+            warn_gerror_and_free(lib, "secret_password_storev_sync", err);
+            return KeyringResult::Unavailable;
+        }
+        if ok {
+            KeyringResult::Stored
+        } else {
+            KeyringResult::Error
+        }
+    }
+}
+
+/// One `secret_password_lookupv_sync` of `key`.
+fn lookup_item(lib: &SecretLib, sch: &SecretSchema, key: &str) -> KeyringResult {
+    let Ok(key_c) = CString::new(key) else {
+        return KeyringResult::Error;
+    };
+    unsafe {
+        let ht = lib.attrs(&key_c);
+        let mut err: *mut GError = ptr::null_mut();
+        let p = (lib.lookupv)(sch, ht, ptr::null_mut(), &mut err);
+        (lib.ht_unref)(ht);
+        if !err.is_null() {
+            warn_gerror_and_free(lib, "secret_password_lookupv_sync", err);
+            return KeyringResult::Unavailable;
+        }
+        if p.is_null() {
+            return KeyringResult::NotFound;
+        }
+        let s = CStr::from_ptr(p).to_string_lossy().into_owned();
+        (lib.pw_free)(p);
+        KeyringResult::Retrieved(s.into())
+    }
+}
+
+/// One `secret_password_clearv_sync` of `key`.
+fn clear_item(lib: &SecretLib, sch: &SecretSchema, key: &str) -> KeyringResult {
+    let Ok(key_c) = CString::new(key) else {
+        return KeyringResult::Error;
+    };
+    unsafe {
+        let ht = lib.attrs(&key_c);
+        let mut err: *mut GError = ptr::null_mut();
+        let _ = (lib.clearv)(sch, ht, ptr::null_mut(), &mut err);
+        (lib.ht_unref)(ht);
+        if !err.is_null() {
+            warn_gerror_and_free(lib, "secret_password_clearv_sync", err);
+            return KeyringResult::Unavailable;
+        }
+        KeyringResult::Deleted // idempotent (no match also reports Deleted)
+    }
+}
+
+/// What a read of `key` needs: the record and the default collection, never a sheet.
+pub(super) fn needs_prompt(service: &str, key: &str) -> KeyringNeed {
+    let Some(lib) = lib() else {
+        return KeyringNeed::Unavailable;
+    };
+    let Ok(service_c) = CString::new(service) else {
+        return KeyringNeed::Error;
+    };
+    match lib.default_collection() {
+        Collection::Locked => return KeyringNeed::Unlock,
+        Collection::Missing => return KeyringNeed::NotFound,
+        Collection::Unlocked | Collection::Unknown => {}
+    }
+    let sch = schema(&service_c);
+    match record_of(lib, &sch, key) {
+        Err(KeyringResult::Unavailable) => KeyringNeed::Unavailable,
+        Err(_) => KeyringNeed::Error,
+        Ok(Some(record)) => need_of_record(&record, &LinuxCheck.fingers()),
+        Ok(None) => match lookup_item(lib, &sch, key) {
+            KeyringResult::Retrieved(_) => KeyringNeed::Nothing,
+            KeyringResult::NotFound => KeyringNeed::NotFound,
+            KeyringResult::Unavailable => KeyringNeed::Unavailable,
+            _ => KeyringNeed::Error,
+        },
+    }
+}
+
+/// What this machine does for `protection`: libsecret for the plain level; the library's gate
+/// for the others, when the service it asks the user through is there.
+pub(super) fn support(protection: KeyringProtection) -> KeyringSupport {
+    if lib().is_none() {
+        return KeyringSupport::Unavailable;
+    }
+    match protection {
+        KeyringProtection::DeviceUnlocked => KeyringSupport::Library,
+        KeyringProtection::Biometric => match LinuxCheck.fingers() {
+            Fingers::Absent => KeyringSupport::Unavailable,
+            Fingers::None => KeyringSupport::NotEnrolled,
+            Fingers::Enrolled(_) => KeyringSupport::Library,
+        },
+        KeyringProtection::UserPresence => match LinuxCheck.authorize_registered() {
+            Authorization::Unregistered => KeyringSupport::NotEnrolled,
+            Authorization::Unavailable | Authorization::Error => KeyringSupport::Unavailable,
+            Authorization::Granted | Authorization::Cancelled => KeyringSupport::Library,
+        },
+    }
+}
+
+/// The polkit action an `Unlock` of a `UserPresence` item asks the desktop to authorise.
+const POLKIT_ACTION: &str = "io.azul.keyring.unlock";
+
+/// The fingerprint reader (fprintd) and the desktop's authorisation dialog (polkit), over D-Bus.
+struct LinuxCheck;
+
+impl UserCheck for LinuxCheck {
+    fn fingers(&self) -> Fingers {
+        match crate::desktop::extra::biometric::linux::enrolled_fingers() {
+            None => Fingers::Absent,
+            Some(names) if names.is_empty() => Fingers::None,
+            Some(names) => Fingers::Enrolled(fingers_digest(&names)),
+        }
+    }
+
+    fn verify_finger(&self) -> BiometricResult {
+        crate::desktop::extra::biometric::linux::verify_once()
+    }
+
+    /// The text of the dialog is the policy file's own message: polkit takes no details (a
+    /// `polkit.message` of ours) from a caller that is not root, it refuses the whole call.
+    fn authorize(&self, _reason: &str) -> Authorization {
+        polkit_check(true)
+    }
+}
+
+impl LinuxCheck {
+    /// Whether the policy file of the polkit action is installed, asked without showing a dialog.
+    fn authorize_registered(&self) -> Authorization {
+        polkit_check(false)
+    }
+}
+
+/// `org.freedesktop.PolicyKit1.Authority.CheckAuthorization` for [`POLKIT_ACTION`] with this
+/// process as the subject. `interactive`: the desktop's agent may ask the user (flag
+/// `AllowUserInteraction`); else only whether the action is known is learned.
+fn polkit_check(interactive: bool) -> Authorization {
+    use std::collections::HashMap;
+
+    use zbus::{
+        blocking::{Connection, Proxy},
+        zvariant::Value,
+    };
+
+    let Ok(conn) = Connection::system() else {
+        return Authorization::Unavailable;
+    };
+    let Ok(authority) = Proxy::new(
+        &conn,
+        "org.freedesktop.PolicyKit1",
+        "/org/freedesktop/PolicyKit1/Authority",
+        "org.freedesktop.PolicyKit1.Authority",
+    ) else {
+        return Authorization::Unavailable;
+    };
+    let pid = std::process::id();
+    let Some(start_time) = process_start_time(pid) else {
+        return Authorization::Error;
+    };
+    let mut subject_details: HashMap<&str, Value<'_>> = HashMap::new();
+    subject_details.insert("pid", Value::from(pid));
+    subject_details.insert("start-time", Value::from(start_time));
+    let subject = ("unix-process", subject_details);
+    // No details: polkit refuses a call that carries any from a caller that is not root.
+    let details: HashMap<&str, &str> = HashMap::new();
+    let flags: u32 = u32::from(interactive); // 1 = AllowUserInteraction
+    // (is_authorized, is_challenge, details)
+    let reply: Result<(bool, bool, HashMap<String, String>), zbus::Error> =
+        authority.call("CheckAuthorization", &(subject, POLKIT_ACTION, details, flags, ""));
+    match reply {
+        Ok((true, _, _)) => Authorization::Granted,
+        // Not authorised, and authenticating could not change that: the policy says no for this
+        // session (an inactive one), or no agent was there to ask.
+        Ok((false, false, _)) if !interactive => Authorization::Unavailable,
+        Ok((false, true, _)) if interactive => Authorization::Unavailable,
+        // Not authorised: the user dismissed the dialog or did not prove who they are (asked with
+        // interaction), or authenticating would be asked of them (asked without: the level can
+        // be met).
+        Ok((false, _, _)) => Authorization::Cancelled,
+        Err(e) => {
+            let text = e.to_string();
+            if text.contains("not registered") || text.contains("Unknown action") {
+                Authorization::Unregistered
+            } else if text.contains("ServiceUnknown") || text.contains("NameHasNoOwner") {
+                Authorization::Unavailable
+            } else {
+                crate::plog_warn!("[keyring] polkit CheckAuthorization failed: {}", text);
+                Authorization::Error
             }
         }
     }
+}
+
+/// The start time of process `pid` in clock ticks since boot (`/proc/<pid>/stat`, field 22),
+/// which polkit asks of a `unix-process` subject so a recycled pid cannot be taken for this one.
+fn process_start_time(pid: u32) -> Option<u64> {
+    let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
+    // The command name is in parentheses and may hold spaces: the fields count from the last ')'.
+    let after = &stat[stat.rfind(')')? + 1..];
+    after.split_whitespace().nth(19)?.parse().ok()
 }

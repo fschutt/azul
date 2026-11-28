@@ -50,6 +50,10 @@ pub use mount_views::{
     MOUNT_VIEW_MAX_ROW_HEIGHT,
 };
 
+// The engine's own ops of the keyring and the biometric stand-in (`standin_user`, `keyring`,
+// `biometric_prompt`): a scenario drives a protected secret's whole flow on any host.
+mod standin_ops;
+
 mod runner;
 pub use runner::{run_e2e_test, run_e2e_test_with_settings};
 
@@ -184,6 +188,11 @@ mod scrollbar_fade_css_tests;
 // classes a node already has cost nothing.
 #[cfg(test)]
 mod class_swap_tests;
+
+// The scenarios of the e2e matrix (`tests/e2e/*.json`) that found a bug of the layout, run
+// headless: an inline list item in a line, `:focus-within` that changes the padding.
+#[cfg(test)]
+mod matrix_scenarios_tests;
 
 // A value written to a node inside a `VirtualView` (the editor's zoom: `translate() scale()` to
 // the map's picture) is painted by the next CPU frame: the frame's values and damage are those

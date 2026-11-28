@@ -4652,9 +4652,15 @@ fn apply_focus_restyle_in_dom(
         // neither the caret nor the ring: its list is what it was.
         return ProcessEventResult::ShouldReRenderCurrentWindow;
     }
-    if restyle_result.changed_nodes.is_empty() || restyle_result.gpu_only_changes {
+    if restyle_result.changed_nodes.is_empty() {
         // Nothing the cascade calls a change, but the caret and the
         // `:focus`-conditional paint are built FROM focus state.
+        return repaint_restyled_dom(layout_window, dom_id);
+    }
+    // As the shell does, before the classification: the layout pass that follows lays out the
+    // nodes this names - without it a padding that `:focus-within` changes is not laid out.
+    layout_window.stage_css_dirty(dom_id, &restyle_result);
+    if restyle_result.gpu_only_changes {
         return repaint_restyled_dom(layout_window, dom_id);
     }
 
@@ -4753,6 +4759,8 @@ fn apply_hover_restyle(
         if restyle_result.changed_nodes.is_empty() {
             continue;
         }
+        // As the shell does: the layout pass that follows lays out the nodes this names.
+        layout_window.stage_css_dirty(dom_id, &restyle_result);
         let r = if restyle_result.gpu_only_changes {
             ProcessEventResult::ShouldReRenderCurrentWindow
         } else {
