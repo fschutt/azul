@@ -7,8 +7,8 @@
 //! | | Android | iOS | macOS / Linux / Windows |
 //! |---|---|---|---|
 //! | a locator is | a path (the app's own storage, "All files access") or a `content://` document URI inside a folder the person granted | a path (the app's container; a bookmarked folder once its scope is open) | a path |
-//! | the backend | `AndroidDocuments`: `ContentResolver` and `DocumentsContract` through JNI, every call on a worker with a deadline | the desktop's, over paths | the desktop's, over paths |
-//! | places | the app's storage, every persisted tree grant, "All files" where the person gave the access | the app's container | the user's well-known folders |
+//! | the backend | `AndroidDocuments`: `ContentResolver` and `DocumentsContract` through JNI, every call on a worker with a deadline | `IosDocuments`: paths, the granted folders from their bookmarks | the desktop's, over paths |
+//! | places | the app's storage, every persisted tree grant, "All files" where the person gave the access | the app's `Documents`, every bookmarked folder | the user's well-known folders |
 //!
 //! Nothing here is global state: the backend is a value in the App's `AppServices` (`documents`), and its call guard (the count of
 //! calls that outlived their deadline) is a field of it.
@@ -17,13 +17,17 @@ use azul_layout::managers::app_services::AppServices;
 
 #[cfg(all(target_os = "android", feature = "jni"))]
 mod android;
+#[cfg(target_os = "ios")]
+pub(crate) mod apple;
 
 /// Install this platform's backend into `services` (the App's), once, at the start (`App::run`). A desktop keeps the slot's default,
 /// which is the backend over paths.
 pub fn install(services: &AppServices) {
     #[cfg(all(target_os = "android", feature = "jni"))]
     services.documents.install(std::sync::Arc::new(android::AndroidDocuments::new()));
-    #[cfg(not(all(target_os = "android", feature = "jni")))]
+    #[cfg(target_os = "ios")]
+    services.documents.install(std::sync::Arc::new(apple::IosDocuments::new()));
+    #[cfg(not(any(all(target_os = "android", feature = "jni"), target_os = "ios")))]
     {
         // the slot's default (paths) is the backend of this platform
         let _ = services;

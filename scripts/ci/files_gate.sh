@@ -182,6 +182,7 @@ contracts() {
     --test file_picker_export_contract \
     --test android_extras_java_glue_contract \
     --test ios_share_open_contract \
+    --test ios_documents_contract \
     --test android_jni_symbols_match_the_java_glue \
     --test android_manifest_contract \
     --test android_extras_java_glue_contract

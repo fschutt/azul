@@ -51,6 +51,8 @@ enum PickKind {
     Open,
     /// A place to save: the URLs are where the person saved the file, and the file of the bytes in the scratch folder goes.
     Export,
+    /// A folder: its access is kept open for the process, and a bookmark of it is kept for the next start.
+    Folder,
 }
 
 /// What a picker on the screen waits for: the handle the app polls. Parked in the App's own registry (`AppServices::pickers`) under
@@ -229,6 +231,7 @@ extern "C" fn document_picker_did_pick(
         let handle = pending.handle.clone();
         // the file an export handed to the picker has been copied to where the person chose: it goes either way
         let export = pending.kind == PickKind::Export;
+        let folder = pending.kind == PickKind::Folder;
         clean_scratch(pending.scratch.as_deref());
 
         if urls.is_null() {
@@ -263,6 +266,10 @@ extern "C" fn document_picker_did_pick(
             // own tmp (`asCopy:YES`) the call answers NO and changes nothing.
             if !url.is_null() {
                 let _started: bool = msg_send![url, startAccessingSecurityScopedResource];
+                if folder {
+                    // a bookmark of the folder, so that it is in `Documents::places()` after a restart
+                    crate::desktop::extra::documents::apple::remember_folder(url);
+                }
             }
             if let Some(p) = url_to_path_string(url) {
                 paths.push(AzString::from(p));
@@ -540,7 +547,7 @@ pub fn dispatch_open_directory(
     _title: AzString,
     _default_path: OptionString,
 ) {
-    let Some(request_id) = register_handle(handle.clone()) else {
+    let Some(request_id) = register_pick(handle.clone(), PickKind::Folder, None) else {
         handle.set_status(FilePickerStatus::Error(AzString::from(NOT_TRACKABLE)));
         return;
     };
