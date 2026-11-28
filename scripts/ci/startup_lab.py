@@ -75,7 +75,7 @@ def real_rows(apps):
     for app in apps:
         for night in (False, True):
             rows.append({"name": f"{app}-{'dark' if night else 'light'}", "apk": app, "props": {}, "env": "AZ_LOG=info", "startup": True,
-                         "night": night, "resume": not night, "warm": True, "settle": 6.0})
+                         "night": night, "resume": not night, "relaunch": True, "settle": 6.0})
     return rows
 
 
@@ -362,15 +362,15 @@ def row_verdict(starts):
     }
 
 
-def warm_text(warm):
-    """The line of a warm start in the report: what was seen, and whether the process really was the same one."""
-    summary = warm.get("summary") or {}
-    same = "the same process" if warm.get("same_process") else "NOT the same process (a cold start)"
-    if warm.get("delivered_to_top"):
-        same += ", BUT the start was delivered to the activity that was there (a resume, not a warm start)"
-    return (f"warm start (the activity made again in a live process; {same}): `{warm.get('runs', '?')}`; black {summary.get('black', '?')}"
+def relaunch_text(relaunch):
+    """The line of a relaunch in the report: what was seen, and whether the process was the same one (it never is: the process ends with its activity)."""
+    summary = relaunch.get("summary") or {}
+    same = "the same process" if relaunch.get("same_process") else "a new process"
+    if relaunch.get("delivered_to_top"):
+        same += ", BUT the start was delivered to the activity that was there (a resume, not a relaunch)"
+    return (f"relaunch (the task is cleared and the app started again; {same}): `{relaunch.get('runs', '?')}`; black {summary.get('black', '?')}"
             f", starting window {summary.get('splash', '?')} frames, wrong colour {summary.get('wrong', '?')}"
-            + (f"; Displayed +{warm['displayed']} ms" if warm.get("displayed") else ""))
+            + (f"; Displayed +{relaunch['displayed']} ms" if relaunch.get("displayed") else ""))
 
 
 def report_text(results):
@@ -392,8 +392,8 @@ def report_text(results):
                     lines.append(f"    - +{ms} ms {label}: `{line[:170]}`")
                 if s.get("resume"):
                     lines.append(f"    - resume (home and back): `{s['resume']}`")
-            if s.get("warm"):
-                lines.append("    - " + warm_text(s["warm"]))
+            if s.get("relaunch"):
+                lines.append("    - " + relaunch_text(s["relaunch"]))
         lines.append("")
     return "\n".join(lines)
 
@@ -450,7 +450,7 @@ def set_props(dev, row):
     dev.sh(f"setprop debug.az.startup {1 if row.get('startup') else 0}")
 
 
-def one_start(dev, package, activity, row, out_dir, keep_resume, warm=False):
+def one_start(dev, package, activity, row, out_dir, keep_resume, relaunch=False):
     """One cold start (and, when the row asks, the resume) -> the start's record. The recording of every cold start is kept (a few hundred KB: a number
     that says a page moved is looked at in the frames); the resume's only when `keep_resume`."""
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -491,18 +491,19 @@ def one_start(dev, package, activity, row, out_dir, keep_resume, warm=False):
             record["resume"] = "; ".join(f"{'BLACK' if fa.mean_luma(rsigs[a + (b - a) // 2]) < fa.BLACK_LUMA else 'flat'} {b - a} frames at {a}" for a, b in runs) or "no flat frame"
         if not keep_resume:
             (out_dir / "resume.mp4").unlink(missing_ok=True)
-    if warm and row.get("warm"):
-        record["warm"] = warm_start(dev, package, activity, row, out_dir)
+    if relaunch and row.get("relaunch"):
+        record["relaunch"] = relaunch_start(dev, package, activity, row, out_dir)
     return record
 
 
-def warm_start(dev, package, activity, row, out_dir):
-    """A WARM start: the process of the app is alive and its activity is made again (what a phone does with an app the user left a while ago).
-    The app is sent home (its process stays), then started with FLAG_ACTIVITY_NEW_TASK | FLAG_ACTIVITY_CLEAR_TASK: the old activity is finished and a new
-    one is made in the same process, which gets its own starting window; the recording is cut like a cold start's. (The developer setting "Don't keep
-    activities", `always_finish_activities`, did not destroy the activity of a NativeActivity on the emulator: the start was delivered to the one that was
-    still there, `result code=2`, which is a resume.)
-    -> {runs, summary, same_process, ...} (`same_process` False means the system killed the process and this was a cold start)."""
+def relaunch_start(dev, package, activity, row, out_dir):
+    """A RELAUNCH: the app is sent home and started again with FLAG_ACTIVITY_NEW_TASK | FLAG_ACTIVITY_CLEAR_TASK, which finishes the old activity and makes
+    a new one in the same task. It is not a warm start: the process ends with its activity (`AzulActivity.onDestroy`, libazul is not re-entrant), so the new
+    activity is in a NEW process whatever the flags, and the system makes no starting window for it (the old activity's window is replaced in its task):
+    the window's own colour shows until the first picture (white or black, the engine's default for the mode, which is the page's base colour). Recorded
+    like a cold start, as information about that path. (The developer setting "Don't keep activities", `always_finish_activities`, does not destroy the
+    activity of a NativeActivity: the start was delivered to the one that was there, `result code=2`, which is a resume.)
+    -> {runs, summary, same_process, ...}."""
     dev.sh("input keyevent KEYCODE_HOME")
     time.sleep(2.5)
     before = dev.sh(f"pidof {package}").strip()
@@ -511,12 +512,12 @@ def warm_start(dev, package, activity, row, out_dir):
     dev.sh(f"am start -n {package}/{activity} -f 0x10008000")
     dev.wait_front(package)
     time.sleep(row.get("settle", 3.5))
-    video = out_dir / "warm.mp4"
+    video = out_dir / "relaunch.mp4"
     dev.record_stop(proc, remote, video)
     after = dev.sh(f"pidof {package}").strip()
     log = dev.adb("logcat", "-d", "-v", "threadtime", timeout=120)
-    (out_dir / "warm-logcat.txt").write_text(log)
-    # the system's own word: `result code=0` is a new activity, 2 is a start delivered to the one that was there (a resume, not a warm start)
+    (out_dir / "relaunch-logcat.txt").write_text(log)
+    # the system's own word: `result code=0` is a new activity, 2 is a start delivered to the one that was there (a resume, not a relaunch)
     delivered_to_top = "result code=2" in log
     result = {"same_process": bool(before) and before == after, "delivered_to_top": delivered_to_top, "displayed": displayed_ms(log), "events": log_events(log)}
     frames = fa.cut_frames(video)
@@ -562,7 +563,7 @@ def run(args):
             installed.add(name)
         starts = []
         for i in range(args.starts if not row.get("starts") else row["starts"]):
-            rec = one_start(dev, package, activity, row, out / row["name"] / f"start{i + 1}", keep_resume=(i == 0), warm=(i < 3))
+            rec = one_start(dev, package, activity, row, out / row["name"] / f"start{i + 1}", keep_resume=(i == 0), relaunch=(i < 3))
             if i == 0:
                 write_strip_of(out / row["name"] / "strip.png", rec)
             rec.pop("_frames", None)

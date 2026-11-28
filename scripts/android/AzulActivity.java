@@ -236,9 +236,8 @@ public class AzulActivity extends NativeActivity {
      */
     private static final long FIRST_DRAW_HOLD_MS = 4000;
     /**
-     * UI thread only: the engine has posted this activity's first picture, or the hold gave up: the window may draw. Per activity, not per
-     * process: a WARM start (the process is alive, the activity is made again, which a phone does all day) has a starting window and an
-     * engine that posts a first picture again, and the same gap between them.
+     * UI thread only: the engine has posted this activity's first picture, or the hold gave up: the window may draw. A field of the activity, not
+     * of the process: the process ends with its activity ({@link #onDestroy}), so no activity inherits what an earlier one saw.
      */
     private boolean firstFrameShown;
 

@@ -127,8 +127,9 @@ public final class NativeTextBridge {
         if (activity == null) {
             return;
         }
-        // A window made again in a live process (a warm start) starts from nothing: what the window before it was given is not this one's, and the
-        // engine's bridge the insets were forwarded to is the one of the engine that ended (the new one publishes its own, `installInsetsListener`).
+        // A window made again starts from nothing: what the window before it was given is not this one's, and the engine's bridge the insets were
+        // forwarded to is the one of an engine that ended (the new one publishes its own, `installInsetsListener`). The process ends with its activity
+        // (`AzulActivity.onDestroy`), so this is only so that nothing of an earlier window is ever read.
         lastInsets = null;
         lastFeatures = null;
         insetsTarget = 0L;

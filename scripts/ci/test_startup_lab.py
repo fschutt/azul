@@ -337,7 +337,7 @@ class FakeDevice:
         return True
 
 
-class WarmStartTests(unittest.TestCase):
+class RelaunchTests(unittest.TestCase):
     def setUp(self):
         self.no_sleep = unittest.mock.patch.object(lab.time, "sleep", lambda s: None)
         self.no_frames = unittest.mock.patch.object(lab.fa, "cut_frames", lambda v: None)
@@ -346,14 +346,14 @@ class WarmStartTests(unittest.TestCase):
         self.addCleanup(self.no_sleep.stop)
         self.addCleanup(self.no_frames.stop)
 
-    def run_warm(self, dev):
+    def run_relaunch(self, dev):
         import tempfile
         with tempfile.TemporaryDirectory() as d:
-            return lab.warm_start(dev, "com.azul.AzWidgets", "com.azul.app.AzulActivity", {"settle": 1.0}, Path(d))
+            return lab.relaunch_start(dev, "com.azul.AzWidgets", "com.azul.app.AzulActivity", {"settle": 1.0}, Path(d))
 
-    def test_the_app_is_sent_home_its_process_stays_and_the_activity_is_made_again_in_a_new_task(self):
+    def test_the_app_is_sent_home_and_started_again_with_a_cleared_task(self):
         dev = FakeDevice(["4242", "4242"])
-        record = self.run_warm(dev)
+        record = self.run_relaunch(dev)
         calls = dev.calls
         start = "am start -n com.azul.AzWidgets/com.azul.app.AzulActivity -f 0x10008000"
         order = [calls.index(c) for c in ("input keyevent KEYCODE_HOME", "pidof com.azul.AzWidgets", "record_start", start, "record_stop")]
@@ -361,26 +361,26 @@ class WarmStartTests(unittest.TestCase):
         self.assertTrue(record["same_process"])
         self.assertFalse(any("always_finish_activities" in c for c in calls), "no developer setting: it did not destroy the activity on the emulator")
 
-    def test_a_process_the_system_killed_is_not_a_warm_start(self):
-        self.assertFalse(self.run_warm(FakeDevice(["4242", "5151"]))["same_process"], "another pid: a cold start")
-        self.assertFalse(self.run_warm(FakeDevice(["", "5151"]))["same_process"], "no process before the start: a cold start")
+    def test_the_pids_before_and_after_are_told_apart(self):
+        self.assertFalse(self.run_relaunch(FakeDevice(["4242", "5151"]))["same_process"], "another pid: a new process (what an Azul app always does)")
+        self.assertFalse(self.run_relaunch(FakeDevice(["", "5151"]))["same_process"], "no process before the start")
 
     def test_a_start_the_system_delivered_to_the_running_activity_is_told_as_a_resume(self):
         class Delivered(FakeDevice):
             def adb(self, *args, timeout=90, binary=False):
                 super().adb(*args, timeout=timeout, binary=binary)
                 return "11-28 09:56:08.689   520  1749 I ActivityTaskManager: START u0 {cmp=com.azul.AzWidgets/com.azul.app.AzulActivity} result code=2" if "-d" in args else ""
-        record = self.run_warm(Delivered(["4242", "4242"]))
+        record = self.run_relaunch(Delivered(["4242", "4242"]))
         self.assertTrue(record["delivered_to_top"])
-        self.assertIn("a resume, not a warm start", lab.warm_text(record))
+        self.assertIn("a resume, not a relaunch", lab.relaunch_text(record))
 
     def test_the_report_says_whether_it_was_the_same_process(self):
-        text = lab.warm_text({"same_process": False, "runs": "L5 S3 2x9", "summary": {"black": 0, "splash": 3, "wrong": 0}})
-        self.assertIn("NOT the same process", text)
+        text = lab.relaunch_text({"same_process": False, "runs": "L5 S3 2x9", "summary": {"black": 0, "splash": 3, "wrong": 0}})
+        self.assertIn("a new process", text)
         self.assertIn("L5 S3 2x9", text)
 
-    def test_every_real_row_also_asks_for_a_warm_start(self):
-        self.assertTrue(all(r["warm"] for r in lab.real_rows(["AzWidgets", "AzWriter"])))
+    def test_every_real_row_also_asks_for_a_relaunch(self):
+        self.assertTrue(all(r["relaunch"] for r in lab.real_rows(["AzWidgets", "AzWriter"])))
 
 
 class EngineEventsTests(unittest.TestCase):

@@ -89,9 +89,9 @@ fn the_windows_first_draw_is_held_until_the_first_picture_and_never_trapped() {
     assert!(listener.contains("the engine never said so"), "a draw let through at the limit says so in the log");
     assert!(java.contains("private static final long FIRST_DRAW_HOLD_MS = 4000;"), "the limit: the window must never stay away for good");
 
-    // The flag is the ACTIVITY's: a warm start (the process lives on, the activity is made again) has a starting window and a first picture of its own.
+    // The flag is the ACTIVITY's, not a process static: no activity inherits what an earlier one saw.
     assert!(java.contains("private boolean firstFrameShown;"), "the flag is a field of the activity");
-    assert!(!java.contains("static boolean firstFrameShown"), "not a field of the process: a second activity of a live process would not be held");
+    assert!(!java.contains("static boolean firstFrameShown"), "not a field of the process: a second activity of a process would not be held");
     assert!(!hold.contains("if (firstFrameShown) {"), "no activity is let through because an earlier one showed its picture");
     let first = body(&java, "public static void firstFramePresented(final android.app.Activity activity)");
     assert!(first.contains("activity instanceof AzulActivity"), "the activity the engine names is the one whose flag is set");
@@ -143,9 +143,9 @@ fn the_windows_first_insets_are_kept_by_a_listener_installed_in_on_create() {
     assert!(late.contains("insetsTarget = nativePtr;") && late.contains("nativeOnWindowInsets(nativePtr, insets[0]"), "a late attach forwards what was kept");
 }
 
-/// A window made again in a live process (a warm start: the phone keeps the process of an app it has left and makes its activity again) gets its
-/// OWN insets: what the window before it was given, and the engine it was forwarded to, are the previous activity's. The engine of the new window
-/// asks for a snapshot at its surface and must get its window's dispatch or none, not the old one.
+/// A window made again gets its OWN insets: what the window before it was given, and the engine it was forwarded to, are the previous activity's
+/// (the process ends with its activity, `AzulActivity.onDestroy`, so this is defensive). The engine of the new window asks for a snapshot at its
+/// surface and must get its window's dispatch or none, not an old one.
 ///
 /// Mutation: the early listener keeping the previous window's insets, features and target (a re-made window laid out under the old insets).
 #[test]
