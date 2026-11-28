@@ -296,3 +296,25 @@ fn camera_microphone_and_speech_ask_once_and_never_stand_in_for_a_refusal() {
     assert!(ask < handle);
     assert!(listen.contains("HeardStatus::Denied"), "a refusal is an answer: Denied");
 }
+
+/// A location listener went on in the background (nothing paused it): battery for an app nobody looks at, the system's location
+/// indicator lit, fixes with no window to go to (O-10 of the review). `onPause` stops the updates and keeps the subscription,
+/// `onResume` starts it again with the options it had; a released subscription stays released.
+///
+/// Mutation: `AzulGeolocation.pause()` removed from `onPause` (the state of 6ce827b284).
+#[test]
+fn location_updates_stop_with_the_activity_and_come_back_with_it() {
+    let activity = java_code("scripts/android/AzulActivity.java");
+    let pause = body(&activity, "protected void onPause()");
+    assert!(pause.contains("AzulGeolocation.pause();"), "the updates stop when the activity pauses");
+    let resume = body(&activity, "protected void onResume()");
+    assert!(resume.contains("AzulGeolocation.resume(this);"), "and start again when it is back");
+
+    let java = java_code("scripts/android/AzulGeolocation.java");
+    let paused = body(&java, "public static synchronized void pause()");
+    assert!(paused.contains("manager.removeUpdates(listener)") && !paused.contains("liveHandle = 0"), "the subscription stays");
+    let resumed = body(&java, "public static synchronized void resume(Activity activity)");
+    assert!(resumed.contains("subscribe(activity, liveHandle, liveHighAccuracy, liveMinIntervalMs)"), "with the options it had");
+    let release = body(&java, "public static synchronized void release(long handle)");
+    assert!(release.contains("liveHandle = 0;"), "a released subscription does not come back");
+}

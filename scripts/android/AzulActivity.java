@@ -38,6 +38,7 @@ import com.azul.gamepad.AzulGamepad;
 import com.azul.permission.AzulPermissions;
 import com.azul.media.AzulMediaSession;
 import com.azul.notify.AzulNotifications;
+import com.azul.geolocation.AzulGeolocation;
 import com.azul.sensors.AzulSensors;
 
 public class AzulActivity extends NativeActivity {
@@ -267,6 +268,8 @@ public class AzulActivity extends NativeActivity {
         // app unless something stops them; nothing did. Paused, not stopped: the
         // app asked for the readings once and expects them again after onResume.
         AzulSensors.pause(this);
+        // Location updates too: a listener nobody can see the result of is battery for nothing.
+        AzulGeolocation.pause();
         // A sign-in's Custom Tab covers the app: noted, so a return without the
         // redirect reads as a cancel (onResume).
         AzulAuthSession.onPause();
@@ -281,6 +284,7 @@ public class AzulActivity extends NativeActivity {
         AzulAuthSession.onResume();
         // The readings the app asked for before the pause.
         AzulSensors.resume(this);
+        AzulGeolocation.resume(this);
     }
 
     @Override
