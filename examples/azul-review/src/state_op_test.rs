@@ -72,6 +72,23 @@ fn the_microphone_and_the_dictation_are_told_for_the_scripts_that_wait_for_them(
 }
 
 #[test]
+fn the_review_session_is_told_idle_at_the_start_and_by_its_state_after_the_keys() {
+    use crate::review_session::Event;
+    let mut s = app();
+    let v = parsed(&s);
+    assert_eq!(v["review"]["state"], "idle");
+    assert_eq!((v["review"]["may_listen"].as_bool(), v["review"]["elapsed_ms"].as_u64()), (Some(false), Some(0)));
+    s.voice.review_event(Event::Start);
+    let v = parsed(&s);
+    assert_eq!((v["review"]["state"].as_str(), v["review"]["may_listen"].as_bool()), (Some("recording"), Some(true)));
+    s.voice.review_event(Event::Pause);
+    assert_eq!(parsed(&s)["review"]["state"], "paused");
+    s.voice.review_event(Event::Stop);
+    let v = parsed(&s);
+    assert_eq!((v["review"]["state"].as_str(), v["review"]["may_listen"].as_bool()), (Some("stopped"), Some(false)));
+}
+
+#[test]
 fn the_standby_is_told_with_what_the_policy_asked_so_far() {
     let mut s = app();
     let v = parsed(&s);
@@ -81,6 +98,12 @@ fn the_standby_is_told_with_what_the_policy_asked_so_far() {
 
     s.voice.can_arm = true;
     s.voice.dwell.set_config(crate::dwell::Config { allow: crate::dwell::Allow::Any, ..crate::dwell::Config::default() });
+    // a pointer over a page asks for nothing while no review session records...
+    s.voice.pen_near(false);
+    let v = parsed(&s);
+    assert_eq!((v["standby"]["armed"].as_bool(), v["standby"]["arms"].as_u64()), (Some(false), Some(0)));
+    // ...and opens the microphone once one does
+    s.voice.review = crate::review_session::Session::recording_for_test(0);
     s.voice.pen_near(false);
     let v = parsed(&s);
     assert_eq!((v["standby"]["enabled"].as_bool(), v["standby"]["armed"].as_bool(), v["standby"]["arms"].as_u64()), (Some(true), Some(true), Some(1)));
@@ -101,7 +124,7 @@ fn the_deletions_are_counted_for_the_scripts_that_check_a_slash() {
 
 #[test]
 fn what_has_been_looked_at_is_told_for_the_scripts_that_wait_for_it() {
-    let mut s = crate::lib_test::on_disk_for_state("progress", &[("a.rs", "one\ntwo\n"), ("b.rs", "x\n")]);
+    let (mut s, _dir) = crate::lib_test::on_disk_for_state("progress", &[("a.rs", "one\ntwo\n"), ("b.rs", "x\n")]);
     let v = parsed(&s);
     assert_eq!(v["progress"]["seen_pages"], 0);
     assert_eq!(v["progress"]["pages"], 1);

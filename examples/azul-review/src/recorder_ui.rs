@@ -214,15 +214,20 @@ pub fn window(layout: LayoutCallbackType) -> WindowCreateOptions {
 const fn dot_css(dot: Dot) -> &'static str {
     match dot {
         Dot::Idle => "background: system:separator;",
-        Dot::Recording => "background: #d93025;",
-        Dot::Paused => "background: #f9ab00;",
+        // the theme's inks (flat, flora, the system palette, by day and by night): a red dot is still the red of "recording" and an amber
+        // one the amber of "paused" in every theme
+        Dot::Recording => "background: system:danger;",
+        Dot::Paused => "background: system:warning;",
     }
 }
 
+/// How a note is painted. A warning of the recorder is a problem the person must act on or that costs them part of what they asked for
+/// (a track that failed, dropped frames, a full disk, a manifest that was not written), so it is the theme's danger ink, not a red of
+/// its own that stays the same in every theme and mode.
 const fn note_css(severity: Severity) -> &'static str {
     match severity {
         Severity::Info => "color: system:secondary-text;",
-        Severity::Warning => "color: #b3261e;",
+        Severity::Warning => "color: system:danger;",
     }
 }
 

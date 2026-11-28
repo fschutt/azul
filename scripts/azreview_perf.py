@@ -207,6 +207,9 @@ def body(args, logs, out):
         origin = (strip["x"], strip["y"])
         app.frame(5)
         result["idle"] = rss_mb(app)
+        # The pen's rest is watched only while a review session records (nothing listens before the person starts one): what follows is
+        # measured in that state, the dearest one.
+        app.must("azreview_review", action="start")
 
         if args.notes:
             before_notes = rss_mb(app)
