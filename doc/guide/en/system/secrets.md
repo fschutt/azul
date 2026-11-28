@@ -139,3 +139,15 @@ A test or headless run never reaches the system keyring or a sensor: the stand-i
 same semantics and a scripted user - what is enrolled, and what they do at each sheet (a match, a
 mismatch, a cancel, a lockout, the passcode, a change of the enrolled fingers) - so the flows
 above run the same on every host, a phone included.
+
+## Moving from the first version
+
+The first version took a `require_biometry` bool; it is gone. `keyring_store(key, secret, false)` is
+`keyring_store(key, secret)` now, and the same for `Keyring::store_blocking`, `store_blocking_in` and
+`store_quietly_in`. `keyring_store(key, secret, true)` is `keyring_store_protected(key, secret,
+KeyringProtection::Biometric, prompt)`, and the read that showed the system's sheet is
+`keyring_unlock(key, prompt)` (a plain `keyring_get` of a protected item answers `WouldPrompt` and shows
+nothing). A quiet or blocking call that answered `Denied` because the system would have had to ask now
+answers `WouldPrompt`; `Denied` is only the system refusing the app. A `match` over `KeyringResult` needs
+the six new arms (`Cancelled`, `Failed`, `LockedOut`, `NotEnrolled`, `Invalidated`, `WouldPrompt`), a
+`match` over `BiometricResult` the two new ones (`LockedOut`, `NotEnrolled`).
