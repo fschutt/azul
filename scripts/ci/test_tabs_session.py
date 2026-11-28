@@ -123,6 +123,23 @@ class MatrixTextSizeTests(unittest.TestCase):
             self.assertIn("else", text[text.index("AZ_QA_TEXT_SIZES"):])
 
 
+class AuditJobTests(unittest.TestCase):
+    TEXT = (HERE / "audit_job.sh").read_text(encoding="utf-8")
+
+    def test_the_job_builds_the_e2e_variant_of_the_app_and_runs_the_audit_session_on_it(self):
+        self.assertIn("mobile-e2e", self.TEXT)
+        self.assertIn('"$app audit" audit', self.TEXT)
+        self.assertIn("demo-out/qa-audit", self.TEXT)
+
+    def test_the_script_is_valid_shell(self):
+        import subprocess
+        self.assertEqual(subprocess.run(["bash", "-n", str(HERE / "audit_job.sh")]).returncode, 0)
+
+    def test_the_audit_session_runs_an_app_script_for_azmaps_by_the_name_of_the_apk(self):
+        text = (HERE / "android_qa.sh").read_text(encoding="utf-8")
+        self.assertIn("AzMaps-*) ascript=maps", text)
+
+
 class MatrixRecordTests(unittest.TestCase):
     TEXT = (HERE / "ios_qa.sh").read_text(encoding="utf-8")
 
@@ -150,6 +167,32 @@ class TextSizeJobTests(unittest.TestCase):
     def test_the_script_is_valid_shell(self):
         import subprocess
         self.assertEqual(subprocess.run(["bash", "-n", str(HERE / "text_size_job.sh")]).returncode, 0)
+
+
+class E2eJobTests(unittest.TestCase):
+    """e2e_job.sh: ONE runner job of the e2e session for the scenario files named: the step responses (the debug server's run_e2e_tests answer) are kept"""
+    TEXT = (HERE / "e2e_job.sh").read_text(encoding="utf-8")
+
+    def test_the_job_builds_the_e2e_variant_and_hands_the_files_to_the_session(self):
+        self.assertIn("mobile-e2e", self.TEXT)
+        self.assertEqual(self.TEXT.count('AZ_QA_SCENARIOS="$files"'), 2)       # once per platform
+        self.assertIn('android_qa.sh demo-out/qa-e2e "$apk" swiftshader_indirect "$app e2e" e2e', self.TEXT)
+        self.assertIn('ios_qa.sh demo-out/qa-e2e "$zip" "$app e2e" e2e', self.TEXT)
+
+    def test_the_extra_knobs_and_the_files_to_keep_are_documented_where_the_job_is_started_from(self):
+        self.assertIn("AZ_QA_EXTRA_ENV", self.TEXT)
+        self.assertIn("scenario-<file stem>.json", self.TEXT)
+        self.assertIn("!demo-out/qa-e2e/**/*.mp4", self.TEXT)
+
+    def test_both_sessions_read_the_scenarios_and_the_session_writes_the_answers(self):
+        for name in ("android_qa.sh", "ios_qa.sh"):
+            self.assertIn("AZ_QA_SCENARIOS", (HERE / name).read_text(encoding="utf-8"), name)
+        e2e = (HERE / "mobile_e2e.py").read_text(encoding="utf-8")
+        self.assertIn('f"scenario-{name}.json"', e2e)
+
+    def test_the_script_is_valid_shell(self):
+        import subprocess
+        self.assertEqual(subprocess.run(["bash", "-n", str(HERE / "e2e_job.sh")]).returncode, 0)
 
 
 if __name__ == "__main__":

@@ -272,8 +272,10 @@ pub(super) fn fallback_ranges_for(chars: &BTreeSet<char>) -> Vec<UnicodeRange> {
 /// makes before giving up. The rest go through [`faces_covering`].
 ///
 /// `chain_for` supplies the chain currently in force for a key (`None` =
-/// the run is skipped: there is nothing to extend). Returns the new faces
-/// per key.
+/// the run is skipped: there is nothing to extend). `gate` is the host's wait
+/// for the system's fonts ([`SystemFontsGate`]), made before the lookup of a
+/// face for characters that are there while the scan of them is under way.
+/// Returns the new faces per key.
 #[allow(clippy::implicit_hasher)] // internal; matches the chain caches' default hasher
 pub fn missing_coverage_faces<T: ParsedFontTrait>(
     content: &[InlineContent],
@@ -281,6 +283,7 @@ pub fn missing_coverage_faces<T: ParsedFontTrait>(
     fc_cache: &FcFontCache,
     registry: Option<&rust_fontconfig::registry::FcFontRegistry>,
     loaded: &LoadedFonts<T>,
+    gate: Option<&dyn SystemFontsGate>,
 ) -> Vec<(FontChainKey, Vec<rust_fontconfig::FontMatch>)> {
     // Per key: the chain in force and the chars it cannot draw.
     let mut chains: HashMap<FontChainKey, rust_fontconfig::FontFallbackChain> = HashMap::new();
@@ -319,6 +322,19 @@ pub fn missing_coverage_faces<T: ParsedFontTrait>(
     let glyph_check = |id: FontId, ch: char| loaded.get(&id).map(|font| font.has_glyph(ch as u32));
     let mut out = Vec::new();
     for (key, uncovered) in missing {
+        // The characters here are ones the chain cannot draw, and the lookup is over the fonts the scan has parsed so far:
+        // while a scan with no cache from an earlier run is under way, the lookup waits for the families of the stack
+        // (the wait the first layout skips for a DOM whose text the faces in memory draw).
+        if let (Some(gate), Some(ch)) = (gate, uncovered.iter().next()) {
+            if gate.pending() {
+                let family = key.font_families.first().map_or("", |f| f.trim_matches(['"', '\'']));
+                let why = format!(
+                    "U+{:04X} is typed in the stack of \"{family}\" and no face of its chain draws it",
+                    u32::from(*ch)
+                );
+                gate.wait_for(std::slice::from_ref(&key.font_families), &why);
+            }
+        }
         let added = faces_covering(
             &key,
             &chains[&key],
