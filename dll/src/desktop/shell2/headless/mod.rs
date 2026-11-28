@@ -2636,6 +2636,12 @@ impl PlatformWindow for HeadlessWindow {
     /// Headless has no window manager to hand a drag to.
     fn handle_begin_interactive_move(&mut self) {}
 
+    /// A headless window plays no sound and no haptic: the `SoundManager` records the requests
+    /// (`assert_sound`) and the drain marks them `skipped:headless`.
+    fn plays_system_sounds(&self) -> bool {
+        false
+    }
+
     /// Every OTHER window of this app (the root and its children share the generation) rebuilds
     /// at its next turn ([`HeadlessWindow::pump_once`]); this one is rebuilt by the result that
     /// asked.

@@ -7478,6 +7478,8 @@ impl AssertionResult {
 /// | `assert_composition` | `expect`, `fixpoint?`, `damage?`             |
 /// | `assert_damage_sound`| `vs`, `which?`, `max_overpaint_ratio?`, `forbid_full?`, `pixel_identity?` |
 /// | `assert_notification`| `id?`, `title?`, `body?`, `action?`, `payload?`, `withdrawn?`, `count?`, `scheduled?`, `deliver_at?` |
+/// | `assert_sound`       | `sound?`, `class?`, `route?`, `suppressed_by?`, `played?`, `since?`, `count?` |
+/// | `assert_no_sound`    | `sound?`, `class?`, `route?`, `suppressed_by?`, `played?`, `since?` |
 /// | `assert_global_hotkeys` | `expect` (`[{accelerator, status?, owner?}]`), `count?` |
 /// | `assert_memory_growth` | `vs` (a `snapshot_resources` name), `max_bytes` |
 #[cfg(feature = "std")]
@@ -7528,6 +7530,9 @@ pub fn evaluate_assertion(
         "assert_unmocked_request" => eval_assert_unmocked_request(params),
         // Native notifications, as the headless backend recorded them
         "assert_notification" => eval_assert_notification(params, callback_info),
+        // System sounds, as the window's SoundManager recorded the requests
+        "assert_sound" => eval_assert_sound(params, callback_info),
+        "assert_no_sound" => eval_assert_no_sound(params, callback_info),
         // Global hotkeys, as the window's App manager holds them
         "assert_global_hotkeys" => eval_assert_global_hotkeys(params, callback_info),
         other => AssertionResult::fail(format!("Unknown assertion: {other}")),
@@ -9770,6 +9775,161 @@ fn eval_assert_notification(
         entry.notification.id.as_str(),
         entry.notification.title.as_str()
     ))
+}
+
+/// The parameters `assert_sound` and `assert_no_sound` filter the recording with.
+#[cfg(feature = "std")]
+static SOUND_FILTERS: &[&str] = &["sound", "class", "route", "suppressed_by", "played", "since"];
+
+/// What the filters of `assert_sound` / `assert_no_sound` matched in the window's recording of
+/// system-sound requests: how many records match, and the last few lines of the recording for the
+/// failure message.
+#[cfg(feature = "std")]
+struct SoundMatches {
+    matched: usize,
+    recent: Vec<String>,
+}
+
+/// Read the filters of `op` and count the records of the sound recording that pass all of them.
+///
+/// `sound` is a variant name (`TabChange`, case-insensitive), `class` is `input` or `event`,
+/// `route` is the exact text of the route (`system:android:FX_KEY_CLICK`, `haptic:Selection`,
+/// `none:no-system-route`), `suppressed_by` is the exact reason a request did not play
+/// (`coalesced`, `min-interval`, `repeat-limit`, `app-muted`, `no-system-route`, ...), `played`
+/// is whether the route was handed to the platform, and `since` keeps only the records after
+/// that sequence number (the first request of a window is 1).
+#[cfg(feature = "std")]
+fn match_sound_records(
+    op: &str,
+    params: &serde_json::Value,
+    callback_info: &azul_layout::callbacks::CallbackInfo,
+    extra_params: &[&str],
+) -> Result<SoundMatches, AssertionResult> {
+    let mut allowed: Vec<&str> = SOUND_FILTERS.to_vec();
+    allowed.extend_from_slice(extra_params);
+    if let Some(bad) = reject_unknown_params(op, params, &allowed) {
+        return Err(bad);
+    }
+    let sound = match params.get("sound").and_then(serde_json::Value::as_str) {
+        None => None,
+        Some(name) => {
+            let Some(sound) = azul_core::sound::SystemSound::from_name(name) else {
+                let known: Vec<&str> = azul_core::sound::ALL_SYSTEM_SOUNDS
+                    .iter()
+                    .map(|sound| sound.name())
+                    .collect();
+                return Err(AssertionResult::fail(format!(
+                    "{op}: `sound` {name:?} is not a system sound (known: {})",
+                    known.join(", ")
+                )));
+            };
+            Some(sound)
+        }
+    };
+    let class = params.get("class").and_then(serde_json::Value::as_str);
+    if let Some(class) = class {
+        if class != "input" && class != "event" {
+            return Err(AssertionResult::fail(format!(
+                "{op}: `class` is {class:?}; it is `input` or `event`"
+            )));
+        }
+    }
+    let route = params.get("route").and_then(serde_json::Value::as_str);
+    let suppressed_by = params
+        .get("suppressed_by")
+        .and_then(serde_json::Value::as_str);
+    let played = params.get("played").and_then(serde_json::Value::as_bool);
+    let since = params
+        .get("since")
+        .and_then(serde_json::Value::as_u64)
+        .unwrap_or(0);
+
+    let manager = &callback_info.get_layout_window().sound_manager;
+    let matched = manager
+        .records()
+        .filter(|record| {
+            record.sequence > since
+                && sound.is_none_or(|wanted| record.sound == wanted)
+                && class.is_none_or(|wanted| record.sound.class().name() == wanted)
+                && route.is_none_or(|wanted| record.route.label() == wanted)
+                && suppressed_by.is_none_or(|wanted| record.suppressed_by == Some(wanted))
+                && played.is_none_or(|wanted| record.was_admitted() == wanted)
+        })
+        .count();
+    Ok(SoundMatches {
+        matched,
+        recent: manager.describe_recent(8),
+    })
+}
+
+/// `assert_sound`: the system sounds the app asked for with `play_system_sound`, as the window's
+/// `SoundManager` recorded them (every request is recorded, played or not, with the reason it
+/// was not; a headless run plays nothing and records everything).
+///
+/// With `count` the number of records matching the filters is exactly that; without it at least
+/// one record matches. The filters are `sound`, `class`, `route`, `suppressed_by`, `played` and
+/// `since` (see `match_sound_records`). A scenario that must run unchanged on every platform
+/// asserts `sound` and `count` (the requests); one that is about a platform asserts `route` too.
+///
+/// ```json
+/// { "op": "assert_sound", "sound": "TabChange", "count": 3 }
+/// { "op": "assert_sound", "sound": "Error", "route": "system:android:FX_KEYPRESS_INVALID" }
+/// ```
+#[cfg(feature = "std")]
+fn eval_assert_sound(
+    params: &serde_json::Value,
+    callback_info: &azul_layout::callbacks::CallbackInfo,
+) -> AssertionResult {
+    let found = match match_sound_records("assert_sound", params, callback_info, &["count"]) {
+        Ok(found) => found,
+        Err(bad) => return bad,
+    };
+    let filters = params.to_string();
+    if let Some(expected) = params.get("count").and_then(serde_json::Value::as_u64) {
+        if found.matched as u64 != expected {
+            return AssertionResult::fail_with(
+                "recorded sound count differs",
+                format!("{expected} record(s) matching {filters}"),
+                format!("{}: {:?}", found.matched, found.recent),
+            );
+        }
+        return AssertionResult::pass(format!("{expected} sound request(s) match {filters}"));
+    }
+    if found.matched == 0 {
+        return AssertionResult::fail_with(
+            "no recorded sound request matches (does the callback call play_system_sound, and \
+             did the pass end: the window's manager decides the requests at the end of the pass?)",
+            filters,
+            format!("{:?}", found.recent),
+        );
+    }
+    AssertionResult::pass(format!("{} sound request(s) match {filters}", found.matched))
+}
+
+/// `assert_no_sound`: no request of the recording matches the filters of `assert_sound` (all of
+/// them: with no filter, the app asked for no sound at all since `since`).
+///
+/// ```json
+/// { "op": "assert_no_sound" }
+/// { "op": "assert_no_sound", "sound": "Error", "played": true }
+/// ```
+#[cfg(feature = "std")]
+fn eval_assert_no_sound(
+    params: &serde_json::Value,
+    callback_info: &azul_layout::callbacks::CallbackInfo,
+) -> AssertionResult {
+    let found = match match_sound_records("assert_no_sound", params, callback_info, &[]) {
+        Ok(found) => found,
+        Err(bad) => return bad,
+    };
+    if found.matched != 0 {
+        return AssertionResult::fail_with(
+            "a recorded sound request matches",
+            format!("no record matching {params}"),
+            format!("{} match: {:?}", found.matched, found.recent),
+        );
+    }
+    AssertionResult::pass("no sound request matches")
 }
 
 /// `assert_no_unmocked_requests`: every request function that ran since the
