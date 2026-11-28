@@ -269,6 +269,12 @@ jobs:
           done
           echo "::error::MinGW unavailable: no gcc on PATH, none in the image, and choco failed 3x"
           exit 1
+      # scripts/demo_lib.sh runs python3 (the checks of the library and its info file): Git Bash on a Windows runner finds the one
+      # setup-python puts on the PATH (the apps job below has it as well)
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        if: steps.cache.outputs.cache-hit != 'true'
+        with:
+          python-version: '3.12'
       - name: Download generated bindings
         if: steps.cache.outputs.cache-hit != 'true'
         uses: ./.github/actions/codegen-tree

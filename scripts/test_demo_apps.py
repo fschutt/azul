@@ -31,6 +31,19 @@ import png_compare  # noqa: E402
 import smoke_verdict  # noqa: E402
 import ui_find  # noqa: E402
 
+_NO_SDK = mock.patch.dict(os.environ, {"ANDROID_HOME": "", "ANDROID_SDK_ROOT": ""})
+
+
+def setUpModule():
+    # verify_apk runs apksigner and aapt2 of the SDK's build-tools when the machine has them (ubuntu-latest has: its preflight job ran
+    # them on the made-up APKs of these tests, which have no manifest and no signature, and failed twice). No test of this file is about
+    # an SDK, so none sees one, wherever it is run.
+    _NO_SDK.start()
+
+
+def tearDownModule():
+    _NO_SDK.stop()
+
 
 def cargo_json(*artifacts):
     """A cargo JSON stream: each artifact is (package_id, features, kind, executable)."""
@@ -755,6 +768,25 @@ class PublishWorkflowTest(unittest.TestCase):
 class PageAlignedStatusTest(unittest.TestCase):
     """The 16 KiB page check of the Android libraries is a line of the status table, not only a gate that fails a build: the result of an
     APK says how many of its libraries passed (page_aligned_libs), the info of a library says that it did (page_aligned)."""
+
+    def test_no_test_of_this_file_sees_an_sdk_and_so_none_runs_the_apksigner_of_a_machine_that_has_one(self):
+        # a machine with build-tools (ubuntu-latest) makes verify_apk run apksigner on the made-up APK of a test and fail it
+        self.assertEqual(os.environ.get("ANDROID_HOME"), "")
+        self.assertEqual(os.environ.get("ANDROID_SDK_ROOT"), "")
+        with tempfile.TemporaryDirectory() as d:
+            tools = pathlib.Path(d) / "build-tools" / "34.0.0"
+            tools.mkdir(parents=True)
+            (tools / "apksigner").write_text("#!/bin/sh\nexit 1\n")
+            (tools / "apksigner").chmod(0o755)
+            sys.path.insert(0, str(HERE))
+            import test_android_elf_check as t
+            apk = pathlib.Path(d) / "AzX.apk"
+            t.apk(apk, [("classes.dex", b"dex\n035", False, 0), ("lib/x86_64/libazul.so", t.elf([0x4000] * 3), False, 0)])
+            with mock.patch.dict(os.environ, {"ANDROID_HOME": d}):     # the machine HAS an SDK: the apksigner of it fails the APK
+                with self.assertRaises(RuntimeError) as caught:
+                    demo_build.verify_apk(apk, "x86_64")
+            self.assertIn("not validly signed", str(caught.exception))
+            self.assertEqual(demo_build.verify_apk(apk, "x86_64"), 1)   # without it, as every test of this file runs: the ELF check only
 
     def test_the_count_of_the_libraries_of_an_apk_is_returned_by_its_verification(self):
         import android_elf_check
