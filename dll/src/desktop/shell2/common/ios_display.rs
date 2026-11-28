@@ -71,6 +71,8 @@ pub struct IosDisplayClass {
     pub home_button: bool,
 }
 
+/// One row of the table of display classes: the eight numbers read left to right in `IOS_DISPLAY_CLASSES`.
+#[allow(clippy::too_many_arguments)]
 const fn class(
     short: f32,
     long: f32,
@@ -137,7 +139,7 @@ pub static UNKNOWN_CUTOUT_CLASS: IosDisplayClass =
     class(0.0, 0.0, IosCutout::Island, (126.0, 37.0), 11.0, 55.0, 54.0, false);
 
 /// What the display has, in the window's coordinates, for the window's current orientation.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct IosDisplay {
     /// The cutout, when the display has one: its bounding rect and what it looks like. Always approximate.
     pub cutout: Option<(IosRect, IosCutout)>,
