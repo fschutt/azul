@@ -1112,7 +1112,7 @@ pub struct Device {
     gl: Rc<GenericGlContext>,
 
     /// EXPERIMENT: the per-draw read-back, off unless the engine switched it on (`set_draw_probe`).
-    draw_probe: Option<DrawProbe>,
+    draw_probe: RefCell<Option<DrawProbe>>,
 
     /// The context is OpenGL ES. Read once: `GenericGlContext::get_type` asks the driver for `GL_VERSION` and builds a
     /// string on every call. The GLES-only branches (see `clear_target`) test this, so the desktop GL code is
@@ -2043,7 +2043,7 @@ impl Device {
             texture_storage_usage,
             requires_null_terminated_shader_source,
             requires_texture_external_unbind,
-            draw_probe: None,
+            draw_probe: RefCell::new(None),
             is_software_webrender,
             required_pbo_stride,
             dump_shader_source,
@@ -3760,24 +3760,27 @@ impl Device {
     }
 
     /// EXPERIMENT: switches the per-draw read-back on or off.
-    pub fn set_draw_probe(&mut self, on: bool) {
-        self.draw_probe = on.then(|| DrawProbe {
+    pub fn set_draw_probe(&self, on: bool) {
+        *self.draw_probe.borrow_mut() = on.then(|| DrawProbe {
             lines: Vec::new(),
             draws: 0,
         });
     }
 
     /// EXPERIMENT: the lines the draw probe wrote since the last call.
-    pub fn take_draw_probe_lines(&mut self) -> Vec<String> {
+    pub fn take_draw_probe_lines(&self) -> Vec<String> {
         self.draw_probe
+            .borrow_mut()
             .as_mut()
             .map(|probe| std::mem::take(&mut probe.lines))
             .unwrap_or_default()
     }
 
     /// EXPERIMENT: the viewport and the pixels of the framebuffer drawn to, when the draw probe is on (not for the GPU cache's float target).
-    fn probe_read(&mut self) -> Option<([i32; 4], Vec<u8>)> {
-        self.draw_probe.as_ref()?;
+    fn probe_read(&self) -> Option<([i32; 4], Vec<u8>)> {
+        if self.draw_probe.borrow().is_none() {
+            return None;
+        }
         if self
             .bound_program_name
             .to_string_lossy()
@@ -3810,7 +3813,7 @@ impl Device {
 
     /// EXPERIMENT: after a draw call: how many pixels of the viewport it changed.
     fn probe_report(
-        &mut self,
+        &self,
         before: Option<([i32; 4], Vec<u8>)>,
         kind: &str,
         count: i32,
@@ -3831,7 +3834,7 @@ impl Device {
         let total = after.len() / 4;
         let program = self.bound_program_name.to_string_lossy().into_owned();
         let fbo = self.bound_draw_fbo.0;
-        if let Some(probe) = self.draw_probe.as_mut() {
+        if let Some(probe) = self.draw_probe.borrow_mut().as_mut() {
             probe.draws += 1;
             let number = probe.draws;
             probe.lines.push(format!(
