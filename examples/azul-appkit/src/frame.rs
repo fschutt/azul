@@ -171,7 +171,11 @@ pub fn example(
         left: tab_row_left_pad(&sidebar),
         ..crate::ui::tabs_in_titlebar()
     };
-    let ribbon = Ribbon::create(vec![file, home]).with_tabs_in_titlebar(tabs).dom_desktop();
+    // on a phone the rail stands under the tab row: the tab content starts that far in
+    let ribbon = Ribbon::create(vec![file, home])
+        .with_tabs_in_titlebar(tabs)
+        .with_content_inset(sidebar.phone_content_inset())
+        .dom_desktop();
 
     // the Preview is opt-in and shows the message itself; its details are behind (?) buttons
     let mut preview = Preview::create(Dom::create_div(), Dom::create_p_with_text("The message."))

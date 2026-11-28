@@ -354,19 +354,12 @@ fn command(icon: &str, label: &str) -> RibbonItem {
 /// The tab ribbon over the frame's full width: File (tab 0) shows the location in a band exactly as
 /// tall as Home's, every tab names its icon (a phone shows the icons as squares), a vertical swipe on
 /// the band flips between the tabs.
-fn the_header(data: &RefAny, demo: &SidebarDemo, theme: UiTheme) -> Dom {
-    // On a phone the 18 px rail stands under the tab row, beside the band: the band's content keeps
-    // clear of it. `Ribbon::with_content_inset` is the tab widget's own way to say that (the TABS
-    // agent's hook, not on master yet); until then this wrapper does it, for this picture only.
-    let location = the_location(data, demo, theme);
-    let location = if demo.form == 1 {
-        Dom::create_div()
-            .with_css("box-sizing: border-box; width: 100%; height: 100%; padding-left: 18px;")
-            .with_child(location)
-    } else {
-        location
-    };
-    let file = RibbonTab::create("File").with_icon("folder").with_location(location);
+fn the_header(data: &RefAny, demo: &SidebarDemo, theme: UiTheme, inset: f32) -> Dom {
+    // On a phone the 18 px rail stands under the tab row, beside the band: the band's content
+    // starts `inset` px in (the sidebar says how many), the tab row stays the whole width.
+    let file = RibbonTab::create("File")
+        .with_icon("folder")
+        .with_location(the_location(data, demo, theme));
     let home = RibbonTab::create("Home")
         .with_icon("home")
         .with_group(
@@ -396,6 +389,7 @@ fn the_header(data: &RefAny, demo: &SidebarDemo, theme: UiTheme) -> Dom {
         .with_theme(theme)
         .with_tab_style(if demo.form == 1 { TabStyle::TouchPills } else { TabStyle::Auto })
         .with_available_width(if demo.form == 1 { 411.0 } else { 800.0 })
+        .with_content_inset(inset)
         .with_on_tab_click(data.clone(), on_ribbon_tab as RibbonOnTabClickCallbackType)
         .dom_desktop()
 }
@@ -434,8 +428,10 @@ fn the_frame(data: &RefAny, demo: &SidebarDemo, theme: UiTheme) -> Dom {
         .with_surface(surface_of(demo))
         .with_theme(theme)
         .with_on_event(data.clone(), on_sheet as ActionSheetOnEventCallbackType);
-    let frame = AppFrame::create(the_header(data, demo, theme), body)
-        .with_sidebar(the_sidebar(data, demo, theme))
+    let sidebar = the_sidebar(data, demo, theme);
+    let inset = sidebar.phone_content_inset();
+    let frame = AppFrame::create(the_header(data, demo, theme, inset), body)
+        .with_sidebar(sidebar)
         .with_preview(preview)
         .with_footer(the_footer(demo))
         .with_sheet(sheet.dom())
