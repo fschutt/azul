@@ -151,7 +151,7 @@ def desktop_file():
 
 # ---- the phone ----
 
-def phone_steps(first_start):
+def phone_steps(first_start, width=None, height=None):
     """first_start: the device's first look is src/main.rs (the phone opened the sample workspace and its first file itself); a host
     window has the welcome page and opens the sample and the file through the UI."""
     s = [op("set_mode", mode="dark")]
@@ -188,7 +188,12 @@ def phone_steps(first_start):
     s += click("#__azcode_drawer-button") + click("#__azcode_activity-git") + exists("#__azcode_git-panel") + rest(1000)
     s += shot()                                                        # 8 source control in the drawer
     s += click("#__azcode_activity-run") + exists("#__azcode_run-panel") + shot()                  # 9 run
-    s += click("#__azcode_scrim") + missing("#__azcode_drawer")
+    # the drawer closes on its scrim (a tap on the strip beside it: the middle of the scrim is under the drawer) or, where the
+    # window's size is not known here, on Escape
+    if width:
+        s += [op("click", x=float(width) - 12.0, y=float(height) / 2.0)] + frames(2) + missing("#__azcode_drawer")
+    else:
+        s += press("escape") + missing("#__azcode_drawer")
     s += [op("set_mode", mode="light")] + shot()                       # 10 light
     s += [op("set_mode", mode="dark")]
     if not first_start:
@@ -210,7 +215,7 @@ def phone_file():
                            f"over a scrim, the panel a sheet from the bottom, a key row over the keyboard's place, one status bar "
                            f"line. Pictures, in order: {names}.",
             "only_on": ["linux", "macos", "windows"],
-            "steps": window(w, h, preset) + phone_steps(False),
+            "steps": window(w, h, preset) + phone_steps(False, w, h),
         })
     # The system's insets arrive after the first frame (a display preset stands for them): the top bar moves under the status bar.
     tests.append({

@@ -308,11 +308,17 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
         .with_asking(st.asking_close)
         .with_on_event(app.clone(), on_close_guard)
         .dom();
-    ShellThemeScope::create(ui::column(vec![guarded]))
+    let body = ShellThemeScope::create(ui::column(vec![guarded]))
         .with_accent(ShellThemeAccent::Blue)
-        .body()
-        .with_menu_bar(menu::menu_bar(&app, st))
-        .with_callback(EventFilter::Window(WindowEventFilter::VirtualKeyDown), app, on_key)
+        .body();
+    // A phone has no menu bar (its commands are the palette's, its views the drawer's): a window as small as one,
+    // whatever shows it (a desktop window the size of a phone, as the host pictures have), does not draw one either.
+    let body = if phone::is_compact(st.window.0, st.window.1) {
+        body
+    } else {
+        body.with_menu_bar(menu::menu_bar(&app, st))
+    };
+    body.with_callback(EventFilter::Window(WindowEventFilter::VirtualKeyDown), app, on_key)
 }
 
 // ==== Callbacks ====

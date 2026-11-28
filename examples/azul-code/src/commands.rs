@@ -608,6 +608,8 @@ pub fn handle_key(
     }
     match key {
         VirtualKeyCode::F3 if !m.primary_down() => st.step_match(!m.shift),
+        // A phone's drawer closes on Escape (a hardware keyboard, a test) as on its scrim.
+        VirtualKeyCode::Escape if st.phone.drawer && st.palette.is_none() => st.phone.drawer = false,
         VirtualKeyCode::Escape if st.palette.is_some() => {
             st.palette = None;
             if has_file {

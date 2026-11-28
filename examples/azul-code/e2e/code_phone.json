@@ -492,7 +492,8 @@
       },
       {
         "op": "click",
-        "selector": "#__azcode_scrim"
+        "x": 399.0,
+        "y": 457.0
       },
       {
         "op": "wait_frame"
@@ -1033,7 +1034,8 @@
       },
       {
         "op": "click",
-        "selector": "#__azcode_scrim"
+        "x": 390.0,
+        "y": 437.0
       },
       {
         "op": "wait_frame"
@@ -1574,7 +1576,8 @@
       },
       {
         "op": "click",
-        "selector": "#__azcode_scrim"
+        "x": 348.0,
+        "y": 320.0
       },
       {
         "op": "wait_frame"
@@ -2115,7 +2118,8 @@
       },
       {
         "op": "click",
-        "selector": "#__azcode_scrim"
+        "x": 902.0,
+        "y": 205.5
       },
       {
         "op": "wait_frame"
@@ -2695,8 +2699,12 @@
         "op": "take_screenshot"
       },
       {
-        "op": "click",
-        "selector": "#__azcode_scrim"
+        "op": "key_down",
+        "key": "escape"
+      },
+      {
+        "op": "key_up",
+        "key": "escape"
       },
       {
         "op": "wait_frame"
