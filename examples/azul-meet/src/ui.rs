@@ -445,6 +445,9 @@ pub(crate) struct Actions {
     pub key: CallbackType,
     /// The system answered a permission request (the camera, the microphone).
     pub permission: CallbackType,
+    /// "Open settings" beside a refused camera and a refused microphone: the system's page of that permission.
+    pub open_camera_settings: ButtonOnClickCallbackType,
+    pub open_microphone_settings: ButtonOnClickCallbackType,
     /// The keyring answered (a window event): this device's identity.
     pub keyring: CallbackType,
     /// The start screen: Retry (the meeting server), "New chat room", "Schedule" and its fields.
@@ -624,18 +627,43 @@ const DEVICE_ID_CHARS: usize = 16;
 /// A room id's characters (all of them: a room's button id is `__azmeet_room_<room id>`).
 const ROOM_ID_CHARS: usize = crate::crypto::ID_LEN;
 
+/// The camera the screen shows is refused by the system (the own tile says so).
+pub(crate) fn camera_refused(view: &CallView) -> bool {
+    view.cam && !view.pattern_video && view.camera_denied
+}
+
+/// The microphone whose level the screen shows is refused by the system (the meter says so).
+pub(crate) fn mic_refused(view: &CallView) -> bool {
+    view.mic_denied && !view.tone_mic && (view.mic || view.sound_check.records())
+}
+
 /// The title row (the window is `NoTitle`) over the top bar: the notice, and at the right the
-/// gear that opens the settings.
+/// gear that opens the settings; a refusal of the camera or the microphone puts "Open settings"
+/// before the gear (a refused permission is not asked again: the system's page is the way back).
 fn header(view: &CallView, data: &RefAny, actions: &Actions) -> Dom {
+    let mut bar = Dom::create_div()
+        .with_css(TOP_BAR)
+        .with_child(text(&view.notice, NOTICE));
+    let open = if camera_refused(view) {
+        Some(actions.open_camera_settings)
+    } else if mic_refused(view) {
+        Some(actions.open_microphone_settings)
+    } else {
+        None
+    };
+    if let Some(callback) = open {
+        bar = bar.with_child(
+            Button::create(label("azmeet-open-settings"))
+                .with_on_click(data.clone(), callback)
+                .dom()
+                .with_id(ids::PERMISSION_SETTINGS)
+                .with_css("flex-shrink: 0; margin-right: 4px;"),
+        );
+    }
     Dom::create_div()
         .with_css("display: flex; flex-direction: column;")
         .with_child(title_row(view))
-        .with_child(
-            Dom::create_div()
-                .with_css(TOP_BAR)
-                .with_child(text(&view.notice, NOTICE))
-                .with_child(gear(data, actions)),
-        )
+        .with_child(bar.with_child(gear(data, actions)))
 }
 
 /// The window's title row: azul's `Titlebar`.
@@ -806,7 +834,7 @@ fn remote_picture(t: &TileView) -> Dom {
 fn own_picture(view: &CallView, t: &TileView, data: &RefAny, large: bool) -> Dom {
     match t.kind {
         // A refused camera is told, not shown as a black box.
-        TileKind::Camera if view.cam && !view.pattern_video && view.camera_denied => {
+        TileKind::Camera if camera_refused(view) => {
             text(&l10n::t("azmeet-camera-denied"), SECONDARY)
         }
         TileKind::Camera if view.cam && !view.pattern_video => {
@@ -1261,7 +1289,7 @@ fn microphone(data: &RefAny) -> Dom {
 /// "Mic level" and the bar that moves with it (ten times a second at most); a refused microphone
 /// says so instead.
 fn level_meter(view: &CallView, data: &RefAny) -> Dom {
-    if view.mic_denied && !view.tone_mic {
+    if mic_refused(view) {
         return Dom::create_div()
             .with_css(ROW)
             .with_child(text(&t("azmeet-mic-denied"), SECONDARY));
