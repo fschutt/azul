@@ -2,23 +2,28 @@
 """startup_lab.py: the cold-start lab of the Android shell (ledger E46 / E47 / E60): what a person SEES between the system's starting
 window and the first picture, per variant of the Java side and per setting of the stand-in engine, frame by frame.
 
-    startup_lab.py run --out DIR --serial S --apk NAME=PATH [--apk NAME=PATH ...] [--rows rows.json] [--starts N]
+    startup_lab.py run --out DIR [--serial S] --apk NAME=PATH [--apk NAME=PATH ...] [--rows rows.json | --real] [--starts N] [--only TEXT]
     startup_lab.py report DIR                 (the table of the last run again)
 
-It drives an emulator that is already booted (scripts/ci/android_startup_lab.sh boots it and builds the control APKs, scripts/startup-control).
-Per row (an APK, the stand-in's knobs `debug.azctl.*`, light or night) and per start: the app is force-stopped, the home screen is shown,
-the screen is RECORDED (adb screenrecord, as scripts/ci/flicker_audit.py records it), the app is started, left for a few seconds, the
-recording is cut into frames at 30 fps (ffmpeg) and every frame gets a letter:
+It drives an emulator that is already booted (scripts/ci/android_startup_lab.sh boots it and builds the control APKs of scripts/startup-control;
+scripts/ci/android_startup_real.sh builds the real apps and runs `--real`: every app in the light mode and in the night mode, the engine's startup
+timeline and its info log on). Per row (an APK, the stand-in's knobs `debug.azctl.*`, light or night) and per start: the app is force-stopped, the
+home screen is shown, the screen is RECORDED (adb screenrecord, as scripts/ci/flicker_audit.py records it), the app is started, left for a few
+seconds, the recording is cut into frames at 30 fps (ffmpeg) and every frame gets a letter:
 
     L  before the app: the launcher and the system's opening animation (every frame until the first flat one)
-    S  one light colour between the system bars: the system's starting window (the app icon on the window colour), or the flat first frame
-    B  one dark colour (black): the window is up and has nothing in it
-    1  a picture of the app that is not the one the recording ends with: the first frame, when a second one follows
+    S  the system's starting window (the app icon on the window colour: one light colour between the system bars; in the night mode a dark frame with the
+       icon on it), or a flat first frame
+    B  one dark colour with nothing on it (black): the window is up and has nothing in it
+    1  a picture of the app that is not the one the recording ends with (the first picture when a second one follows, and the frames of the system's exit
+       animation, which fade into the page)
     2  the picture the recording ends with (the settled one)
+    W  a light picture in the night mode: the wrong colour
 
 and the run lengths are the verdict: `L63 S14 B33 1x5 2x30` is 14 frames (0.47 s) of the starting window, 33 frames (1.1 s) of black, 5 frames
-of the first picture, then the settled one. The log of each start (the system's `Displayed`, the stand-in's `[azctl]` lines, the engine's
-own) is cut to the lines that say WHEN, relative to the system's `START`. Home and back (the resume) is recorded too when the row asks.
+of the first picture, then the settled one. A page that MOVED is told apart from a fade: a run of `1` frames that look alike is a picture that stood
+before the page changed (`moved`). The log of each start (the system's `Displayed`, the stand-in's `[azctl]` lines, the engine's own) is cut to the
+lines that say WHEN, relative to the system's `START`. Home and back (the resume) is recorded too when the row asks.
 
 The analysis functions are pure (tests: scripts/ci/test_startup_lab.py).
 """
