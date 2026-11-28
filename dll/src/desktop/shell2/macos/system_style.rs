@@ -272,8 +272,7 @@ unsafe fn workspace_flag(lib: &ObjcLib, target: Id, selector: &[u8]) -> Option<b
     }
     let sel = lib.sel(selector);
     // `respondsToSelector:` sent to the object itself: the instance answers for its own methods
-    let f: unsafe extern "C" fn(Id, Sel, Sel) -> i8 = core::mem::transmute(lib.msg_send);
-    if f(target, lib.sel(b"respondsToSelector:\0"), sel) == 0 {
+    if !lib.responds_to(target, sel) {
         return None;
     }
     Some(lib.send_bool(target, sel))
