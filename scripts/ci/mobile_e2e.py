@@ -492,6 +492,23 @@ def e2e_session(args):
                 return int((b[0] + b[2]) / 2), int((b[1] + b[3]) / 2)
         return None
 
+    def fresh_start_in_english(s):
+        """The scripted check of an app begins from a cold start in English. The step before it (e35) leaves the app in German: the engine follows
+        a change of the language at a cold start only (a running app keeps its words: `locale_running` of the report), and a script that finds a
+        control by its name (a bottom tab, a mode tab) needs the English one."""
+        if args.platform != "android":
+            return
+        pkg = args.package
+        dev.sh(f"cmd locale set-app-locales {pkg} --locales en-US")
+        dev.sh(f"am force-stop {pkg}")
+        dev.home()
+        time.sleep(1.5)
+        dev.launch(cold=True)
+        dev.wait_for_front(timeout=args.first_frame_timeout)
+        took, answer = srv.ready(args.server_timeout)
+        s.check("the app starts cold in English and the debug server answers", took is not None, f"after {took:.1f} s" if took is not None else str(answer))
+        dev.settle(2.0)
+
     def tree_says(text):
         """Does any node of the engine's accessibility tree carry `text` in its name or value?"""
         needle = text.lower()
@@ -692,8 +709,10 @@ def e2e_session(args):
             dev.settle(1.0)
 
     def s_script_clock(s):
-        """AzClock with real touches: the floating + opens the alarm editor (a page, not a window), its label field takes the keyboard, Back
-        leaves it; the bottom bar's places change the page; the first start shows no developer's line."""
+        """AzClock with real touches: the floating + opens the alarm editor (a page, not a window), its label field takes the keyboard, the page's
+        own Back leaves it; the bottom bar's places change the page; the alarm switches are heard from beyond their track; the first start
+        shows no developer's line. The phone's own Back key comes LAST (it finishes the activity until the Android Back path lands)."""
+        fresh_start_in_english(s)
         dev.settle(4.0)
         before = device_shot(s, "clock-before")
         engine_frame(s, "clock-engine-frame")
@@ -709,11 +728,13 @@ def e2e_session(args):
         editor = device_shot(s, "clock-editor")
         s.check("a tap on + opens the alarm editor (the picture changes)", q.sig_diff(editor, before) > q.SAME_BELOW, f"differs {q.sig_diff(editor, before):.3f}")
         keyboard_over_field(s, "#__azclock_editor-label", "the alarm label field", "Gym")
-        dev.back()                      # the keyboard was closed above: BACK leaves the editor page (the app's Back)
+        # the page's own Back (the app bar of the shell), not the phone's key: that one is the Android shell's
+        left = tap_node(s, ".__azul-native-mobile-shell-back")
+        s.check("the editor's app bar names its Back with a box", bool(left), str(left))
         dev.settle(1.5)
         back = device_shot(s, "clock-after-back")
-        s.check("BACK leaves the editor and shows the list again", q.sig_diff(back, before) <= q.SAME_BELOW * 2 or q.sig_diff(back, editor) > q.SAME_BELOW,
-                f"differs from before {q.sig_diff(back, before):.3f}, from the editor {q.sig_diff(back, editor):.3f}", required=False)
+        s.check("the editor's Back shows the list again (the floating + is there)", box_of("#__azclock_new") is not None,
+                f"differs from before {q.sig_diff(back, before):.3f}, from the editor {q.sig_diff(back, editor):.3f}")
         for place, shot in (("Stopwatch", "clock-stopwatch"), ("Timer", "clock-timer"), ("Clock", "clock-world"), ("Alarm", "clock-alarms")):
             found = find_named(place)
             s.check(f"the bottom bar's '{place}' is named in the engine's tree with a position", bool(found), str(found))
@@ -722,6 +743,25 @@ def e2e_session(args):
                 dev.settle(1.5)
                 device_shot(s, shot)
         hit_slop(s)
+        system_back_from_the_editor(s)
+
+    def system_back_from_the_editor(s):
+        """The phone's own Back key on the alarm editor (an app page) shows the list and keeps the app in front. Until the Android Back path is in
+        the build the key finishes the activity from any page: the check is informational, and it is the last of the script (the app is gone
+        after it)."""
+        if not tap_node(s, "#__azclock_new"):
+            return
+        dev.settle(1.5)
+        dev.back()
+        dev.settle(2.0)
+        shown = False
+        if dev.foreground():
+            try:
+                shown = box_of("#__azclock_new") is not None
+            except Exception:  # noqa: BLE001 - a server that went away with the activity
+                shown = False
+        s.check("the phone's Back key leaves the editor page and keeps the app in front", shown,
+                "the app is still in front" if shown else "the activity finished (the Android Back path is not in this build)", required=False)
 
     def hit_slop(s):
         """The engine's touch hit-slop with real touches: a finger that lands beside the 36 x 20 dp track of an alarm's switch (inside the 48 dp
@@ -753,6 +793,7 @@ def e2e_session(args):
     def s_script_calculator(s):
         """AzCalculator with real touches: 7 x 6 = on the keypad (the app prints AZCALC_DISPLAY), the Convert tab and its value field with
         the soft keyboard."""
+        fresh_start_in_english(s)
         dev.settle(4.0)
         before = device_shot(s, "calculator-before")
         engine_frame(s, "calculator-engine-frame")
@@ -767,7 +808,8 @@ def e2e_session(args):
         shown = device_shot(s, "calculator-7x6")
         lines = q.marker_values(dev.adb("logcat", "-d", "-v", "threadtime", timeout=60), "AZCALC_DISPLAY", since=mark)
         s.check("real taps on 7 x 6 = show 42 (the app prints AZCALC_DISPLAY)", any("42" in l for l in lines[-3:]), f"printed {lines[-3:]}")
-        s.check("the picture shows it", q.sig_diff(shown, before) > q.SAME_BELOW, f"differs {q.sig_diff(shown, before):.3f}")
+        # the display is a few glyphs on a large picture: the printed value above is the oracle, the picture only a second opinion
+        s.check("the picture shows it", q.sig_diff(shown, before) > q.SAME_BELOW, f"differs {q.sig_diff(shown, before):.3f}", required=False)
         found = find_named("Convert")
         s.check("the mode tab 'Convert' is named in the engine's tree with a position", bool(found), str(found))
         if found:

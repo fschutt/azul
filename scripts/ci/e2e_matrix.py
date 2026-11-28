@@ -256,7 +256,7 @@ def run_android(scns, apks, out, serial="", timeout=240, shots=""):
         dev.sh(f"am force-stop {dev.package}")
         dev.adb("logcat", "-c")
         started = time.time()
-        dev.launch(cold=True)
+        launched = dev.launch(cold=True)
         seen, ended = False, False
         while time.time() - started < timeout:
             alive = dev.alive()
@@ -269,7 +269,16 @@ def run_android(scns, apks, out, serial="", timeout=240, shots=""):
             time.sleep(1.0)
         text = dev.adb("logcat", "-d", "-v", "raw", "RustStdoutStderr:I", "*:S", timeout=120)
         crash = dev.adb("logcat", "-d", "-b", "crash", "-v", "threadtime", timeout=60)
-        (raw_dir / (Path(scn["rel"]).stem + ".txt")).write_text(text + ("\n== crash buffer\n" + crash if crash.strip() else ""), encoding="utf-8")
+        raw = text + ("\n== crash buffer\n" + crash if crash.strip() else "")
+        if not seen:
+            # an app that never showed up leaves no log of its own: what the system says about the start (the `am start` answer and the activity
+            # manager's lines of the package: a crash loop that blocks the next start is written there) is what says why
+            system = dev.adb("logcat", "-d", "-b", "all", "-v", "threadtime", timeout=60)
+            lines = [l for l in system.splitlines() if dev.package in l or "AndroidRuntime" in l or "libc " in l or "DEBUG " in l]
+            front = dev.sh("dumpsys window | grep -E 'mCurrentFocus|mFocusedApp'", timeout=60) + dev.sh("dumpsys activity activities | grep -E 'topResumedActivity|mResumedActivity'", timeout=60)
+            raw += ("\n== am start\n" + str(launched).strip() + "\n== what has the screen\n" + str(front).strip()
+                    + "\n== the system's lines of the package (the last 80)\n" + "\n".join(lines[-80:]) + "\n")
+        (raw_dir / (Path(scn["rel"]).stem + ".txt")).write_text(raw, encoding="utf-8")
         dev.sh("am force-stop " + dev.package)
         if shot_dev:
             dest = Path(shots) / stem
