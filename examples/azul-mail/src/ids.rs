@@ -14,6 +14,10 @@ use azul::str::String as AzString;
 pub const RIBBON: AzString = AzString::from_const_str("__azmail_ribbon");
 /// The folder pane: azul's Sidebar (every account's folder tree, Mail / Calendar / Contacts / Tasks).
 pub const FOLDER_PANE: AzString = AzString::from_const_str("__azmail_folder_pane");
+/// The Preview: the message in the right dock (a phone's bottom pane).
+pub const PREVIEW: AzString = AzString::from_const_str("__azmail_preview");
+/// The window's frame (azul's AppFrame).
+pub const FRAME: AzString = AzString::from_const_str("__azmail_frame");
 /// The message list.
 pub const MESSAGE_LIST: AzString = AzString::from_const_str("__azmail_message_list");
 /// The list's empty state while there is no account ("No account yet", Add Account...).
