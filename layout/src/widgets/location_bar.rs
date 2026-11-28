@@ -67,6 +67,9 @@ pub const LOCATION_NAME_ROW_CLASS: &str = "__azul-native-location-name-row";
 pub const LOCATION_NAME_CLASS: &str = "__azul-native-location-name";
 /// The pen.
 pub const LOCATION_PEN_CLASS: &str = "__azul-native-location-pen";
+/// The "..." button beside the pen: where File's old items (new window, preferences, switch
+/// workspace, export, exit) live.
+pub const LOCATION_MORE_CLASS: &str = "__azul-native-location-more";
 /// The box round the text field while the name is edited.
 pub const LOCATION_EDIT_CLASS: &str = "__azul-native-location-edit";
 
@@ -126,6 +129,9 @@ pub enum LocationEventKind {
     EditCommitted,
     /// Escape, or the field lost the focus: the edit is given up.
     EditCancelled,
+    /// The "..." button beside the pen was clicked: the app shows File's old items (a phone's
+    /// action sheet, a desktop's menu).
+    MoreClicked,
 }
 
 /// One report of the block.
@@ -187,6 +193,10 @@ pub struct LocationBar {
     pub editable: bool,
     /// Whether the name is a text field now (the app sets it when the pen was clicked).
     pub editing: bool,
+    /// Whether a "..." button stands beside the pen: File's old items (new window, preferences,
+    /// switch workspace, export, exit) are behind it, the app shows them on a click
+    /// ([`LocationEventKind::MoreClicked`]).
+    pub more: bool,
 }
 
 impl LocationBar {
@@ -198,6 +208,7 @@ impl LocationBar {
             name,
             editable: true,
             editing: false,
+            more: false,
             text: AzString::from_const_str(""),
             placeholder: AzString::from_const_str(""),
             separator: AzString::from_const_str("/"),
@@ -242,6 +253,18 @@ impl LocationBar {
     #[must_use]
     pub const fn with_editable(mut self, editable: bool) -> Self {
         self.set_editable(editable);
+        self
+    }
+
+    /// Whether a "..." button stands beside the pen.
+    pub const fn set_more(&mut self, more: bool) {
+        self.more = more;
+    }
+
+    /// [`Self::set_more`] for the builder chain.
+    #[must_use]
+    pub const fn with_more(mut self, more: bool) -> Self {
+        self.set_more(more);
         self
     }
 
@@ -507,6 +530,7 @@ fn build(bar: LocationBar) -> Dom {
         form,
         on_event,
         theme,
+        more,
     } = bar;
     let phone = form.is_phone();
     let mut parents = parents.into_library_owned_vec();
@@ -545,6 +569,11 @@ fn build(bar: LocationBar) -> Dom {
     .with_ids_and_classes(classes(&[LOCATION_CRUMBS_CLASS]));
 
     // ---- line 2: the name and the pen, or the field ----
+    let more_data = RefAny::new(PartRef {
+        on_event: on_event.clone(),
+        kind: LocationEventKind::MoreClicked,
+        tag: 0,
+    });
     let shared = RefAny::new(PartRef {
         on_event,
         kind: LocationEventKind::EditStarted,
@@ -624,6 +653,27 @@ fn build(bar: LocationBar) -> Dom {
             .with_accessibility_info(AccessibilityInfo::named("Edit the location", AccessibilityRole::PushButton))
             .with_tab_index(TabIndex::Auto);
             row.push(click(pen, shared));
+        }
+        // File's old items live behind a "..." beside the pen
+        if more {
+            let button = styled(
+                Dom::create_div().with_child(styled(
+                    Dom::create_icon(AzString::from_const_str("more_horiz")),
+                    "font-size: 20px; width: 22px; text-align: center;",
+                )),
+                &format!(
+                    "display: flex; align-items: center; justify-content: center; flex-shrink: 0; \
+                     box-sizing: border-box; width: {s}px; height: {s}px; border-radius: 6px; cursor: pointer; \
+                     color: system:secondary-text; :hover {{ background: rgba(127, 127, 127, 0.18); }} \
+                     :active {{ background: rgba(127, 127, 127, 0.28); }} \
+                     :focus-visible {{ box-shadow: inset 0px 0px 0px 2px #4a8be8; }}",
+                    s = if phone { 40 } else { 30 }
+                ),
+            )
+            .with_ids_and_classes(classes(&[LOCATION_MORE_CLASS]))
+            .with_accessibility_info(AccessibilityInfo::named("More", AccessibilityRole::PushButton))
+            .with_tab_index(TabIndex::Auto);
+            row.push(click(button, more_data));
         }
     }
     let name_row = styled(

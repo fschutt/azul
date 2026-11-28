@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# sidebar_gate.sh: the gate of the sidebar family (Sidebar, Inspector, ActionSheet, LocationBar, AppFrame, the pie marker's size) on one
+# sidebar_gate.sh: the gate of the sidebar family (Sidebar, Preview, ActionSheet, LocationBar, AppFrame, the pie marker's size) on one
 # Ubuntu runner (or the box), every step with its REAL exit code.
 #
 #   BOX_BY=sidebar python3 box.py run <ref> 'SIDEBAR_ONLY=<step>,<step> bash scripts/ci/sidebar_gate.sh' [--codegen] \
@@ -7,6 +7,7 @@
 #
 # Steps (SIDEBAR_ONLY names them; none named = all of them):
 #   tests      the tests of the family by name, in azul-layout, with the CI's feature list
+#   workspace  the CI's workspace test command of css, core, layout and webrender in full (the gate before a push)
 #   clippy     the CI's clippy line of azul-layout, the test targets included
 #   autofix    api.json through azul-doc: `autofix add` for the new functions, patches until there are none, normalize; the result is
 #              api.json (upload it) and api.diff; then a SECOND round that must change nothing
@@ -40,10 +41,20 @@ features="azul-core/serde-json,azul-core/url,azul-layout/json,azul-layout/e2e-se
 
 tests() {
   AZ_REQUIRE_TEST_FONTS=1 cargo test -p azul-layout --lib --features "$features" --no-fail-fast -- \
-    sidebar inspector location_bar action_sheet app_frame pie_marker ribbon tab_ tabs:: 2>&1 | tee sidebar-tests.txt
+    sidebar preview location_bar action_sheet app_frame pie_marker ribbon tab_ tabs:: 2>&1 | tee sidebar-tests.txt
   return "${PIPESTATUS[0]}"
 }
 run tests tests
+
+workspace() {
+  # the fonts are the runner's (the box has them from its setup): no installs here
+  AZ_REQUIRE_TEST_FONTS=1 cargo test -p azul-css -p azul-core -p azul-layout -p webrender --lib --tests \
+    --features "$features" --no-fail-fast 2>&1 | tee workspace-tests.txt
+  local code=${PIPESTATUS[0]}
+  ./scripts/zero_test_guard.sh workspace-tests.txt || code=1
+  return "$code"
+}
+run workspace workspace
 
 clippy() {
   cargo clippy -p azul-layout --all-targets --features "$features" -- -D warnings 2>&1 | tee clippy.txt
@@ -79,6 +90,8 @@ api_functions=(
   Sidebar.with_window_controls
   Sidebar.set_handle_in_cycle
   Sidebar.with_handle_in_cycle
+  Sidebar.set_frame_width
+  Sidebar.with_frame_width
   Sidebar.set_theme
   Sidebar.with_theme
   Sidebar.set_on_event
@@ -124,34 +137,33 @@ api_functions=(
   SidebarStatus.with_detail
   SidebarStatus.set_popover
   SidebarStatus.with_popover
-  FormFactor.is_phone
   FormFactor.resolved
   SidebarState.toggled
   SidebarState.from_handle
-  InspectorDock.resolved
+  PreviewDock.resolved
   SidebarColumnWidth.in_frame
-  Inspector.create
-  Inspector.set_title
-  Inspector.with_title
-  Inspector.set_header_end
-  Inspector.with_header_end
-  Inspector.set_dock
-  Inspector.with_dock
-  Inspector.set_form
-  Inspector.with_form
-  Inspector.set_size
-  Inspector.with_size
-  Inspector.set_open
-  Inspector.with_open
-  Inspector.set_surface
-  Inspector.with_surface
-  Inspector.set_theme
-  Inspector.with_theme
-  Inspector.set_on_event
-  Inspector.with_on_event
-  Inspector.resolved_dock
-  Inspector.built_size
-  Inspector.dom
+  Preview.create
+  Preview.set_title
+  Preview.with_title
+  Preview.set_header_end
+  Preview.with_header_end
+  Preview.set_dock
+  Preview.with_dock
+  Preview.set_form
+  Preview.with_form
+  Preview.set_size
+  Preview.with_size
+  Preview.set_open
+  Preview.with_open
+  Preview.set_surface
+  Preview.with_surface
+  Preview.set_theme
+  Preview.with_theme
+  Preview.set_on_event
+  Preview.with_on_event
+  Preview.resolved_dock
+  Preview.built_size
+  Preview.dom
   LocationBar.create
   LocationBar.add_parent
   LocationBar.with_parent
@@ -159,6 +171,8 @@ api_functions=(
   LocationBar.with_parents
   LocationBar.set_editable
   LocationBar.with_editable
+  LocationBar.set_more
+  LocationBar.with_more
   LocationBar.set_editing
   LocationBar.with_editing
   LocationBar.set_placeholder
@@ -198,8 +212,8 @@ api_functions=(
   AppFrame.create
   AppFrame.set_sidebar
   AppFrame.with_sidebar
-  AppFrame.set_inspector
-  AppFrame.with_inspector
+  AppFrame.set_preview
+  AppFrame.with_preview
   AppFrame.set_footer
   AppFrame.with_footer
   AppFrame.set_sheet
@@ -207,6 +221,38 @@ api_functions=(
   AppFrame.set_form
   AppFrame.with_form
   AppFrame.dom
+  Sidebar.set_quick_access
+  Sidebar.with_quick_access
+  Sidebar.add_quick_action
+  Sidebar.with_quick_action
+  Sidebar.phone_content_inset
+  SidebarStatus.badge
+  SidebarStatus.set_shape
+  SidebarStatus.with_shape
+  SidebarQuickAction.create
+  SidebarQuickAction.set_tag
+  SidebarQuickAction.with_tag
+  SidebarQuickAction.set_state
+  SidebarQuickAction.with_state
+  SidebarQuickAction.set_swatch
+  SidebarQuickAction.with_swatch
+  Preview.set_banner
+  Preview.with_banner
+  Preview.set_details
+  Preview.with_details
+  Preview.add_detail
+  Preview.with_detail
+  PreviewBanner.create
+  PreviewBanner.set_icon
+  PreviewBanner.with_icon
+  PreviewBanner.set_details
+  PreviewBanner.with_details
+  PreviewDetail.create
+  PreviewDetail.set_icon
+  PreviewDetail.with_icon
+  AppFrame.set_rail_top
+  AppFrame.with_rail_top
+  AppFrame.rail_inset
   PieMarker.set_size
   PieMarker.with_size
   SidebarRow.set_pie

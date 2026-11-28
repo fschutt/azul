@@ -505,11 +505,13 @@ fn the_handle_column_is_16_px() {
 // ---- form factor, window controls, surface ----
 
 #[test]
-fn the_phone_drawer_is_a_share_of_the_frame_and_the_phone_rail_is_48() {
+fn the_phone_drawer_is_a_share_of_the_frame_and_the_phone_rail_is_18_like_the_desktops() {
     let drawer = mail().with_form(FormFactor::Phone).with_state(SidebarState::Expanded).column();
     assert!((drawer.percent - 76.0).abs() < 0.001 && (drawer.max_px - 360.0).abs() < 0.001);
     let rail = mail().with_form(FormFactor::Phone).with_state(SidebarState::Rail).column();
-    assert!((rail.px - 48.0).abs() < 0.001);
+    assert!((rail.px - 18.0).abs() < 0.001);
+    let desktop = mail().with_form(FormFactor::Desktop).with_state(SidebarState::Rail).column();
+    assert!((desktop.px - 18.0).abs() < 0.001);
     let dom = mail().with_form(FormFactor::Phone).dom();
     assert!(has_class(&dom, SIDEBAR_PHONE_CLASS));
 }
@@ -518,14 +520,14 @@ fn the_phone_drawer_is_a_share_of_the_frame_and_the_phone_rail_is_48() {
 fn a_phone_row_is_a_finger_tall_and_a_desktop_row_is_not() {
     let phone = Ctx {
         state: SidebarState::Expanded,
-        phone: true,
+        touch: true,
         look: SidebarSurface::Theme.look(),
         on_event: OptionSidebarOnEvent::None,
         stop: 0,
     };
-    assert!((phone.row_h() - 44.0).abs() < 0.001 && (phone.button() - 44.0).abs() < 0.001);
-    let desktop = Ctx { phone: false, ..phone };
-    assert!((desktop.row_h() - 28.0).abs() < 0.001 && (desktop.button() - 40.0).abs() < 0.001);
+    assert!((phone.row_h() - 44.0).abs() < 0.001 && (phone.slot_h() - 44.0).abs() < 0.001);
+    let desktop = Ctx { touch: false, ..phone };
+    assert!((desktop.row_h() - 28.0).abs() < 0.001 && (desktop.slot_h() - 30.0).abs() < 0.001);
 }
 
 #[test]
@@ -539,11 +541,11 @@ fn the_band_for_the_window_controls_is_there_only_when_they_are_at_the_left() {
 }
 
 #[test]
-fn the_rail_keeps_the_width_of_the_window_controls() {
+fn the_rail_is_18_wide_with_or_without_window_controls_they_overhang_it() {
     let col = mail().with_state(SidebarState::Rail).with_window_controls(78.0, 28.0).column();
-    assert!((col.px - 78.0).abs() < 0.001);
+    assert!((col.px - 18.0).abs() < 0.001);
     let plain = mail().with_state(SidebarState::Rail).column();
-    assert!((plain.px - 54.0).abs() < 0.001);
+    assert!((plain.px - 18.0).abs() < 0.001);
 }
 
 #[test]
@@ -673,10 +675,336 @@ fn a_row_has_no_pie_unless_it_is_given_a_fraction() {
 }
 
 #[test]
-fn the_tab_row_keeps_clear_of_the_controls_only_where_the_sidebar_is_narrower_than_they_are() {
+fn the_tab_row_keeps_clear_of_the_controls_where_the_sidebar_is_narrower_than_they_are() {
     let controls = |state: SidebarState| mail().with_state(state).with_window_controls(78.0, 28.0).header_left_pad();
-    assert!((controls(SidebarState::Rail) - 0.0).abs() < 0.001, "the rail is as wide as the controls");
+    assert!((controls(SidebarState::Rail) - 60.0).abs() < 0.001, "the 18 px rail covers 18 of the 78");
     assert!((controls(SidebarState::Expanded) - 0.0).abs() < 0.001);
     assert!((controls(SidebarState::Handle) - 62.0).abs() < 0.001, "the 16 px handle covers 16 of the 78");
     assert!((mail().with_state(SidebarState::Handle).header_left_pad() - 0.0).abs() < 0.001, "no controls at the left");
+}
+
+// ---- the column slides: its width is a transition between the states ----
+
+use azul_css::props::{basic::SizeMetric, layout::LayoutWidth, property::CssProperty};
+
+/// The root's declared width as (metric, number), the last one declared.
+fn root_width(dom: &Dom) -> Option<(SizeMetric, f32)> {
+    dom.root
+        .style
+        .iter_inline_properties()
+        .filter_map(|(p, _)| match p {
+            CssProperty::Width(v) => match v.get_property() {
+                Some(LayoutWidth::Px(px)) => Some((px.metric, px.number.get())),
+                _ => None,
+            },
+            _ => None,
+        })
+        .last()
+}
+
+fn slides(dom: &Dom) -> bool {
+    dom.root
+        .style
+        .iter_inline_properties()
+        .any(|(p, _)| matches!(p, CssProperty::Animation(_)))
+}
+
+#[test]
+fn a_column_of_a_known_width_slides_between_the_rail_and_the_expanded_sidebar() {
+    for state in [SidebarState::Rail, SidebarState::Expanded] {
+        let dom = mail().with_state(state).dom();
+        assert!(slides(&dom), "{state:?}: the width is a transition");
+        let (metric, _) = root_width(&dom).expect("a width");
+        assert_eq!(metric, SizeMetric::Px, "{state:?}: in px, so it can be tweened");
+    }
+}
+
+#[test]
+fn a_phones_drawer_in_a_frame_of_a_known_width_is_in_px_and_slides() {
+    let dom = mail()
+        .with_form(FormFactor::Phone)
+        .with_state(SidebarState::Expanded)
+        .with_frame_width(411.0)
+        .dom();
+    let (metric, px) = root_width(&dom).expect("a width");
+    assert_eq!(metric, SizeMetric::Px);
+    assert!((px - 411.0 * 0.76).abs() < 0.01, "76 % of the frame: {px}");
+    assert!(slides(&dom));
+}
+
+#[test]
+fn the_drawers_cap_holds_in_a_wide_frame() {
+    let dom = mail()
+        .with_form(FormFactor::Phone)
+        .with_state(SidebarState::Expanded)
+        .with_frame_width(1000.0)
+        .dom();
+    let (_, px) = root_width(&dom).expect("a width");
+    assert!((px - 360.0).abs() < 0.01, "{px}");
+}
+
+#[test]
+fn a_phones_drawer_in_a_frame_of_no_known_width_is_a_share_and_does_not_slide() {
+    let dom = mail()
+        .with_form(FormFactor::Phone)
+        .with_state(SidebarState::Expanded)
+        .dom();
+    let (metric, number) = root_width(&dom).expect("a width");
+    assert_eq!(metric, SizeMetric::Percent);
+    assert!((number - 76.0).abs() < 0.01);
+    assert!(!slides(&dom), "no px on one side: the column jumps");
+}
+
+#[test]
+fn a_frame_width_that_is_no_number_is_no_frame_width() {
+    for w in [f32::NAN, f32::INFINITY, -5.0, 0.0] {
+        let dom = mail()
+            .with_form(FormFactor::Phone)
+            .with_state(SidebarState::Expanded)
+            .with_frame_width(w)
+            .dom();
+        assert_eq!(root_width(&dom).expect("a width").0, SizeMetric::Percent, "{w}");
+    }
+}
+
+// ---- the 18 px rail: navigation at the top, quick access at the bottom ----
+
+use azul_css::props::{layout::LayoutOverflow, layout::LayoutZIndex};
+
+fn root_z(dom: &Dom) -> Option<i32> {
+    dom.root
+        .style
+        .iter_inline_properties()
+        .filter_map(|(p, _)| match p {
+            CssProperty::ZIndex(v) => match v.get_property() {
+                Some(LayoutZIndex::Integer(i)) => Some(*i),
+                _ => None,
+            },
+            _ => None,
+        })
+        .last()
+}
+
+fn root_overflow_x(dom: &Dom) -> Option<LayoutOverflow> {
+    dom.root
+        .style
+        .iter_inline_properties()
+        .filter_map(|(p, _)| match p {
+            CssProperty::OverflowX(v) => v.get_property().copied(),
+            _ => None,
+        })
+        .last()
+}
+
+fn writer() -> Sidebar {
+    mail()
+        .with_quick_action(SidebarQuickAction::create(AzString::from("Font colour"), AzString::from("format_color_text")).with_tag(1).with_swatch(ColorU::new_rgb(200, 30, 30)))
+        .with_quick_action(
+            SidebarQuickAction::create(AzString::from("Bold"), AzString::from("format_bold"))
+                .with_tag(2)
+                .with_state(SidebarQuickState::Off),
+        )
+        .with_quick_action(
+            SidebarQuickAction::create(AzString::from("Italic"), AzString::from("format_italic"))
+                .with_tag(3)
+                .with_state(SidebarQuickState::On),
+        )
+        .with_quick_action(
+            SidebarQuickAction::create(AzString::from("Undo"), AzString::from("undo"))
+                .with_tag(4)
+                .with_state(SidebarQuickState::Disabled),
+        )
+}
+
+#[test]
+fn a_rail_lies_over_the_main_view_beside_it_and_clips_nothing() {
+    let rail = mail().with_state(SidebarState::Rail).dom();
+    assert_eq!(root_overflow_x(&rail), Some(LayoutOverflow::Visible), "the hit slop reaches out of the 18 px");
+    assert_eq!(root_z(&rail), Some(6));
+    // an expanded sidebar is a plain column: it clips its rows
+    let open = mail().with_state(SidebarState::Expanded).dom();
+    assert_eq!(root_overflow_x(&open), Some(LayoutOverflow::Hidden));
+    assert_eq!(root_z(&open), None);
+}
+
+#[test]
+fn every_button_of_the_rail_has_a_slop_that_reaches_inward() {
+    let dom = writer().with_help(AzString::from("Help")).with_state(SidebarState::Rail).dom();
+    for class in [SIDEBAR_BUTTON_CLASS, SIDEBAR_HELP_CLASS, SIDEBAR_TOGGLE_CLASS] {
+        for button in all(&dom, class) {
+            assert!(first(button, SIDEBAR_SLOP_CLASS).is_some(), "{class} has its slop");
+        }
+    }
+    // a quick button that cannot run has none: nothing to hit
+    let buttons = all(&dom, SIDEBAR_QUICK_BUTTON_CLASS);
+    assert_eq!(buttons.len(), 4);
+    assert!(first(buttons[0], SIDEBAR_SLOP_CLASS).is_some());
+    assert!(first(buttons[3], SIDEBAR_SLOP_CLASS).is_none(), "the disabled one");
+}
+
+#[test]
+fn the_rail_groups_are_as_wide_as_the_face_and_its_slop_and_the_rail_itself_is_18() {
+    let dom = writer().with_state(SidebarState::Rail).dom();
+    let (metric, px) = root_width(&dom).expect("a width");
+    assert_eq!(metric, SizeMetric::Px);
+    assert!((px - 18.0).abs() < 0.001);
+    for class in [SIDEBAR_LIST_CLASS, SIDEBAR_QUICK_CLASS, SIDEBAR_FOOT_CLASS] {
+        let group = first(&dom, class).expect("a group");
+        let (metric, w) = root_width(group).expect("a width");
+        assert_eq!(metric, SizeMetric::Px);
+        assert!((w - 36.0).abs() < 0.001, "{class}: face and slop: {w}");
+    }
+}
+
+#[test]
+fn the_quick_access_buttons_are_between_the_navigation_and_the_foot_in_the_app_s_order() {
+    let dom = writer().with_help(AzString::from("Help")).with_state(SidebarState::Rail).dom();
+    // the root's children: the navigation list, a hairline, the quick group, a hairline, the foot
+    let kids: Vec<&Dom> = dom.children.as_ref().iter().collect();
+    let order: Vec<&str> = kids
+        .iter()
+        .map(|k| {
+            if has_class(k, SIDEBAR_LIST_CLASS) {
+                "nav"
+            } else if has_class(k, SIDEBAR_QUICK_CLASS) {
+                "quick"
+            } else if has_class(k, SIDEBAR_FOOT_CLASS) {
+                "foot"
+            } else if has_class(k, SIDEBAR_RULE_CLASS) {
+                "rule"
+            } else {
+                "other"
+            }
+        })
+        .collect();
+    assert_eq!(order, vec!["nav", "rule", "quick", "rule", "foot"]);
+    // the buttons keep the order the app gave: the last is the nearest to the thumb
+    let names: Vec<String> = all(&dom, SIDEBAR_QUICK_BUTTON_CLASS).into_iter().map(name_of).collect();
+    assert_eq!(names, vec!["Font colour", "Bold", "Italic", "Undo"]);
+}
+
+#[test]
+fn a_rail_without_quick_access_has_no_quick_group_and_no_extra_hairline() {
+    let dom = mail().with_state(SidebarState::Rail).dom();
+    assert!(first(&dom, SIDEBAR_QUICK_CLASS).is_none());
+    assert_eq!(all(&dom, SIDEBAR_RULE_CLASS).len(), 2);
+}
+
+#[test]
+fn an_expanded_sidebar_does_not_show_the_quick_access_buttons() {
+    let dom = writer().with_state(SidebarState::Expanded).dom();
+    assert!(all(&dom, SIDEBAR_QUICK_BUTTON_CLASS).is_empty());
+    assert!(first(&dom, SIDEBAR_QUICK_CLASS).is_none());
+}
+
+#[test]
+fn a_quick_button_reports_its_place_its_tag_and_the_state_a_toggle_is_asked_for() {
+    let dom = writer().with_state(SidebarState::Rail).dom();
+    let buttons = all(&dom, SIDEBAR_QUICK_BUTTON_CLASS);
+    let plain = click_event(buttons[0]).expect("a plain button reports");
+    assert_eq!((plain.kind, plain.index, plain.tag, plain.expand), (SidebarEventKind::QuickAction, 0, 1, false));
+    let off = click_event(buttons[1]).expect("a toggle that is off reports");
+    assert_eq!((off.kind, off.index, off.tag, off.expand), (SidebarEventKind::QuickAction, 1, 2, true), "off asks for on");
+    let on = click_event(buttons[2]).expect("a toggle that is on reports");
+    assert_eq!((on.index, on.tag, on.expand), (2, 3, false), "on asks for off");
+    assert!(click_event(buttons[3]).is_none(), "a disabled button reports nothing");
+}
+
+#[test]
+fn a_quick_button_says_its_state_to_a_screen_reader() {
+    let dom = writer().with_state(SidebarState::Rail).dom();
+    let buttons = all(&dom, SIDEBAR_QUICK_BUTTON_CLASS);
+    let states = |d: &Dom| d.root.get_accessibility_info().expect("a11y").states.as_ref().to_vec();
+    assert!(states(buttons[0]).is_empty());
+    assert!(states(buttons[1]).contains(&AccessibilityState::CheckedFalse));
+    assert!(states(buttons[2]).contains(&AccessibilityState::CheckedTrue));
+    assert!(states(buttons[3]).contains(&AccessibilityState::Unavailable));
+    assert_eq!(buttons[3].root.get_tab_index(), Some(TabIndex::NoKeyboardFocus), "no stop on what cannot run");
+    // a toggle that is on is drawn lit, like a selected row
+    assert!(has_class(buttons[2], SIDEBAR_SELECTED_CLASS) && !has_class(buttons[1], SIDEBAR_SELECTED_CLASS));
+}
+
+#[test]
+fn a_swatch_is_a_colour_bar_under_the_icon() {
+    let dom = writer().with_state(SidebarState::Rail).dom();
+    let buttons = all(&dom, SIDEBAR_QUICK_BUTTON_CLASS);
+    // the colour button has one more child than the plain bold: the bar (and the slop in both)
+    assert_eq!(buttons[0].children.as_ref().len(), buttons[1].children.as_ref().len() + 1);
+}
+
+#[test]
+fn more_quick_buttons_than_the_rail_has_room_for_are_dropped_and_the_first_are_kept() {
+    let many: Vec<SidebarQuickAction> = (0..MAX_QUICK_ACTIONS + 4)
+        .map(|i| SidebarQuickAction::create(AzString::from(format!("a{i}")), AzString::from("star")).with_tag(i))
+        .collect();
+    let kept = limited_quick(many);
+    assert_eq!(kept.len(), MAX_QUICK_ACTIONS);
+    assert_eq!(kept[0].tag, 0);
+    assert_eq!(kept[MAX_QUICK_ACTIONS - 1].tag, MAX_QUICK_ACTIONS - 1);
+}
+
+#[test]
+fn a_rail_with_an_app_callback_listens_for_the_swipe_and_one_without_does_not() {
+    extern "C" fn nothing(_: RefAny, _: CallbackInfo, _: SidebarEvent) -> Update {
+        Update::DoNothing
+    }
+    let with = mail().with_on_event(RefAny::new(()), nothing as SidebarOnEventCallbackType).with_state(SidebarState::Rail).dom();
+    let events: Vec<EventFilter> = with.root.get_callbacks().as_ref().iter().map(|c| c.event).collect();
+    for filter in [
+        EventFilter::Hover(HoverEventFilter::MouseDown),
+        EventFilter::Hover(HoverEventFilter::MouseOver),
+        EventFilter::Hover(HoverEventFilter::MouseUp),
+        EventFilter::Hover(HoverEventFilter::TouchStart),
+        EventFilter::Hover(HoverEventFilter::TouchMove),
+        EventFilter::Hover(HoverEventFilter::TouchEnd),
+    ] {
+        assert!(events.contains(&filter), "{filter:?}");
+    }
+    let without = mail().with_state(SidebarState::Rail).dom();
+    assert!(without.root.get_callbacks().as_ref().is_empty());
+    // an expanded sidebar has no swipe
+    let open = mail().with_on_event(RefAny::new(()), nothing as SidebarOnEventCallbackType).with_state(SidebarState::Expanded).dom();
+    assert!(open.root.get_callbacks().as_ref().is_empty());
+}
+
+// ---- the status slot: a pie or a badge, the app's data ----
+
+#[test]
+fn a_badge_is_a_status_too_with_its_text_in_the_pill() {
+    let badge = SidebarStatus::badge(AzString::from("Unread"), AzString::from("12"), PieTone::Danger);
+    assert_eq!(badge.shape, SidebarStatusShape::Badge);
+    for state in [SidebarState::Rail, SidebarState::Expanded] {
+        let dom = Sidebar::create().with_status(badge.clone()).with_state(state).with_form(FormFactor::Desktop).dom();
+        let status = first(&dom, SIDEBAR_STATUS_CLASS).expect("a status");
+        assert!(first(status, SIDEBAR_STATUS_BADGE_CLASS).is_some(), "{state:?}");
+        assert_eq!(name_of(status), "Unread, 12");
+        assert!(first(status, crate::widgets::pie_marker::PIE_MARKER_DISC_CLASS).is_none(), "no pie in a badge");
+    }
+    let dom = Sidebar::create().with_status(badge).with_state(SidebarState::Rail).dom();
+    assert!(text_of(first(&dom, SIDEBAR_STATUS_BADGE_CLASS).expect("the pill")).contains("12"));
+}
+
+#[test]
+fn a_badge_without_text_is_a_dot_and_a_long_text_is_cut_to_three_characters() {
+    let dot = badge_dom("", PieTone::Warning, 13.0);
+    assert!(text_of(&dot).is_empty());
+    let long = badge_dom("12345", PieTone::Accent, 13.0);
+    assert_eq!(text_of(&long), "123");
+}
+
+#[test]
+fn the_expanded_badge_row_does_not_say_its_text_twice() {
+    let badge = SidebarStatus::badge(AzString::from("Unread"), AzString::from("12"), PieTone::Accent);
+    let dom = Sidebar::create().with_status(badge).with_state(SidebarState::Expanded).with_form(FormFactor::Desktop).dom();
+    let said = text_of(first(&dom, SIDEBAR_STATUS_CLASS).expect("a status row"));
+    assert_eq!(said.matches("12").count(), 1, "{said}");
+}
+
+#[test]
+fn the_slot_holds_what_the_app_gives_it_and_nothing_of_its_own() {
+    // a sidebar nobody gave a status has none: the sync and the drive-full pies are only examples
+    let dom = mail().with_state(SidebarState::Rail).dom();
+    assert!(all(&dom, SIDEBAR_STATUS_CLASS).is_empty());
+    assert!(SidebarStatusVec::from_const_slice(&[]).as_ref().is_empty());
+    assert!(Sidebar::create().statuses.as_ref().is_empty() && Sidebar::create().quick_access.as_ref().is_empty());
 }

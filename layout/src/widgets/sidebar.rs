@@ -30,7 +30,7 @@
 //!   row says its depth, whether it has children and whether they show), a selected row drawn as
 //!   a rounded highlight (macOS Mail's), an optional check mark (a calendar's coloured boxes).
 //!   Rows with an icon are the rail's buttons; a row opts out with `with_in_rail(false)`.
-//! - DOCUMENT ROWS (AzWriter, AzSheets, AzPresent list their open documents here): a row may carry
+//! - DOCUMENT ROWS (AzWriter, AzSheets, AzShow list their open documents here): a row may carry
 //!   its own sync PIE and a COLLABORATION icon (off / on, a click asks to switch it,
 //!   [`SidebarCollab`]); in the rail the document keeps its icon and a small pie at its corner.
 //!   UI only: what sync and collaboration do is the app's, nothing behind them is in the widget.
@@ -81,9 +81,10 @@ use super::{
     pie_marker::{disc_dom, PieTone},
     roving,
     sidebar_layout::{
-        column_width, controls_height, SidebarColumnWidth, INDENT_PER_DEPTH,
-        MAX_DEPTH, MAX_ROWS, MAX_STATUSES, RAIL_BUTTON_DESKTOP, RAIL_BUTTON_PHONE,
-        ROW_HEIGHT_DESKTOP, ROW_HEIGHT_PHONE, STATUS_PIE_PX,
+        column_width, controls_height, swipe_opens, SidebarColumnWidth,
+        INDENT_PER_DEPTH, MAX_DEPTH, MAX_QUICK_ACTIONS, MAX_ROWS, MAX_STATUSES,
+        RAIL_BUTTON_DESKTOP, RAIL_BUTTON_PHONE, RAIL_ICON_PX, RAIL_SLOP, RAIL_STATUS_PX,
+        RAIL_WIDTH, ROW_HEIGHT_DESKTOP, ROW_HEIGHT_PHONE, STATUS_PIE_PX,
     },
     themes::{OptionUiTheme, UiTheme},
     widget_p_with_text,
@@ -102,8 +103,14 @@ pub const SIDEBAR_HANDLE_CLASS: &str = "__azul-native-sidebar-handle";
 pub const SIDEBAR_PHONE_CLASS: &str = "__azul-native-sidebar-phone";
 /// The band at the top the OS's window controls sit in (it moves the window).
 pub const SIDEBAR_CONTROLS_CLASS: &str = "__azul-native-sidebar-controls";
-/// The scrolling column of sections and rows (or, in the rail, of buttons).
+/// The scrolling column of sections and rows (or, in the rail, of navigation buttons).
 pub const SIDEBAR_LIST_CLASS: &str = "__azul-native-sidebar-list";
+/// The rail's quick-access group: the app's own buttons, anchored at the bottom.
+pub const SIDEBAR_QUICK_CLASS: &str = "__azul-native-sidebar-quick";
+/// A quick-access button of the rail.
+pub const SIDEBAR_QUICK_BUTTON_CLASS: &str = "__azul-native-sidebar-quick-button";
+/// The invisible hit slop a button of the rail reaches inward over the main view.
+pub const SIDEBAR_SLOP_CLASS: &str = "__azul-native-sidebar-slop";
 /// A section's title row.
 pub const SIDEBAR_SECTION_CLASS: &str = "__azul-native-sidebar-section";
 /// A row of the expanded sidebar.
@@ -126,8 +133,10 @@ pub const SIDEBAR_BUTTON_CLASS: &str = "__azul-native-sidebar-button";
 pub const SIDEBAR_RULE_CLASS: &str = "__azul-native-sidebar-rule";
 /// The foot: help, the status pies and the toggle.
 pub const SIDEBAR_FOOT_CLASS: &str = "__azul-native-sidebar-foot";
-/// A status pie (its invoker; in the rail a button, expanded a row).
+/// A status indicator, a pie or a badge (its invoker; in the rail a button, expanded a row).
 pub const SIDEBAR_STATUS_CLASS: &str = "__azul-native-sidebar-status";
+/// A status indicator that is a badge.
+pub const SIDEBAR_STATUS_BADGE_CLASS: &str = "__azul-native-sidebar-status-badge";
 /// The status popover's content.
 pub const SIDEBAR_POPOVER_CLASS: &str = "__azul-native-sidebar-popover";
 /// The help button.
@@ -139,7 +148,10 @@ pub const SIDEBAR_GRAB_CLASS: &str = "__azul-native-sidebar-grab";
 
 /// The pie of a document row, and the small one at the corner of a document's rail button, px.
 const ROW_PIE_PX: f32 = 14.0;
-const RAIL_PIE_PX: f32 = 11.0;
+const RAIL_PIE_PX: f32 = 8.0;
+/// What a finger or a pointer must have moved along the rail, px, before a press on it is
+/// taken for a swipe (the pointer is then captured, and a click no longer follows).
+const SWIPE_CAPTURE_PX: f32 = 6.0;
 
 // ---------------------------------------------------------------------------
 // The surface
@@ -220,7 +232,7 @@ static LOOK_VELLUM: SurfaceLook = SurfaceLook {
 
 impl SidebarSurface {
     /// The declarations that paint a pane in this surface: its ground and its ink (what the
-    /// Inspector's pane wears too).
+    /// Preview's pane wears too).
     pub(crate) fn root_css(self) -> &'static str {
         self.look().root
     }
@@ -254,7 +266,7 @@ pub enum SidebarRowMark {
     Checked,
 }
 
-/// A document row's collaboration switch (`AzWriter`, `AzSheets`, `AzPresent` list the open documents in
+/// A document row's collaboration switch (`AzWriter`, `AzSheets`, `AzShow` list the open documents in
 /// the sidebar): UI only, the sync kit behind it is not part of the widget.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
 #[repr(C)]
@@ -277,26 +289,21 @@ pub struct SidebarRow {
     /// The icon, a Material name (`Dom::create_icon`); empty for none. A row with an icon is a
     /// button of the rail.
     pub icon: AzString,
-    /// A colour for the icon (Mail's blue, a calendar's colour); none: the sidebar's ink.
-    pub tint: OptionColorU,
     /// The count after the label ("329"); empty for none.
     pub badge: AzString,
+    /// What the rail's button says under the pointer and on a long press; empty: the label.
+    pub tooltip: AzString,
+    /// A glyph at the row's end that says the row's own state (a cloud drive's: syncing, locked,
+    /// connected; a Material name); empty for none.
+    pub status_icon: AzString,
+    /// What the status glyph says: its accessible name.
+    pub status_tip: AzString,
     /// What the app calls this row: handed back in every event about it.
     pub tag: usize,
     /// How deep a tree row is, 0 at the top (held to `MAX_DEPTH`).
     pub depth: usize,
-    /// Whether the row has children: it shows a disclosure triangle.
-    pub has_children: bool,
-    /// Whether the children show (the triangle points down).
-    pub expanded: bool,
-    /// Whether this is the row the main view shows: a rounded highlight.
-    pub selected: bool,
     /// A check box before the icon.
     pub mark: SidebarRowMark,
-    /// Whether the row is a button of the rail (a row with an icon is by default).
-    pub in_rail: bool,
-    /// What the rail's button says under the pointer and on a long press; empty: the label.
-    pub tooltip: AzString,
     /// How far this row's own pie is, 0 to 1 (a document's sync state); a number below 0 (or no
     /// number) is no pie. APPENDED for ABI stability.
     pub pie_fraction: f32,
@@ -304,11 +311,16 @@ pub struct SidebarRow {
     pub pie_tone: PieTone,
     /// The row's collaboration icon: none, off or on.
     pub collab: SidebarCollab,
-    /// A glyph at the row's end that says the row's own state (a cloud drive's: syncing, locked,
-    /// connected; a Material name); empty for none. APPENDED for ABI stability.
-    pub status_icon: AzString,
-    /// What the status glyph says: its accessible name.
-    pub status_tip: AzString,
+    /// A colour for the icon (Mail's blue, a calendar's colour); none: the sidebar's ink.
+    pub tint: OptionColorU,
+    /// Whether the row has children: it shows a disclosure triangle.
+    pub has_children: bool,
+    /// Whether the children show (the triangle points down).
+    pub expanded: bool,
+    /// Whether this is the row the main view shows: a rounded highlight.
+    pub selected: bool,
+    /// Whether the row is a button of the rail (a row with an icon is by default).
+    pub in_rail: bool,
     /// Whether items dragged from elsewhere in the window can be dropped on the row: it accepts
     /// the drag and reports [`SidebarEventKind::RowDropped`].
     pub accepts_drops: bool,
@@ -630,23 +642,39 @@ impl SidebarSection {
     }
 }
 
-/// A status pie above the toggle: how far a sync has come, how full a drive is, a battery.
+/// What a status indicator looks like.
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+#[repr(C)]
+pub enum SidebarStatusShape {
+    /// A pie: how far something is (a sync, a drive's fullness, a battery).
+    #[default]
+    Pie,
+    /// A badge: a few characters in a pill of the tone's colour (a count of unread, "!"); no text
+    /// is a dot.
+    Badge,
+}
+
+/// A status indicator in the slot above the toggle: a pie (how far a sync has come, how full a
+/// drive is) or a badge. Which indicators appear is the app's: the widget has none of its own.
 #[derive(Debug, Clone)]
 #[repr(C)]
 pub struct SidebarStatus {
     /// What it is ("Sync"): the accessible name, the popover's title when it has no content of its
     /// own, and the label of the expanded row.
     pub label: AzString,
-    /// A short text beside the pie in the expanded sidebar ("82 %", "3 waiting"); empty for none.
+    /// A short text beside the pie in the expanded sidebar ("82 %", "3 waiting"); for a badge the
+    /// text IN the badge (the first three characters are drawn). Empty for none.
     pub text: AzString,
-    /// How far, 0 to 1: the pie's wedge.
-    pub fraction: f32,
-    /// What the number means: the pie's colour, and whether it breathes.
-    pub tone: PieTone,
     /// A line of detail under the title in the default popover; empty for none.
     pub detail: AzString,
     /// The popover's content when it is more than a title and a line: the app's own `Dom`.
     pub popover: OptionDom,
+    /// How far, 0 to 1: the pie's wedge (a badge ignores it).
+    pub fraction: f32,
+    /// What the number means: the colour, and whether a pie breathes.
+    pub tone: PieTone,
+    /// A pie or a badge.
+    pub shape: SidebarStatusShape,
 }
 
 impl_option!(SidebarStatus, OptionSidebarStatus, copy = false, [Debug, Clone]);
@@ -669,14 +697,29 @@ impl SidebarStatus {
         Self {
             label,
             text: AzString::from_const_str(""),
-            fraction,
-            tone,
             detail: AzString::from_const_str(""),
             popover: OptionDom::None,
+            fraction,
+            tone,
+            shape: SidebarStatusShape::Pie,
         }
     }
 
-    /// The short text beside the pie of the expanded sidebar.
+    /// A badge of `text` in `tone`, named `label`, with the default popover.
+    #[must_use]
+    pub const fn badge(label: AzString, text: AzString, tone: PieTone) -> Self {
+        Self {
+            label,
+            text,
+            detail: AzString::from_const_str(""),
+            popover: OptionDom::None,
+            fraction: 0.0,
+            tone,
+            shape: SidebarStatusShape::Badge,
+        }
+    }
+
+    /// The short text beside the pie of the expanded sidebar (the text of a badge).
     pub fn set_text(&mut self, text: AzString) {
         self.text = text;
     }
@@ -712,6 +755,18 @@ impl SidebarStatus {
         self
     }
 
+    /// A pie or a badge.
+    pub const fn set_shape(&mut self, shape: SidebarStatusShape) {
+        self.shape = shape;
+    }
+
+    /// [`Self::set_shape`] for the builder chain.
+    #[must_use]
+    pub const fn with_shape(mut self, shape: SidebarStatusShape) -> Self {
+        self.set_shape(shape);
+        self
+    }
+
     /// What a screen reader says: the label and the text.
     fn spoken(&self) -> String {
         if self.text.as_str().is_empty() {
@@ -719,6 +774,106 @@ impl SidebarStatus {
         } else {
             format!("{}, {}", self.label.as_str(), self.text.as_str())
         }
+    }
+}
+
+/// What a quick-access button is doing.
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+#[repr(C)]
+pub enum SidebarQuickState {
+    /// A plain button (Undo, a colour picker): it does something when pressed and has no state.
+    #[default]
+    Plain,
+    /// A toggle that is off (Bold).
+    Off,
+    /// A toggle that is on: drawn pressed.
+    On,
+    /// Cannot run now: dimmed, and a press reports nothing.
+    Disabled,
+}
+
+/// One quick-access button of the collapsed rail: what an app puts where the thumb of a
+/// right-handed user holding the phone upright reaches (`AzWriter`: font colour, bold, highlight,
+/// size, undo). The rail draws them at the bottom, above the status slot; the LAST one is the
+/// nearest to the thumb, so the app puts the most used button last. An expanded sidebar does not
+/// show them (the app's rows and its ribbon have the same commands).
+#[derive(Debug, Clone, PartialEq)]
+#[repr(C)]
+pub struct SidebarQuickAction {
+    /// What it is called: the tooltip and the screen reader's name ("Bold").
+    pub label: AzString,
+    /// The icon, a Material name (`Dom::create_icon`).
+    pub icon: AzString,
+    /// What the app calls this action: handed back in the event.
+    pub tag: usize,
+    /// A toggle's state, or `Plain`, or `Disabled`.
+    pub state: SidebarQuickState,
+    /// A colour bar under the icon (the current font colour, the highlight colour); none for no
+    /// bar.
+    pub swatch: OptionColorU,
+}
+
+impl_option!(SidebarQuickAction, OptionSidebarQuickAction, copy = false, [Debug, Clone, PartialEq]);
+impl_vec!(
+    SidebarQuickAction,
+    SidebarQuickActionVec,
+    SidebarQuickActionVecDestructor,
+    SidebarQuickActionVecDestructorType,
+    SidebarQuickActionVecSlice,
+    OptionSidebarQuickAction
+);
+impl_vec_clone!(SidebarQuickAction, SidebarQuickActionVec, SidebarQuickActionVecDestructor);
+impl_vec_debug!(SidebarQuickAction, SidebarQuickActionVec);
+impl_vec_partialeq!(SidebarQuickAction, SidebarQuickActionVec);
+impl_vec_mut!(SidebarQuickAction, SidebarQuickActionVec);
+
+impl SidebarQuickAction {
+    /// A plain button named `label` with the icon `icon`.
+    #[must_use]
+    pub const fn create(label: AzString, icon: AzString) -> Self {
+        Self {
+            label,
+            icon,
+            tag: 0,
+            state: SidebarQuickState::Plain,
+            swatch: OptionColorU::None,
+        }
+    }
+
+    /// What the app calls this action.
+    pub const fn set_tag(&mut self, tag: usize) {
+        self.tag = tag;
+    }
+
+    /// [`Self::set_tag`] for the builder chain.
+    #[must_use]
+    pub const fn with_tag(mut self, tag: usize) -> Self {
+        self.set_tag(tag);
+        self
+    }
+
+    /// A toggle's state, `Plain` or `Disabled`.
+    pub const fn set_state(&mut self, state: SidebarQuickState) {
+        self.state = state;
+    }
+
+    /// [`Self::set_state`] for the builder chain.
+    #[must_use]
+    pub const fn with_state(mut self, state: SidebarQuickState) -> Self {
+        self.set_state(state);
+        self
+    }
+
+    /// The colour bar under the icon.
+    pub const fn set_swatch(&mut self, swatch: ColorU) {
+        self.swatch = OptionColorU::Some(swatch);
+    }
+
+    /// [`Self::set_swatch`] for the builder chain.
+    #[must_use]
+    pub const fn with_swatch(mut self, swatch: ColorU) -> Self {
+        self.set_swatch(swatch);
+        self
     }
 }
 
@@ -750,6 +905,9 @@ pub enum SidebarEventKind {
     /// A row's collaboration icon: `index` and `tag` name the row, `expand` says whether
     /// collaboration should be on now.
     RowCollabToggled,
+    /// A quick-access button of the rail: `index` is its place in the list the app gave, `tag` its
+    /// tag, `expand` says whether a toggle should be on now (a plain button: false).
+    QuickAction,
     /// A right click on a row (or its rail button): the app opens the row's menu there
     /// (`CallbackInfo::open_menu_for_hit_node`).
     RowMenuRequested,
@@ -769,7 +927,8 @@ pub struct SidebarEvent {
     pub index: usize,
     /// The row's tag; 0 otherwise.
     pub tag: usize,
-    /// The new open state (`RowToggled`, `SectionToggled`); false otherwise.
+    /// The new open state (`RowToggled`, `SectionToggled`), the state a toggle is asked to take
+    /// (`RowCollabToggled`, `QuickAction`); false otherwise.
     pub expand: bool,
     /// The state asked for (`StateChanged`); the current one otherwise.
     pub state: SidebarState,
@@ -802,26 +961,37 @@ azul_core::impl_managed_callback! {
 // The widget
 // ---------------------------------------------------------------------------
 
-/// The standard left sidebar: sections of rows, status pies, an icon rail as its collapsed state.
+/// The standard left sidebar: sections of rows, a rail of quick-access buttons and status
+/// indicators as its collapsed state.
+///
+/// The fields stand in the order of their alignment (the ABI check wants no padding between them).
 #[derive(Debug, Clone)]
 #[repr(C)]
 pub struct Sidebar {
+    /// The slot above the rows (an account, a "New" button); in the rail it is dropped.
+    pub header: OptionDom,
+    /// Every action on the sidebar.
+    pub on_event: OptionSidebarOnEvent,
     /// The sections, top to bottom.
     pub sections: SidebarSectionVec,
-    /// The status pies above the toggle (held to `MAX_STATUSES`).
+    /// The status indicators above the toggle (held to `MAX_STATUSES`): the app's data, the widget
+    /// has none of its own.
     pub statuses: SidebarStatusVec,
+    /// The quick-access buttons of the collapsed rail (held to `MAX_QUICK_ACTIONS`), drawn at the
+    /// bottom, the last one nearest to the thumb.
+    pub quick_access: SidebarQuickActionVec,
+    /// The landmark's accessible name.
+    pub label: AzString,
+    /// The help row's label; empty for no help row.
+    pub help: AzString,
+    /// The widget theme this sidebar is PINNED to, or `None` to follow the app theme.
+    pub theme: OptionUiTheme,
     /// The state the app keeps and rebuilds with.
     pub state: SidebarState,
     /// What the sidebar is painted with.
     pub surface: SidebarSurface,
     /// Desktop or phone: `Auto` asks the window.
     pub form: FormFactor,
-    /// The landmark's accessible name.
-    pub label: AzString,
-    /// The slot above the rows (an account, a "New" button); in the rail it is dropped.
-    pub header: OptionDom,
-    /// The help row's label; empty for no help row.
-    pub help: AzString,
     /// The expanded width on a desktop, px; 0 is the default (a phone's drawer is a share of the
     /// frame).
     pub expanded_width: f32,
@@ -830,12 +1000,13 @@ pub struct Sidebar {
     pub controls_left: f32,
     /// How tall the band they sit in is (the title bar's height).
     pub controls_height: f32,
+    /// The width of the frame the sidebar stands in, px; 0 when the app does not say. With it a
+    /// phone's drawer has a width in px (a share of the frame up to its cap) like the rail and the
+    /// handle, so the column's width can be TWEENED between the states (the sidebar slides open
+    /// and shut); without it the drawer is a percent share and the column jumps.
+    pub frame_width: f32,
     /// Whether the toggle's round includes the 16 px handle.
     pub handle_in_cycle: bool,
-    /// Every action on the sidebar.
-    pub on_event: OptionSidebarOnEvent,
-    /// The widget theme this sidebar is PINNED to, or `None` to follow the app theme.
-    pub theme: OptionUiTheme,
 }
 
 impl_option!(Sidebar, OptionSidebar, copy = false, [Debug, Clone]);
@@ -845,20 +1016,22 @@ impl Sidebar {
     #[must_use]
     pub const fn create() -> Self {
         Self {
+            header: OptionDom::None,
+            on_event: OptionSidebarOnEvent::None,
             sections: SidebarSectionVec::from_const_slice(&[]),
             statuses: SidebarStatusVec::from_const_slice(&[]),
+            quick_access: SidebarQuickActionVec::from_const_slice(&[]),
+            label: AzString::from_const_str("Sidebar"),
+            help: AzString::from_const_str(""),
+            theme: OptionUiTheme::None,
             state: SidebarState::Rail,
             surface: SidebarSurface::Theme,
             form: FormFactor::Auto,
-            label: AzString::from_const_str("Sidebar"),
-            header: OptionDom::None,
-            help: AzString::from_const_str(""),
             expanded_width: 0.0,
             controls_left: 0.0,
             controls_height: 0.0,
+            frame_width: 0.0,
             handle_in_cycle: false,
-            on_event: OptionSidebarOnEvent::None,
-            theme: OptionUiTheme::None,
         }
     }
 
@@ -888,7 +1061,7 @@ impl Sidebar {
         self
     }
 
-    /// Appends a status pie.
+    /// Appends a status indicator (a pie or a badge).
     pub fn add_status(&mut self, status: SidebarStatus) {
         let mut v = self.statuses.clone().into_library_owned_vec();
         v.push(status);
@@ -899,6 +1072,32 @@ impl Sidebar {
     #[must_use]
     pub fn with_status(mut self, status: SidebarStatus) -> Self {
         self.add_status(status);
+        self
+    }
+
+    /// Replaces the quick-access buttons of the collapsed rail.
+    pub fn set_quick_access(&mut self, quick_access: SidebarQuickActionVec) {
+        self.quick_access = quick_access;
+    }
+
+    /// [`Self::set_quick_access`] for the builder chain.
+    #[must_use]
+    pub fn with_quick_access(mut self, quick_access: SidebarQuickActionVec) -> Self {
+        self.set_quick_access(quick_access);
+        self
+    }
+
+    /// Appends a quick-access button (the last one added is the nearest to the thumb).
+    pub fn add_quick_action(&mut self, action: SidebarQuickAction) {
+        let mut v = self.quick_access.clone().into_library_owned_vec();
+        v.push(action);
+        self.quick_access = SidebarQuickActionVec::from_vec(v);
+    }
+
+    /// [`Self::add_quick_action`] for the builder chain.
+    #[must_use]
+    pub fn with_quick_action(mut self, action: SidebarQuickAction) -> Self {
+        self.add_quick_action(action);
         self
     }
 
@@ -1001,6 +1200,19 @@ impl Sidebar {
         self
     }
 
+    /// The width of the frame the sidebar stands in, px (what `LayoutCallbackInfo::get_window_width`
+    /// says for an app whose window is the frame): the column then animates between its states.
+    pub const fn set_frame_width(&mut self, width: f32) {
+        self.frame_width = width;
+    }
+
+    /// [`Self::set_frame_width`] for the builder chain.
+    #[must_use]
+    pub const fn with_frame_width(mut self, width: f32) -> Self {
+        self.set_frame_width(width);
+        self
+    }
+
     /// Whether the toggle's round is expanded, rail, handle, expanded.
     pub const fn set_handle_in_cycle(&mut self, handle: bool) {
         self.handle_in_cycle = handle;
@@ -1056,12 +1268,26 @@ impl Sidebar {
     }
 
     /// How far the tab row keeps from the window's left edge to clear the OS's window controls
-    /// that the sidebar does not cover (the handle is narrower than they are): what the app hands
-    /// the ribbon as `TabsInTitlebar::left`. 0 with the rail or the expanded sidebar, which are
-    /// never narrower than the controls.
+    /// that the sidebar does not cover: what the app hands the ribbon as `TabsInTitlebar::left`.
+    /// The 18 px rail and the 16 px handle are narrower than the controls and cover little of them
+    /// (macOS's traffic lights are 78 px: 60 px are left for the tab row to clear); an expanded
+    /// sidebar is wider than they are: 0.
     #[must_use]
     pub fn header_left_pad(&self) -> f32 {
         super::sidebar_layout::header_left_pad(self.controls_left, self.column().px)
+    }
+
+    /// How far the content beside the sidebar starts from the window's left edge ON A PHONE, below
+    /// the tab row: the rail's 18 px (the handle's 16). 0 with the drawer open (it pushes
+    /// everything aside) and on a desktop (the sidebar is a column of the frame there, and the
+    /// ribbon starts after it). What the app hands the ribbon's content as its inset.
+    #[must_use]
+    pub fn phone_content_inset(&self) -> f32 {
+        if self.form.is_phone() && self.state != SidebarState::Expanded {
+            self.column().px
+        } else {
+            0.0
+        }
     }
 
     /// The state the toggle asks for from the current one.
@@ -1155,6 +1381,75 @@ extern "C" fn on_tip_show(mut data: RefAny, mut info: CallbackInfo) -> Update {
 
 extern "C" fn on_tip_hide(_data: RefAny, mut info: CallbackInfo) -> Update {
     info.hide_tooltip();
+    Update::DoNothing
+}
+
+/// What the rail's swipe handlers share: the app's callback, where the press began, whether the
+/// pointer is captured and whether the drawer was asked for already in this gesture.
+struct SwipeRef {
+    on_event: OptionSidebarOnEvent,
+    anchor: Option<(f32, f32)>,
+    captured: bool,
+    fired: bool,
+}
+
+extern "C" fn on_swipe_press(mut data: RefAny, info: CallbackInfo) -> Update {
+    if let Some(mut s) = data.downcast_mut::<SwipeRef>() {
+        s.anchor = info.get_cursor_position().map(|p| (p.x, p.y));
+        s.captured = false;
+        s.fired = false;
+    }
+    Update::DoNothing
+}
+
+/// The swipe in flight moved: inward by the swipe's length it asks for the drawer (once); a drag
+/// that is clearly inward captures the pointer, so that it goes on over the main view.
+fn swipe_moved(data: &mut RefAny, mut info: CallbackInfo) -> Update {
+    let Some(mut s) = data.downcast_mut::<SwipeRef>() else {
+        return Update::DoNothing;
+    };
+    if s.fired {
+        return Update::DoNothing;
+    }
+    let (Some((x0, y0)), Some(p)) = (s.anchor, info.get_cursor_position()) else {
+        return Update::DoNothing;
+    };
+    let (dx, dy) = (p.x - x0, p.y - y0);
+    if !s.captured && dx >= SWIPE_CAPTURE_PX && dx > 2.0 * dy.abs() {
+        s.captured = true;
+        let me = info.get_hit_node();
+        info.capture_pointer(me);
+    }
+    if !swipe_opens(dx, dy) {
+        return Update::DoNothing;
+    }
+    s.fired = true;
+    match s.on_event.as_ref() {
+        Some(SidebarOnEvent { callback, refany }) => {
+            callback.invoke(refany.clone(), info, event(SidebarEventKind::StateChanged, SidebarState::Expanded))
+        }
+        None => Update::DoNothing,
+    }
+}
+
+/// A move of the mouse counts only with the left button down: a press that ended outside the rail
+/// leaves its anchor behind.
+extern "C" fn on_swipe_mouse_move(mut data: RefAny, info: CallbackInfo) -> Update {
+    if !info.get_current_mouse_state().left_down {
+        return Update::DoNothing;
+    }
+    swipe_moved(&mut data, info)
+}
+
+extern "C" fn on_swipe_touch_move(mut data: RefAny, info: CallbackInfo) -> Update {
+    swipe_moved(&mut data, info)
+}
+
+extern "C" fn on_swipe_end(mut data: RefAny, _info: CallbackInfo) -> Update {
+    if let Some(mut s) = data.downcast_mut::<SwipeRef>() {
+        s.anchor = None;
+        s.captured = false;
+    }
     Update::DoNothing
 }
 
@@ -1280,7 +1575,9 @@ fn callback(
 /// Everything one build of the sidebar shares.
 struct Ctx {
     state: SidebarState,
-    phone: bool,
+    /// Whether the rows and the rail's slots are finger-sized: the phone's form, or any touch
+    /// platform (a tablet at 600 dp and more is the desktop's form with fingers on it).
+    touch: bool,
     look: &'static SurfaceLook,
     on_event: OptionSidebarOnEvent,
     /// The row the keyboard stop is on: the selected one, else the first.
@@ -1289,15 +1586,16 @@ struct Ctx {
 
 impl Ctx {
     const fn row_h(&self) -> f32 {
-        if self.phone {
+        if self.touch {
             ROW_HEIGHT_PHONE
         } else {
             ROW_HEIGHT_DESKTOP
         }
     }
 
-    const fn button(&self) -> f32 {
-        if self.phone {
+    /// The height of one slot of the rail.
+    const fn slot_h(&self) -> f32 {
+        if self.touch {
             RAIL_BUTTON_PHONE
         } else {
             RAIL_BUTTON_DESKTOP
@@ -1626,30 +1924,79 @@ fn section_dom(ctx: &Ctx, section: &SidebarSection, index: usize) -> Option<Dom>
     Some(node.with_ids_and_classes(classes(SIDEBAR_SECTION_CLASS, &[])))
 }
 
-/// One button of the rail.
-fn rail_button(ctx: &Ctx, row: &SidebarRow, index: usize) -> Dom {
-    let b = ctx.button();
-    let mut css = format!(
+/// The slop of one button of the rail: a transparent child of the button's face, `RAIL_WIDTH` +
+/// `RAIL_SLOP` wide and a whole slot tall, so a finger that lands beside the 16 px face still
+/// hits it. It is the face's own descendant (a press on it is the face's, and so is `:hover`) and
+/// it is positioned, so it lies over the main view beside the rail.
+fn slop(ctx: &Ctx) -> Dom {
+    styled(
+        Dom::create_div(),
+        &format!(
+            "position: absolute; left: -1px; top: -3px; width: {}px; height: {}px; z-index: 1;",
+            RAIL_WIDTH + RAIL_SLOP,
+            ctx.slot_h()
+        ),
+    )
+    .with_ids_and_classes(classes(SIDEBAR_SLOP_CLASS, &[]))
+}
+
+/// The face of a slot of the rail: 16 px wide in the 18 px column (one px of room before it and
+/// the column's own hairline after it), a slot tall less its margins.
+fn face_css(ctx: &Ctx) -> String {
+    format!(
         "display: flex; align-items: center; justify-content: center; box-sizing: border-box; flex-shrink: 0; \
-         position: relative; width: {b}px; height: {b}px; border-radius: 8px; cursor: pointer; "
-    );
-    if row.selected {
+         position: relative; width: {}px; height: {}px; margin: 3px 0px 3px 1px; border-radius: 6px; \
+         cursor: pointer; ",
+        RAIL_WIDTH - 2.0,
+        ctx.slot_h() - 6.0
+    )
+}
+
+/// The wash of a face under the pointer, or its fill when it is lit (the selected row, a toggle
+/// that is on), and its focus ring.
+fn face_states(ctx: &Ctx, css: &mut String, lit: bool) {
+    if lit {
         let _ = write!(css, "background: {sel}; :hover {{ background: {sel}; }} ", sel = ctx.look.selected);
     } else {
-        let _ = write!(css, ":hover {{ background: {}; }} :active {{ background: {}; }} ", ctx.look.hover, ctx.look.hover);
+        let _ = write!(css, ":hover {{ background: {h}; }} :active {{ background: {h}; }} ", h = ctx.look.hover);
     }
     css.push_str(":focus-visible { box-shadow: inset 0px 0px 0px 2px #4a8be8; }");
+}
+
+/// The tooltip callbacks of a rail button: the name under the pointer.
+fn tip_callbacks(name: &AzString, long_press: bool) -> Vec<CoreCallbackData> {
+    let mut list = alloc::vec![callback(
+        EventFilter::Hover(HoverEventFilter::MouseEnter),
+        RefAny::new(Tip(name.clone())),
+        on_tip_show,
+    )];
+    if long_press {
+        list.push(callback(
+            EventFilter::Hover(HoverEventFilter::LongPress),
+            RefAny::new(Tip(name.clone())),
+            on_tip_show,
+        ));
+    }
+    list.push(callback(EventFilter::Hover(HoverEventFilter::MouseLeave), RefAny::new(()), on_tip_hide));
+    list
+}
+
+/// One navigation button of the rail (a row with an icon).
+fn rail_button(ctx: &Ctx, row: &SidebarRow, index: usize) -> Dom {
+    let mut css = face_css(ctx);
+    face_states(ctx, &mut css, row.selected);
     let tint = row.tint.as_ref().map(|c| rgb_css(*c)).unwrap_or_default();
     let color = if tint.is_empty() { String::from(ctx.look.quiet) } else { tint };
     let name = AzString::from(row.rail_name());
-    let mut face: Vec<Dom> = alloc::vec![icon(row.icon.as_str(), 22.0, &color)];
+    let mut face: Vec<Dom> = alloc::vec![icon(row.icon.as_str(), RAIL_ICON_PX, &color)];
     // a document keeps its pie in the rail: a small one at the corner of its button
     if row.has_pie() {
         face.push(styled(
             disc_dom(RAIL_PIE_PX, row.pie_fraction, row.pie_tone),
-            "position: absolute; right: 4px; bottom: 4px;",
+            "position: absolute; right: 0px; bottom: 1px;",
         ));
     }
+    face.push(slop(ctx));
     let node = styled(
         Dom::create_div().with_children(DomVec::from_vec(face)),
         &css,
@@ -1688,18 +2035,15 @@ fn rail_button(ctx: &Ctx, row: &SidebarRow, index: usize) -> Dom {
         has_children: false,
         expanded: false,
     });
-    let mut list = alloc::vec![
-        callback(EventFilter::Hover(HoverEventFilter::Click), click, on_part_click),
-        callback(EventFilter::Hover(HoverEventFilter::MouseEnter), RefAny::new(Tip(name.clone())), on_tip_show),
-        callback(EventFilter::Hover(HoverEventFilter::LongPress), RefAny::new(Tip(name)), on_tip_show),
-        callback(EventFilter::Hover(HoverEventFilter::MouseLeave), RefAny::new(()), on_tip_hide),
-        callback(EventFilter::Focus(FocusEventFilter::VirtualKeyDown), keys, on_row_key),
-        callback(
-            EventFilter::Hover(HoverEventFilter::RightMouseUp),
-            ctx.part(row_event(ctx, SidebarEventKind::RowMenuRequested, row, index)),
-            on_part_click,
-        ),
-    ];
+    let mut list = alloc::vec![callback(EventFilter::Hover(HoverEventFilter::Click), click, on_part_click)];
+    list.extend(tip_callbacks(&name, true));
+    list.push(callback(EventFilter::Focus(FocusEventFilter::VirtualKeyDown), keys, on_row_key));
+    // A right click asks the app for the row's menu; a row that takes drops listens to them.
+    list.push(callback(
+        EventFilter::Hover(HoverEventFilter::RightMouseUp),
+        ctx.part(row_event(ctx, SidebarEventKind::RowMenuRequested, row, index)),
+        on_part_click,
+    ));
     if row.accepts_drops {
         list.push(callback(
             EventFilter::Hover(HoverEventFilter::DragOver),
@@ -1712,6 +2056,70 @@ fn rail_button(ctx: &Ctx, row: &SidebarRow, index: usize) -> Dom {
             on_row_drop,
         ));
     }
+    on_all(node, list)
+}
+
+/// One quick-access button of the rail: the app's own (font colour, bold, undo). A toggle is lit
+/// while it is on, a swatch is a colour bar under the icon, a disabled button is dimmed and
+/// reports nothing.
+fn quick_button(ctx: &Ctx, action: &SidebarQuickAction, index: usize) -> Dom {
+    let disabled = action.state == SidebarQuickState::Disabled;
+    let on = action.state == SidebarQuickState::On;
+    let mut css = face_css(ctx);
+    if disabled {
+        css.push_str("opacity: 0.38; cursor: default; ");
+    } else {
+        face_states(ctx, &mut css, on);
+    }
+    let ink = if on { "system:text" } else { ctx.look.quiet };
+    let mut face: Vec<Dom> = alloc::vec![icon(action.icon.as_str(), RAIL_ICON_PX, ink)];
+    if let Some(c) = action.swatch.as_ref() {
+        face.push(styled(
+            Dom::create_div(),
+            &format!(
+                "position: absolute; left: 3px; right: 3px; bottom: 3px; height: 3px; border-radius: 1px; \
+                 background: {};",
+                rgb_css(*c)
+            ),
+        ));
+    }
+    if !disabled {
+        face.push(slop(ctx));
+    }
+    let name = action.label.clone();
+    let states = match action.state {
+        SidebarQuickState::On => alloc::vec![AccessibilityState::CheckedTrue],
+        SidebarQuickState::Off => alloc::vec![AccessibilityState::CheckedFalse],
+        SidebarQuickState::Disabled => alloc::vec![AccessibilityState::Unavailable],
+        SidebarQuickState::Plain => Vec::new(),
+    };
+    let node = styled(Dom::create_div().with_children(DomVec::from_vec(face)), &css)
+        .with_ids_and_classes(classes(
+            SIDEBAR_QUICK_BUTTON_CLASS,
+            &[(on, SIDEBAR_SELECTED_CLASS)],
+        ))
+        .with_accessibility_info(AccessibilityInfo {
+            role: AccessibilityRole::PushButton,
+            accessibility_name: azul_css::OptionString::Some(name.clone()),
+            states: AccessibilityStateVec::from_vec(states),
+            ..Default::default()
+        })
+        .with_tab_index(if disabled { TabIndex::NoKeyboardFocus } else { TabIndex::Auto });
+    let mut list = Vec::new();
+    if !disabled {
+        list.push(callback(
+            EventFilter::Hover(HoverEventFilter::Click),
+            ctx.part(SidebarEvent {
+                kind: SidebarEventKind::QuickAction,
+                index,
+                tag: action.tag,
+                expand: action.state == SidebarQuickState::Off,
+                state: ctx.state,
+            }),
+            on_part_click,
+        ));
+    }
+    list.extend(tip_callbacks(&name, !disabled));
     on_all(node, list)
 }
 
@@ -1749,12 +2157,59 @@ fn popover_content(status: &SidebarStatus) -> Dom {
     .with_ids_and_classes(classes(SIDEBAR_POPOVER_CLASS, &[]))
 }
 
-/// One status: a pie in a button (the rail) or in a row with its label and text (expanded), and
-/// the popover a click opens.
+/// The ground and the ink of a badge in `tone`.
+const fn tone_ink(tone: PieTone) -> (&'static str, &'static str) {
+    match tone {
+        PieTone::Accent | PieTone::Busy => ("system:accent", "#ffffff"),
+        PieTone::Good => ("#2e9e5b", "#ffffff"),
+        PieTone::Warning => ("#e8a317", "#1b1b1b"),
+        PieTone::Danger => ("system:danger", "#ffffff"),
+    }
+}
+
+/// A badge `px` tall: the first three characters of `text` in a pill of `tone`'s colour; no text
+/// is a dot.
+fn badge_dom(text: &str, tone: PieTone, px: f32) -> Dom {
+    let (ground, ink) = tone_ink(tone);
+    let shown: String = text.chars().take(3).collect();
+    if shown.is_empty() {
+        let d = (px * 0.6).round().max(6.0);
+        return styled(
+            Dom::create_div(),
+            &format!(
+                "flex-shrink: 0; width: {d}px; height: {d}px; border-radius: {}px; background: {ground};",
+                d / 2.0
+            ),
+        )
+        .with_ids_and_classes(classes(SIDEBAR_STATUS_BADGE_CLASS, &[]));
+    }
+    let font = (px * 0.62).round().max(8.0);
+    styled(
+        Dom::create_div().with_child(styled(
+            widget_p_with_text(AzString::from(shown)),
+            "margin: 0px; line-height: 1px;",
+        )),
+        &format!(
+            "display: flex; align-items: center; justify-content: center; box-sizing: border-box; flex-shrink: 0; \
+             height: {px}px; min-width: {px}px; padding: 0px 3px; border-radius: {}px; background: {ground}; \
+             color: {ink}; font-size: {font}px; font-weight: 700;",
+            px / 2.0
+        ),
+    )
+    .with_ids_and_classes(classes(SIDEBAR_STATUS_BADGE_CLASS, &[]))
+}
+
+/// One status: a pie or a badge in a button (the rail) or in a row with its label and text
+/// (expanded), and the popover a click opens.
 fn status_dom(ctx: &Ctx, status: &SidebarStatus, expanded: bool, theme: OptionUiTheme) -> Dom {
-    let b = ctx.button();
     let spoken = status.spoken();
-    let disc = disc_dom(STATUS_PIE_PX, status.fraction, status.tone);
+    let badge = status.shape == SidebarStatusShape::Badge;
+    let mark_px = if expanded { STATUS_PIE_PX } else { RAIL_STATUS_PX };
+    let mark = if badge {
+        badge_dom(status.text.as_str(), status.tone, mark_px)
+    } else {
+        disc_dom(mark_px, status.fraction, status.tone)
+    };
     let mut css = if expanded {
         let h = ctx.row_h();
         format!(
@@ -1763,28 +2218,27 @@ fn status_dom(ctx: &Ctx, status: &SidebarStatus, expanded: bool, theme: OptionUi
              width: calc(100% - 12px); "
         )
     } else {
-        format!(
-            "display: flex; align-items: center; justify-content: center; box-sizing: border-box; flex-shrink: 0; \
-             width: {b}px; height: {b}px; border-radius: 8px; cursor: pointer; "
-        )
+        face_css(ctx)
     };
     let _ = write!(
         css,
         ":hover {{ background: {}; }} :active {{ background: {}; }} :focus-visible {{ box-shadow: inset 0px 0px 0px 2px #4a8be8; }}",
         ctx.look.hover, ctx.look.hover
     );
-    let mut children: Vec<Dom> = alloc::vec![styled(disc, "margin: 0px 2px;")];
+    let mut children: Vec<Dom> = alloc::vec![if expanded { styled(mark, "margin: 0px 2px;") } else { mark }];
     if expanded {
         children.push(styled(
             widget_p_with_text(status.label.clone()),
             "flex-grow: 1; min-width: 0px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; margin: 0px;",
         ));
-        if !status.text.as_str().is_empty() {
+        if !badge && !status.text.as_str().is_empty() {
             children.push(styled(
                 widget_p_with_text(status.text.clone()),
                 &format!("flex-shrink: 0; margin: 0px; font-size: 12px; color: {};", ctx.look.quiet),
             ));
         }
+    } else {
+        children.push(slop(ctx));
     }
     let invoker = styled(Dom::create_div().with_children(DomVec::from_vec(children)), &css)
         .with_ids_and_classes(classes(SIDEBAR_STATUS_CLASS, &[]))
@@ -1793,17 +2247,7 @@ fn status_dom(ctx: &Ctx, status: &SidebarStatus, expanded: bool, theme: OptionUi
     let invoker = if expanded {
         invoker
     } else {
-        on_all(
-            invoker,
-            alloc::vec![
-                callback(
-                    EventFilter::Hover(HoverEventFilter::MouseEnter),
-                    RefAny::new(Tip(AzString::from(spoken.as_str()))),
-                    on_tip_show
-                ),
-                callback(EventFilter::Hover(HoverEventFilter::MouseLeave), RefAny::new(()), on_tip_hide),
-            ],
-        )
+        on_all(invoker, tip_callbacks(&AzString::from(spoken.as_str()), false))
     };
     let mut dialog = Dialog::create(popover_content(status))
         .with_invoker(invoker)
@@ -1817,60 +2261,50 @@ fn status_dom(ctx: &Ctx, status: &SidebarStatus, expanded: bool, theme: OptionUi
     // the dialog's wrapper stands in the column like its invoker would
     styled(
         Dom::create_div().with_child(dialog.dom()),
-        &format!("display: flex; justify-content: {}; width: 100%; flex-shrink: 0;", if expanded { "flex-start" } else { "center" }),
+        "display: flex; justify-content: flex-start; width: 100%; flex-shrink: 0;",
     )
 }
 
-/// A button of the foot (help, the toggle): in the rail an icon button, expanded a row.
-fn foot_button(
-    ctx: &Ctx,
-    icon_name: &str,
-    label: &str,
-    expanded: bool,
-    class: &'static str,
-    ev: SidebarEvent,
-) -> Dom {
-    let b = ctx.button();
+/// A button of the rail's foot (help, the toggle): an icon in a face with its slop, its label a
+/// tooltip.
+fn rail_foot_button(ctx: &Ctx, icon_name: &str, label: &str, class: &'static str, ev: SidebarEvent) -> Dom {
+    let mut css = face_css(ctx);
+    face_states(ctx, &mut css, false);
+    let face: Vec<Dom> = alloc::vec![icon(icon_name, RAIL_ICON_PX, ctx.look.quiet), slop(ctx)];
+    let node = styled(Dom::create_div().with_children(DomVec::from_vec(face)), &css)
+        .with_ids_and_classes(classes(class, &[]))
+        .with_accessibility_info(AccessibilityInfo::named(label, AccessibilityRole::PushButton))
+        .with_tab_index(TabIndex::Auto);
+    let mut list = alloc::vec![callback(EventFilter::Hover(HoverEventFilter::Click), ctx.part(ev), on_part_click)];
+    list.extend(tip_callbacks(&AzString::from(label), false));
+    on_all(node, list)
+}
+
+/// A row of the expanded sidebar's foot (help, the toggle).
+fn foot_row(ctx: &Ctx, icon_name: &str, label: &str, class: &'static str, ev: SidebarEvent) -> Dom {
     let h = ctx.row_h();
-    let mut css = if expanded {
-        format!(
-            "display: flex; flex-direction: row; align-items: center; gap: 8px; box-sizing: border-box; \
-             flex-shrink: 0; height: {h}px; margin: 1px 6px; padding: 0px 8px; border-radius: 6px; cursor: pointer; \
-             width: calc(100% - 12px); "
-        )
-    } else {
-        format!(
-            "display: flex; align-items: center; justify-content: center; box-sizing: border-box; flex-shrink: 0; \
-             width: {b}px; height: {b}px; border-radius: 8px; cursor: pointer; "
-        )
-    };
+    let mut css = format!(
+        "display: flex; flex-direction: row; align-items: center; gap: 8px; box-sizing: border-box; \
+         flex-shrink: 0; height: {h}px; margin: 1px 6px; padding: 0px 8px; border-radius: 6px; cursor: pointer; \
+         width: calc(100% - 12px); "
+    );
     let _ = write!(
         css,
         ":hover {{ background: {}; }} :active {{ background: {}; }} :focus-visible {{ box-shadow: inset 0px 0px 0px 2px #4a8be8; }}",
         ctx.look.hover, ctx.look.hover
     );
-    let mut children: Vec<Dom> = alloc::vec![icon(icon_name, if expanded { 18.0 } else { 22.0 }, ctx.look.quiet)];
-    if expanded {
-        children.push(styled(
+    let children: Vec<Dom> = alloc::vec![
+        icon(icon_name, 18.0, ctx.look.quiet),
+        styled(
             widget_p_with_text(AzString::from(label)),
             "flex-grow: 1; min-width: 0px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; margin: 0px;",
-        ));
-    }
+        ),
+    ];
     let node = styled(Dom::create_div().with_children(DomVec::from_vec(children)), &css)
         .with_ids_and_classes(classes(class, &[]))
         .with_accessibility_info(AccessibilityInfo::named(label, AccessibilityRole::PushButton))
         .with_tab_index(TabIndex::Auto);
-    let name = AzString::from(label);
-    let mut list = alloc::vec![callback(EventFilter::Hover(HoverEventFilter::Click), ctx.part(ev), on_part_click)];
-    if !expanded {
-        list.push(callback(
-            EventFilter::Hover(HoverEventFilter::MouseEnter),
-            RefAny::new(Tip(name)),
-            on_tip_show,
-        ));
-        list.push(callback(EventFilter::Hover(HoverEventFilter::MouseLeave), RefAny::new(()), on_tip_hide));
-    }
-    on_all(node, list)
+    on(node, EventFilter::Hover(HoverEventFilter::Click), ctx.part(ev), on_part_click)
 }
 
 /// The width declarations of a column.
@@ -1884,6 +2318,18 @@ fn width_css(col: SidebarColumnWidth) -> String {
     } else {
         format!("width: {}px;", col.px)
     }
+}
+
+/// The quick-access buttons held to [`MAX_QUICK_ACTIONS`] (with one diagnostic).
+fn limited_quick(mut quick: Vec<SidebarQuickAction>) -> Vec<SidebarQuickAction> {
+    if quick.len() > MAX_QUICK_ACTIONS {
+        let extra = quick.len() - MAX_QUICK_ACTIONS;
+        quick.truncate(MAX_QUICK_ACTIONS);
+        azul_core::diagnostics::emit_once(0x51de_ba03, || {
+            format!("Sidebar: {extra} quick-access button(s) past the limit of {MAX_QUICK_ACTIONS} were dropped")
+        });
+    }
+    quick
 }
 
 /// What the app handed in, held to the limits (with one diagnostic per kind).
@@ -1910,34 +2356,50 @@ fn limited(mut sections: Vec<SidebarSection>, mut statuses: Vec<SidebarStatus>) 
         let extra = statuses.len() - MAX_STATUSES;
         statuses.truncate(MAX_STATUSES);
         azul_core::diagnostics::emit_once(0x51de_ba02, || {
-            format!("Sidebar: {extra} status pie(s) past the limit of {MAX_STATUSES} were dropped")
+            format!("Sidebar: {extra} status indicator(s) past the limit of {MAX_STATUSES} were dropped")
         });
     }
     (sections, statuses)
 }
 
+/// Whether the platform is touch-first: its rows and slots are finger-sized whatever the form.
+const TOUCH_PLATFORM: bool = cfg!(any(target_os = "android", target_os = "ios"));
+
 /// The sidebar's DOM.
+#[allow(clippy::too_many_lines)] // one build: the handle, the rail, the expanded column
 fn build(sb: Sidebar) -> Dom {
     let Sidebar {
+        header,
+        on_event,
         sections,
         statuses,
+        quick_access,
+        label,
+        help,
+        theme,
         state,
         surface,
         form,
-        label,
-        header,
-        help,
         expanded_width,
         controls_left,
         controls_height: controls_h,
+        frame_width,
         handle_in_cycle,
-        on_event,
-        theme,
     } = sb;
     let phone = form.is_phone();
     let look = surface.look();
-    let col = column_width(state, form, expanded_width, controls_left);
+    let mut col = column_width(state, form, expanded_width, controls_left);
+    // a frame of a known width: the drawer's share is a width in px as well, so the column can
+    // be tweened between its states
+    if frame_width.is_finite() && frame_width > 0.0 && col.percent > 0.0 {
+        col = SidebarColumnWidth {
+            px: col.in_frame(frame_width),
+            percent: 0.0,
+            max_px: 0.0,
+        };
+    }
     let (sections, statuses) = limited(sections.into_library_owned_vec(), statuses.into_library_owned_vec());
+    let quick = limited_quick(quick_access.into_library_owned_vec());
 
     // the keyboard stop: the selected row, else the first
     let mut flat: Vec<(usize, usize)> = Vec::new(); // (section, row) in the app's order
@@ -1961,7 +2423,7 @@ fn build(sb: Sidebar) -> Dom {
     };
     let ctx = Ctx {
         state,
-        phone,
+        touch: phone || TOUCH_PLATFORM,
         look,
         on_event,
         stop,
@@ -1972,15 +2434,27 @@ fn build(sb: Sidebar) -> Dom {
         SidebarState::Rail => SIDEBAR_RAIL_CLASS,
         SidebarState::Handle => SIDEBAR_HANDLE_CLASS,
     };
+    // the rail's buttons reach over the main view beside it (the hit slop): it clips nothing and
+    // lies above what follows it
+    let overflow = if state == SidebarState::Rail {
+        "overflow: visible; z-index: 6;"
+    } else {
+        "overflow: hidden;"
+    };
     let mut root_css = format!(
         "display: flex; flex-direction: column; flex-shrink: 0; flex-grow: 0; height: 100%; box-sizing: border-box; \
-         overflow: hidden; position: relative; font-size: 13px; user-select: none; \
-         border-right: 1px solid system:separator; {} {}",
+         {overflow} position: relative; font-size: 13px; user-select: none; \
+         border-right: 1px solid system:separator; {} {} {}",
         width_css(col),
+        // the column slides between its states (a transition of the width: it needs a width in px
+        // on both sides, see `frame_width`; where the engine does not tween, the width jumps)
+        if col.percent > 0.0 { "" } else { "animation: width 200ms ease-out;" },
         look.root
     );
-    if state != SidebarState::Expanded {
-        root_css.push_str(" align-items: center;");
+    match state {
+        SidebarState::Rail => root_css.push_str(" align-items: flex-start;"),
+        SidebarState::Handle => root_css.push_str(" align-items: center;"),
+        SidebarState::Expanded => {}
     }
     let root_classes = classes(
         SIDEBAR_CLASS,
@@ -2031,29 +2505,14 @@ fn build(sb: Sidebar) -> Dom {
             .with_ids_and_classes(classes(SIDEBAR_CONTROLS_CLASS, &[])),
         );
     }
-    if expanded {
-        if let Some(h) = header.into_option() {
-            kids.push(h);
-        }
-    }
 
-    // ---- the list ----
-    let mut list: Vec<Dom> = Vec::new();
-    let mut index = 0usize;
-    if expanded {
-        for (si, section) in sections.iter().enumerate() {
-            if let Some(title) = section_dom(&ctx, section, si) {
-                list.push(title);
-            }
-            let shows = !section.collapsible || section.open;
-            for row in section.rows.as_ref() {
-                if shows {
-                    list.push(row_dom(&ctx, row, index));
-                }
-                index += 1;
-            }
-        }
-    } else {
+    // ---- the rail: navigation at the top, quick access at the bottom, then the foot ----
+    if !expanded {
+        // every group is as wide as the face and its slop, so that the slop is inside the group's
+        // own clip; the rail itself clips nothing
+        let group_w = RAIL_WIDTH + RAIL_SLOP;
+        let mut nav: Vec<Dom> = Vec::new();
+        let mut index = 0usize;
         let mut first_section = true;
         for section in &sections {
             let mut buttons: Vec<Dom> = Vec::new();
@@ -2067,53 +2526,147 @@ fn build(sb: Sidebar) -> Dom {
                 continue;
             }
             if !first_section {
-                list.push(rule("width: 28px;"));
+                nav.push(rule("width: 12px;"));
             }
             first_section = false;
-            list.extend(buttons);
+            nav.extend(buttons);
         }
-    }
-    let list_css = if expanded {
-        "display: flex; flex-direction: column; flex-grow: 1; min-height: 0px; width: 100%; overflow-y: auto; \
-         scrollbar-width: none; padding: 4px 0px 8px 0px;"
-    } else {
-        "display: flex; flex-direction: column; align-items: center; flex-grow: 1; min-height: 0px; width: 100%; \
-         overflow-y: auto; scrollbar-width: none; padding: 6px 0px; gap: 2px;"
-    };
-    kids.push(
-        styled(Dom::create_div().with_children(DomVec::from_vec(list)), list_css)
+        kids.push(
+            styled(
+                Dom::create_div().with_children(DomVec::from_vec(nav)),
+                &format!(
+                    "display: flex; flex-direction: column; align-items: flex-start; flex-grow: 1; flex-shrink: 1; \
+                     flex-basis: 0px; min-height: 0px; width: {group_w}px; overflow-y: auto; overflow-x: hidden; \
+                     scrollbar-width: none; padding: 4px 0px;"
+                ),
+            )
             .with_ids_and_classes(classes(SIDEBAR_LIST_CLASS, &[]))
             .with_accessibility_info(AccessibilityInfo {
                 role: AccessibilityRole::Outline,
                 ..Default::default()
             }),
+        );
+        if !quick.is_empty() {
+            kids.push(rule("width: 12px;"));
+            let buttons: Vec<Dom> = quick.iter().enumerate().map(|(i, a)| quick_button(&ctx, a, i)).collect();
+            kids.push(
+                styled(
+                    Dom::create_div().with_children(DomVec::from_vec(buttons)),
+                    &format!(
+                        "display: flex; flex-direction: column; align-items: flex-start; flex-shrink: 0; \
+                         width: {group_w}px;"
+                    ),
+                )
+                .with_ids_and_classes(classes(SIDEBAR_QUICK_CLASS, &[])),
+            );
+        }
+        let mut foot: Vec<Dom> = Vec::new();
+        if !help.as_str().is_empty() {
+            foot.push(rail_foot_button(
+                &ctx,
+                "help",
+                help.as_str(),
+                SIDEBAR_HELP_CLASS,
+                event(SidebarEventKind::HelpClicked, state),
+            ));
+        }
+        for status in &statuses {
+            foot.push(status_dom(&ctx, status, false, theme));
+        }
+        foot.push(rail_foot_button(
+            &ctx,
+            "chevron_right",
+            "Expand the sidebar",
+            SIDEBAR_TOGGLE_CLASS,
+            event(SidebarEventKind::StateChanged, state.toggled(handle_in_cycle)),
+        ));
+        kids.push(rule("width: 12px;"));
+        kids.push(
+            styled(
+                Dom::create_div().with_children(DomVec::from_vec(foot)),
+                &format!(
+                    "display: flex; flex-direction: column; align-items: flex-start; flex-shrink: 0; \
+                     width: {group_w}px; padding: 0px 0px 6px 0px;"
+                ),
+            )
+            .with_ids_and_classes(classes(SIDEBAR_FOOT_CLASS, &[])),
+        );
+        let swipe_on = ctx.on_event.is_some();
+        let swipe = RefAny::new(SwipeRef {
+            on_event: ctx.on_event,
+            anchor: None,
+            captured: false,
+            fired: false,
+        });
+        let mut root = styled(Dom::create_nav().with_children(DomVec::from_vec(kids)), &root_css)
+            .with_ids_and_classes(root_classes)
+            .with_accessibility_info(landmark);
+        // a swipe inward from the rail opens the drawer, by a finger or by a drag of the mouse
+        if swipe_on {
+            root = on_all(
+                root,
+                alloc::vec![
+                    callback(EventFilter::Hover(HoverEventFilter::MouseDown), swipe.clone(), on_swipe_press),
+                    callback(EventFilter::Hover(HoverEventFilter::MouseOver), swipe.clone(), on_swipe_mouse_move),
+                    callback(EventFilter::Hover(HoverEventFilter::MouseUp), swipe.clone(), on_swipe_end),
+                    callback(EventFilter::Hover(HoverEventFilter::TouchStart), swipe.clone(), on_swipe_press),
+                    callback(EventFilter::Hover(HoverEventFilter::TouchMove), swipe.clone(), on_swipe_touch_move),
+                    callback(EventFilter::Hover(HoverEventFilter::TouchEnd), swipe, on_swipe_end),
+                ],
+            );
+        }
+        return root;
+    }
+
+    // ---- the expanded sidebar ----
+    if let Some(h) = header.into_option() {
+        kids.push(h);
+    }
+    let mut list: Vec<Dom> = Vec::new();
+    let mut index = 0usize;
+    for (si, section) in sections.iter().enumerate() {
+        if let Some(title) = section_dom(&ctx, section, si) {
+            list.push(title);
+        }
+        let shows = !section.collapsible || section.open;
+        for row in section.rows.as_ref() {
+            if shows {
+                list.push(row_dom(&ctx, row, index));
+            }
+            index += 1;
+        }
+    }
+    kids.push(
+        styled(
+            Dom::create_div().with_children(DomVec::from_vec(list)),
+            "display: flex; flex-direction: column; flex-grow: 1; min-height: 0px; width: 100%; overflow-y: auto; \
+             scrollbar-width: none; padding: 4px 0px 8px 0px;",
+        )
+        .with_ids_and_classes(classes(SIDEBAR_LIST_CLASS, &[]))
+        .with_accessibility_info(AccessibilityInfo {
+            role: AccessibilityRole::Outline,
+            ..Default::default()
+        }),
     );
 
-    // ---- the foot: help, the status pies, the toggle ----
+    // ---- the foot: help, the status indicators, the toggle ----
     let mut foot: Vec<Dom> = Vec::new();
     if !help.as_str().is_empty() {
-        foot.push(foot_button(
+        foot.push(foot_row(
             &ctx,
             "help",
             help.as_str(),
-            expanded,
             SIDEBAR_HELP_CLASS,
             event(SidebarEventKind::HelpClicked, state),
         ));
     }
     for status in &statuses {
-        foot.push(status_dom(&ctx, status, expanded, theme));
+        foot.push(status_dom(&ctx, status, true, theme));
     }
-    let (toggle_icon, toggle_label) = if expanded {
-        ("chevron_left", "Collapse the sidebar")
-    } else {
-        ("chevron_right", "Expand the sidebar")
-    };
-    foot.push(foot_button(
+    foot.push(foot_row(
         &ctx,
-        toggle_icon,
-        toggle_label,
-        expanded,
+        "chevron_left",
+        "Collapse the sidebar",
         SIDEBAR_TOGGLE_CLASS,
         event(SidebarEventKind::StateChanged, state.toggled(handle_in_cycle)),
     ));
@@ -2121,12 +2674,7 @@ fn build(sb: Sidebar) -> Dom {
     kids.push(
         styled(
             Dom::create_div().with_children(DomVec::from_vec(foot)),
-            if expanded {
-                "display: flex; flex-direction: column; flex-shrink: 0; width: 100%; padding: 0px 0px 8px 0px;"
-            } else {
-                "display: flex; flex-direction: column; align-items: center; flex-shrink: 0; width: 100%; \
-                 padding: 0px 0px 8px 0px; gap: 2px;"
-            },
+            "display: flex; flex-direction: column; flex-shrink: 0; width: 100%; padding: 0px 0px 8px 0px;",
         )
         .with_ids_and_classes(classes(SIDEBAR_FOOT_CLASS, &[])),
     );

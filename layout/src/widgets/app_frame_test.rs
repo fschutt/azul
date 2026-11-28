@@ -1,9 +1,9 @@
-//! The app frame: where the sidebar, the ribbon, the body, the Inspector and the footer stand, and
+//! The app frame: where the sidebar, the ribbon, the body, the Preview and the footer stand, and
 //! how a phone's open drawer pushes the main view.
 
 use super::*;
 use crate::widgets::{
-    inspector::{INSPECTOR_BOTTOM_CLASS, INSPECTOR_RIGHT_CLASS},
+    preview::{PREVIEW_BOTTOM_CLASS, PREVIEW_RIGHT_CLASS},
     sidebar::{SidebarRow, SidebarSection, SIDEBAR_PHONE_CLASS},
 };
 
@@ -86,31 +86,31 @@ fn the_sidebar_is_the_first_column_beside_the_ribbon_not_under_it() {
 }
 
 #[test]
-fn a_desktop_docks_the_inspector_at_the_right_below_the_ribbon() {
-    let insp = Inspector::create(id_div("ignored"), id_div("pane"));
-    let dom = frame().with_inspector(insp).dom();
+fn a_desktop_docks_the_preview_at_the_right_below_the_ribbon() {
+    let insp = Preview::create(id_div("ignored"), id_div("pane"));
+    let dom = frame().with_preview(insp).dom();
     let body = first(&dom, FRAME_BODY_CLASS).expect("the body slot");
-    assert!(first(body, INSPECTOR_RIGHT_CLASS).is_some());
-    // the ribbon is outside the Inspector: it runs over the pane's full width
+    assert!(first(body, PREVIEW_RIGHT_CLASS).is_some());
+    // the ribbon is outside the Preview: it runs over the pane's full width
     let header = first(&dom, FRAME_HEADER_CLASS).expect("the header slot");
-    assert!(first(header, INSPECTOR_RIGHT_CLASS).is_none());
+    assert!(first(header, PREVIEW_RIGHT_CLASS).is_none());
 }
 
 #[test]
-fn the_frames_body_replaces_the_inspectors_own() {
-    let insp = Inspector::create(id_div("ignored"), id_div("pane"));
-    let dom = frame().with_inspector(insp).dom();
+fn the_frames_body_replaces_the_previews_own() {
+    let insp = Preview::create(id_div("ignored"), id_div("pane"));
+    let dom = frame().with_preview(insp).dom();
     assert!(has_id(&dom, "body"));
     assert!(has_id(&dom, "pane"));
     assert!(!has_id(&dom, "ignored"));
 }
 
 #[test]
-fn a_phone_docks_the_inspector_at_the_bottom() {
-    let insp = Inspector::create(id_div("ignored"), id_div("pane"));
-    let dom = frame().with_form(FormFactor::Phone).with_inspector(insp).dom();
-    assert!(first(&dom, INSPECTOR_BOTTOM_CLASS).is_some());
-    assert!(first(&dom, INSPECTOR_RIGHT_CLASS).is_none());
+fn a_phone_docks_the_preview_at_the_bottom() {
+    let insp = Preview::create(id_div("ignored"), id_div("pane"));
+    let dom = frame().with_form(FormFactor::Phone).with_preview(insp).dom();
+    assert!(first(&dom, PREVIEW_BOTTOM_CLASS).is_some());
+    assert!(first(&dom, PREVIEW_RIGHT_CLASS).is_none());
 }
 
 #[test]
@@ -172,6 +172,97 @@ fn the_sheet_is_the_last_child_of_the_frame() {
     assert_eq!(dom.children.as_ref().len(), 3);
 }
 
+// ---- a phone's rail: below the tab row, beside everything else ----
+
+use azul_css::props::property::CssProperty;
+
+fn margin_left(dom: &Dom) -> Option<f32> {
+    dom.root
+        .style
+        .iter_inline_properties()
+        .filter_map(|(p, _)| match p {
+            CssProperty::MarginLeft(v) => v.get_property().map(|m| m.inner.number.get()),
+            _ => None,
+        })
+        .last()
+}
+
+fn top_of(dom: &Dom) -> Option<f32> {
+    dom.root
+        .style
+        .iter_inline_properties()
+        .filter_map(|(p, _)| match p {
+            CssProperty::Top(v) => v.get_property().map(|t| t.inner.number.get()),
+            _ => None,
+        })
+        .last()
+}
+
+fn phone() -> AppFrame {
+    frame().with_form(FormFactor::Phone).with_footer(id_div("footer"))
+}
+
+#[test]
+fn a_phones_rail_stands_below_the_tab_row_out_of_the_flow() {
+    let dom = phone().with_sidebar(sidebar(SidebarState::Rail)).dom();
+    let slot = first(&dom, FRAME_RAIL_CLASS).expect("the rail's slot");
+    assert!(first(slot, crate::widgets::sidebar::SIDEBAR_CLASS).is_some());
+    assert_eq!(top_of(slot), Some(48.0), "below the touch tab row");
+    // the ribbon is the main column's first child, over the rail's whole width: the tab row stays full
+    let main = first(&dom, FRAME_MAIN_CLASS).expect("the main column");
+    assert!(has_class(&main.children.as_ref()[0], FRAME_HEADER_CLASS));
+    assert_eq!(margin_left(&main.children.as_ref()[0]), None, "the tab row is not inset");
+    let handle = phone().with_sidebar(sidebar(SidebarState::Handle)).dom();
+    assert!(first(&handle, FRAME_RAIL_CLASS).is_some());
+}
+
+#[test]
+fn an_app_with_a_taller_status_band_says_where_the_rail_starts() {
+    let dom = phone().with_rail_top(72.0).with_sidebar(sidebar(SidebarState::Rail)).dom();
+    assert_eq!(top_of(first(&dom, FRAME_RAIL_CLASS).expect("the slot")), Some(72.0));
+    for bad in [f32::NAN, -5.0, f32::INFINITY, 0.0] {
+        let dom = phone().with_rail_top(bad).with_sidebar(sidebar(SidebarState::Rail)).dom();
+        assert_eq!(top_of(first(&dom, FRAME_RAIL_CLASS).expect("the slot")), Some(48.0), "{bad}");
+    }
+}
+
+#[test]
+fn the_body_and_the_footer_keep_the_rails_room_and_the_tab_content_is_told_the_same_inset() {
+    let rail = phone().with_sidebar(sidebar(SidebarState::Rail));
+    assert!((rail.rail_inset() - 18.0).abs() < 0.001);
+    let dom = rail.dom();
+    assert_eq!(margin_left(first(&dom, FRAME_BODY_CLASS).expect("the body slot")), Some(18.0));
+    assert_eq!(margin_left(first(&dom, FRAME_FOOTER_CLASS).expect("the footer slot")), Some(18.0));
+    let handle = phone().with_sidebar(sidebar(SidebarState::Handle));
+    assert!((handle.rail_inset() - 16.0).abs() < 0.001);
+}
+
+#[test]
+fn nothing_is_inset_with_the_drawer_open_on_a_desktop_or_without_a_sidebar() {
+    let open = phone().with_sidebar(sidebar(SidebarState::Expanded));
+    assert!(open.rail_inset().abs() < 0.001);
+    let dom = open.dom();
+    assert!(first(&dom, FRAME_RAIL_CLASS).is_none(), "the drawer is a column of the frame, full height");
+    assert_eq!(margin_left(first(&dom, FRAME_BODY_CLASS).expect("the body slot")), None);
+    let desktop = frame().with_sidebar(sidebar(SidebarState::Rail));
+    assert!(desktop.rail_inset().abs() < 0.001);
+    let dom = desktop.dom();
+    assert!(first(&dom, FRAME_RAIL_CLASS).is_none());
+    assert_eq!(margin_left(first(&dom, FRAME_BODY_CLASS).expect("the body slot")), None);
+    assert!(phone().rail_inset().abs() < 0.001, "no sidebar: no inset");
+}
+
+#[test]
+fn an_app_that_adds_no_preview_has_no_dock_no_grip_and_no_bottom_pane() {
+    use crate::widgets::preview::{PREVIEW_CLASS, PREVIEW_GRIP_CLASS, PREVIEW_PANE_CLASS};
+    for form in [FormFactor::Desktop, FormFactor::Phone] {
+        let dom = frame().with_form(form).with_sidebar(sidebar(SidebarState::Rail)).dom();
+        for class in [PREVIEW_CLASS, PREVIEW_PANE_CLASS, PREVIEW_GRIP_CLASS, PREVIEW_BOTTOM_CLASS, PREVIEW_RIGHT_CLASS] {
+            assert!(first(&dom, class).is_none(), "{form:?}: {class}");
+        }
+    }
+}
+
 #[test]
 fn a_frame_is_one_node_tall_and_wide() {
     let dom = frame().dom();
@@ -224,10 +315,10 @@ fn walk_text(node: &Dom, what: &str, bad: &mut Vec<String>) {
 fn no_widget_of_the_family_puts_state_on_a_bare_text_node() {
     use crate::widgets::{
         action_sheet::{ActionSheet, ActionSheetItem},
-        inspector::Inspector,
         location_bar::{LocationBar, LocationCrumb},
+        preview::{Preview, PreviewBanner, PreviewBannerTone, PreviewDetail},
         pie_marker::PieTone,
-        sidebar::{SidebarCollab, SidebarStatus},
+        sidebar::{SidebarCollab, SidebarQuickAction, SidebarQuickState, SidebarStatus},
     };
     let rich = |state: SidebarState, form: FormFactor| {
         sidebar(state)
@@ -235,6 +326,11 @@ fn no_widget_of_the_family_puts_state_on_a_bare_text_node() {
             .with_help(AzString::from("Help"))
             .with_header(id_div("header"))
             .with_status(SidebarStatus::create(AzString::from("Sync"), 0.5, PieTone::Busy).with_text(AzString::from("50 %")))
+            .with_status(SidebarStatus::badge(AzString::from("Unread"), AzString::from("12"), PieTone::Danger))
+            .with_quick_action(
+                SidebarQuickAction::create(AzString::from("Bold"), AzString::from("format_bold"))
+                    .with_state(SidebarQuickState::On),
+            )
             .with_section(
                 SidebarSection::create(AzString::from("Docs"))
                     .with_collapsible(true)
@@ -267,8 +363,17 @@ fn no_widget_of_the_family_puts_state_on_a_bare_text_node() {
     ] {
         doms.push((name, rich(state, form).dom()));
     }
-    doms.push(("inspector right", Inspector::create(id_div("b"), id_div("p")).with_form(FormFactor::Desktop).dom()));
-    doms.push(("inspector bottom", Inspector::create(id_div("b"), id_div("p")).with_form(FormFactor::Phone).dom()));
+    let rich_preview = |form: FormFactor| {
+        Preview::create(id_div("b"), id_div("p"))
+            .with_form(form)
+            .with_detail(PreviewDetail::create(AzString::from("Properties"), id_div("props")))
+            .with_banner(
+                PreviewBanner::create(AzString::from("Unverified signer"), PreviewBannerTone::Warning)
+                    .with_details(id_div("why")),
+            )
+    };
+    doms.push(("preview right", rich_preview(FormFactor::Desktop).dom()));
+    doms.push(("preview bottom", rich_preview(FormFactor::Phone).dom()));
     doms.push(("location", location(false).dom()));
     doms.push(("location editing", location(true).dom()));
     doms.push(("sheet", sheet.dom()));
