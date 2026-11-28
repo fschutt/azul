@@ -141,3 +141,39 @@ fn a_shared_place_is_a_link_to_the_map_it_is_drawn_on() {
     );
     assert!(share_link(-33.8688, 151.2093).contains("mlat=-33.868800&mlon=151.209300"));
 }
+
+#[test]
+fn a_back_steps_out_of_the_way_the_place_the_search_and_the_sheet_before_it_leaves() {
+    // the views first, whatever else is open
+    assert_eq!(back_step(Panel::Directions, true, true), BackStep::View);
+    assert_eq!(back_step(Panel::Place, false, false), BackStep::View);
+    // on the search: its text or results, then the sheet drawn up
+    assert_eq!(back_step(Panel::Browse, true, true), BackStep::Search);
+    assert_eq!(back_step(Panel::Browse, false, true), BackStep::Sheet);
+    // nothing left: the key is not claimed, the system leaves the app
+    assert_eq!(back_step(Panel::Browse, false, false), BackStep::Leave);
+}
+
+#[test]
+fn every_back_is_a_step_that_ends_the_walk_at_the_search_with_nothing_open() {
+    // the walk a person makes with Back from the deepest view: way, place, search, sheet, out
+    let mut flow = Flow::default();
+    flow.show_place(card("Stuttgart", None));
+    flow.directions();
+    let (mut searching, mut raised) = (true, true);
+    let mut steps = Vec::new();
+    loop {
+        match back_step(flow.panel, searching, raised) {
+            BackStep::View => flow.back(),
+            BackStep::Search => searching = false,
+            BackStep::Sheet => raised = false,
+            BackStep::Leave => break,
+        }
+        steps.push(back_step(flow.panel, searching, raised));
+        assert!(steps.len() < 10, "a Back that never ends: {steps:?}");
+    }
+    assert_eq!(flow.panel, Panel::Browse);
+    assert!(!searching && !raised);
+    // the way to its place, the place to the search (two views), then the search's text, then the sheet: four claimed steps
+    assert_eq!(steps.len(), 4, "{steps:?}");
+}

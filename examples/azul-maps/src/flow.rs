@@ -38,6 +38,34 @@ pub enum Panel {
     Directions,
 }
 
+/// What a Back does (an Escape on a desktop; the system's Back on a phone arrives as one), one step at a time.
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub enum BackStep {
+    /// The way goes to its place, the place to the search.
+    View,
+    /// The search's text, its results and the pin go.
+    Search,
+    /// A phone's sheet drawn up comes down to its peek.
+    Sheet,
+    /// Nothing is left to step back from: the key is not claimed, and a Back nothing claims leaves the app.
+    Leave,
+}
+
+/// The step a Back takes: out of the way or the place first, then the search (its text or its results), then the sheet drawn
+/// up; with none of them left, the app itself is left. `searching`: a text typed or results shown; `raised`: a phone's sheet above its peek.
+#[must_use]
+pub fn back_step(panel: Panel, searching: bool, raised: bool) -> BackStep {
+    if panel != Panel::Browse {
+        BackStep::View
+    } else if searching {
+        BackStep::Search
+    } else if raised {
+        BackStep::Sheet
+    } else {
+        BackStep::Leave
+    }
+}
+
 /// A place the panel or the sheet shows: a search result, a dropped pin, a saved place.
 #[derive(Debug, Clone, PartialEq)]
 pub struct PlaceCard {

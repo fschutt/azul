@@ -1,0 +1,256 @@
+[
+  {
+    "name": "azul_maps_back_steps_out_one_view_at_a_time_phone_host",
+    "description": "Back (an Escape; the system's Back arrives as one) in a Pixel 8 sized window: the way goes to its place, the place to the search, the search's text goes, the sheet drawn up comes down (no pictures).",
+    "only_on": [
+      "linux",
+      "macos",
+      "windows"
+    ],
+    "steps": [
+      {
+        "op": "set_display_preset",
+        "preset": "pixel8"
+      },
+      {
+        "op": "resize",
+        "width": 411.0,
+        "height": 914.0
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_settled"
+      },
+      {
+        "op": "set_mode",
+        "mode": "light"
+      },
+      {
+        "op": "wait",
+        "ms": 3000,
+        "real": true
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "click",
+        "selector": "#__azmaps_search"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "text_input",
+        "text": "Stuttgart"
+      },
+      {
+        "op": "wait",
+        "ms": 600,
+        "real": true
+      },
+      {
+        "op": "tick_ms",
+        "ms": 300
+      },
+      {
+        "op": "wait",
+        "ms": 900,
+        "real": true
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "tick_ms",
+        "ms": 200
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "click",
+        "selector": "#__azmaps_suggestion-0"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "assert_exists",
+        "selector": "#__azmaps_place"
+      },
+      {
+        "op": "click",
+        "selector": "#__azmaps_place-route"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "assert_exists",
+        "selector": "#__azmaps_travel"
+      },
+      {
+        "op": "key_down",
+        "key": "Escape"
+      },
+      {
+        "op": "key_up",
+        "key": "Escape"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "assert_exists",
+        "selector": "#__azmaps_place"
+      },
+      {
+        "op": "assert_not_exists",
+        "selector": "#__azmaps_travel"
+      },
+      {
+        "op": "key_down",
+        "key": "Escape"
+      },
+      {
+        "op": "key_up",
+        "key": "Escape"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "assert_exists",
+        "selector": "#__azmaps_chips"
+      },
+      {
+        "op": "assert_not_exists",
+        "selector": "#__azmaps_place"
+      },
+      {
+        "op": "assert_exists",
+        "selector": "#__azmaps_search-clear"
+      },
+      {
+        "op": "key_down",
+        "key": "Escape"
+      },
+      {
+        "op": "key_up",
+        "key": "Escape"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "assert_not_exists",
+        "selector": "#__azmaps_search-clear"
+      },
+      {
+        "op": "focus_node",
+        "selector": ".__azul-native-bottom-sheet-grip"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "key_down",
+        "key": "Up"
+      },
+      {
+        "op": "key_up",
+        "key": "Up"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "assert_layout",
+        "selector": "#__azmaps_sheet",
+        "property": "y",
+        "expected": 469.0,
+        "tolerance": 1.5
+      },
+      {
+        "op": "assert_layout",
+        "selector": "#__azmaps_sheet",
+        "property": "height",
+        "expected": 421.0,
+        "tolerance": 1.5
+      },
+      {
+        "op": "key_down",
+        "key": "Escape"
+      },
+      {
+        "op": "key_up",
+        "key": "Escape"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "assert_layout",
+        "selector": "#__azmaps_sheet",
+        "property": "y",
+        "expected": 722.0,
+        "tolerance": 1.5
+      },
+      {
+        "op": "assert_layout",
+        "selector": "#__azmaps_sheet",
+        "property": "height",
+        "expected": 168.0,
+        "tolerance": 1.5
+      }
+    ]
+  }
+]

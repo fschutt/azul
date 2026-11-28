@@ -300,15 +300,7 @@ extern "C" fn on_chip(mut data: RefAny, mut info: CallbackInfo) -> Update {
 
 /// The search field's clear key: the text, the results and the place go.
 extern "C" fn on_search_clear(mut data: RefAny, mut info: CallbackInfo) -> Update {
-    let update = crate::with_map(&mut data, |s| {
-        s.travel.to.clear();
-        s.travel.to_pick = None;
-        s.suggestions = None;
-        s.typed = None;
-        s.selected = None;
-        s.flow.clear();
-        s.announce_travel();
-    });
+    let update = crate::with_map(&mut data, MapState::clear_search);
     crate::adopt_field_texts(&mut info);
     update
 }

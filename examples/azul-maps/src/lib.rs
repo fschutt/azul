@@ -721,6 +721,37 @@ impl MapState {
         self.sheet = SheetDetent::Peek;
     }
 
+    /// The search's text and results go, and the place with its pin: the search field's clear key.
+    fn clear_search(&mut self) {
+        self.travel.to.clear();
+        self.travel.to_pick = None;
+        self.suggestions = None;
+        self.typed = None;
+        self.selected = None;
+        self.flow.clear();
+        self.announce_travel();
+    }
+
+    /// What a Back does now (see [`flow::back_step`]): a phone's sheet is raised when it stands above its peek.
+    fn back_step(&self) -> flow::BackStep {
+        let phone = !self.frame_of().wide();
+        let searching = !self.travel.to.is_empty() || self.suggestions.is_some();
+        flow::back_step(self.flow.panel, searching, phone && self.sheet != SheetDetent::Peek)
+    }
+
+    /// One step back.
+    fn step_back(&mut self, step: flow::BackStep) {
+        match step {
+            flow::BackStep::View => {
+                self.flow.back();
+                self.selected = self.flow.place.as_ref().and_then(|p| p.pin);
+            }
+            flow::BackStep::Search => self.clear_search(),
+            flow::BackStep::Sheet => self.sheet = SheetDetent::Peek,
+            flow::BackStep::Leave => {}
+        }
+    }
+
     /// The dropped pin `index` opens as a place.
     fn open_pin(&mut self, index: usize) {
         if let Some(&at) = self.pins.get(index) {
@@ -1929,6 +1960,8 @@ extern "C" fn on_travel_key(
             }
             Some(VirtualKeyCode::Escape) if s.suggestions.is_some() => {
                 s.suggestions = None;
+                // the key is claimed: a Back that closed the list does not leave the app as well
+                info.prevent_default();
                 Update::RefreshDom
             }
             _ => Update::DoNothing,
@@ -2181,13 +2214,18 @@ extern "C" fn on_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
         return Update::DoNothing;
     }
     let key = info.get_current_keyboard_state().current_virtual_keycode.into_option();
-    // Escape steps back: the way goes to its place, the place to the search (the styles' popover closes itself).
-    let open = data.downcast_ref::<MapState>().is_some_and(|s| s.flow.panel != Panel::Browse);
-    if key == Some(VirtualKeyCode::Escape) && open {
-        return with_map(&mut data, |s| {
-            s.flow.back();
-            s.selected = s.flow.place.as_ref().and_then(|p| p.pin);
-        });
+    // Escape - and the system's Back, which arrives as one - steps back one thing at a time: the way goes to its place, the place to
+    // the search, the search's text and results go, a sheet drawn up comes down (the styles' popover closes itself). A step claims the
+    // key (`prevent_default`); a Back nothing claims leaves the app.
+    if key == Some(VirtualKeyCode::Escape) {
+        let step = data.downcast_ref::<MapState>().map_or(flow::BackStep::Leave, |s| s.back_step());
+        if step == flow::BackStep::Leave {
+            return Update::DoNothing;
+        }
+        info.prevent_default();
+        let update = with_map(&mut data, |s| s.step_back(step));
+        adopt_field_texts(&mut info);
+        return update;
     }
     let step: fn(&mut MapState) = match key {
         Some(VirtualKeyCode::Left) => |s: &mut MapState| s.pan(-1.0, 0.0),

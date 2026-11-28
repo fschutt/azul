@@ -84,6 +84,11 @@ def window(name, width, height, preset):
     return [op("set_display_preset", preset=preset), op("resize", width=float(width), height=float(height))] + frames(3) + [op("wait_settled")]
 
 
+def press(key):
+    """A key down and up on the window: with nothing focused the window's own key handler hears it (the system's Back arrives as an Escape)."""
+    return [op("key_down", key=key), op("key_up", key=key)] + frames(2)
+
+
 def grip_keys(*keys):
     """The keys on the focused grip of the sheet: the same detents a drag settles on, on any device."""
     out = [op("focus_node", selector=".__azul-native-bottom-sheet-grip")] + frames(1)
@@ -173,6 +178,22 @@ def phone_steps(root_top=None, root_height=None):
     return s
 
 
+def back_steps(root_top=None, root_height=None):
+    """Back (an Escape; the system's Back on a phone arrives as one) steps out one thing at a time: the way to its place, the place to the
+    search, the search's text, then (a phone) the sheet drawn up; each step claims the key."""
+    s = [op("set_mode", mode="light")] + tiles()
+    s += type_search("Stuttgart") + click("#__azmaps_suggestion-0") + [op("assert_exists", selector="#__azmaps_place")]
+    s += click("#__azmaps_place-route") + [op("assert_exists", selector="#__azmaps_travel")]
+    s += press("Escape") + [op("assert_exists", selector="#__azmaps_place"), op("assert_not_exists", selector="#__azmaps_travel")]
+    s += press("Escape") + [op("assert_exists", selector="#__azmaps_chips"), op("assert_not_exists", selector="#__azmaps_place"),
+                            op("assert_exists", selector="#__azmaps_search-clear")]
+    s += press("Escape") + [op("assert_not_exists", selector="#__azmaps_search-clear")]
+    if root_top is not None:
+        s += grip_keys("Up") + sheet_at(root_height / 2.0, root_top, root_height)
+        s += press("Escape") + sheet_at(168.0, root_top, root_height)
+    return s
+
+
 PICTURES = "1 first look, 2 the results of 'Stuttgart', 3 the place at the sheet's peek, 4 half, 5 full, 6 the way, 7 a chip's search, 8 dark, 9 the settings page (the gear)"
 
 # tag, width, height, display preset, (status bar, navigation bar) the preset stands for
@@ -193,6 +214,13 @@ def phone_files():
             "only_on": DESKTOPS,
             "steps": window(tag, w, h, preset) + phone_steps(root_top=top, root_height=h - top - bottom),
         }]
+    out["maps_back_phone.json"] = [{
+        "name": "azul_maps_back_steps_out_one_view_at_a_time_phone_host",
+        "description": "Back (an Escape; the system's Back arrives as one) in a Pixel 8 sized window: the way goes to its place, the place to the "
+                       "search, the search's text goes, the sheet drawn up comes down (no pictures).",
+        "only_on": DESKTOPS,
+        "steps": window("pixel8", 411, 914, "pixel8") + back_steps(root_top=48.0, root_height=914.0 - 48.0 - 24.0),
+    }]
     out["maps_phone_landscape.json"] = [{
         "name": "azul_maps_phone_landscape_search_place_way_host",
         "description": "AzMaps in a 914 x 411 window (pixel8, turned on its side): wide, so the panel at the left, as on a desktop. Pictures, "
@@ -225,6 +253,13 @@ def phone_files():
 def files():
     """File name -> the tests it holds."""
     out = {"maps_desktop.json": desktop_file()}
+    out["maps_back_desktop.json"] = [{
+        "name": "azul_maps_back_steps_out_one_view_at_a_time_desktop",
+        "description": "Back (an Escape) in a 1280 x 800 window: the way goes to its place, the place to the search, the search's text goes "
+                       "(no pictures).",
+        "only_on": DESKTOPS,
+        "steps": window("desktop", 1280, 800, "off") + back_steps(),
+    }]
     out.update(phone_files())
     return out
 
