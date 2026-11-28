@@ -134,9 +134,24 @@ class FlagTests(unittest.TestCase):
         self.assertTrue(f.flag_frames([PAGE, PAGE, BLACK, PAGE, PAGE], max_black_ms=20)[0]["fail"], "the limit is a parameter")
 
     def test_a_flat_run_of_another_colour_fails_whatever_its_length(self):
+        # the SECOND flat run of a recording (the first is the cold start's starting window): a flash of another colour fails
         white = sig((255, 255, 255))
-        flagged = f.flag_frames([PAGE, PAGE, white, PAGE, PAGE])
-        self.assertEqual([(x["kind"], x["black"], x["fail"]) for x in flagged], [("flat", False, True)])
+        flagged = f.flag_frames([PAGE, PAGE, BLACK, PAGE, PAGE, white, PAGE, PAGE], max_black_ms=1000)
+        self.assertEqual([(x["kind"], x["black"], x["fail"]) for x in flagged], [("flat", True, False), ("flat", False, True)])
+
+    def test_the_starting_window_of_a_cold_start_is_told_not_failed(self):
+        # E46, the Android shell agent's rule: the FIRST flat run, when it is not black, is the splash held on purpose; a black run after it still fails
+        white = sig((255, 255, 255))
+        flagged = f.flag_frames([PAGE] + [white] * 13 + [BLACK] * 13 + [PAGE, PAGE])
+        flats = [x for x in flagged if x["kind"] == "flat"]
+        self.assertEqual([(x["frames"], x["black"], x["fail"], x["splash"]) for x in flats], [(13, False, False, True), (13, True, True, False)])
+        self.assertIn("told, not failed", flats[0]["detail"])
+
+    def test_a_first_flat_run_that_is_black_gets_no_splash_allowance(self):
+        white = sig((255, 255, 255))
+        flagged = f.flag_frames([PAGE, BLACK, BLACK, PAGE, white, white, PAGE, PAGE], max_black_ms=1000)
+        flats = [x for x in flagged if x["kind"] == "flat"]
+        self.assertEqual([(x["black"], x["fail"], x["splash"]) for x in flats], [(True, False, False), (False, True, False)])
 
     def test_a_flat_run_that_never_ends_is_not_between_two_normal_frames(self):
         self.assertEqual([x for x in f.flag_frames([PAGE, PAGE, BLACK, BLACK, BLACK]) if x["kind"] == "flat"], [])
@@ -388,6 +403,34 @@ class MonotonicTests(unittest.TestCase):
 
     def test_the_other_direction(self):
         self.assertTrue(f.monotonic([500, 400, 300, 120], direction=-1)[0])
+
+
+class SplashThenBlackTests(unittest.TestCase):
+    """the held white starting window and the black frames after it are two runs, each with its own length (E46: a 0.87 s run called black)"""
+
+    def test_a_white_splash_and_black_frames_after_it_are_two_runs(self):
+        normal = sig((90, 140, 200), (250, 250, 60))
+        sigs = [normal] + [sig((255, 255, 255))] * 13 + [sig((0, 0, 0))] * 13 + [normal]
+        self.assertEqual(f.flat_runs(sigs), [(1, 14), (14, 27)])
+        flagged = f.flag_frames(sigs)
+        flats = [x for x in flagged if x["kind"] == "flat"]
+        self.assertEqual([(x["frames"], x["black"]) for x in flats], [(13, False), (13, True)])
+        black = [x for x in flats if x["black"]][0]
+        self.assertEqual(black["ms"], 433)
+        self.assertTrue(black["fail"], "13 black frames at 30 fps are 433 ms: over the 100 ms limit")
+
+    def test_one_black_frame_after_a_splash_is_told_not_failed(self):
+        normal = sig((90, 140, 200), (250, 250, 60))
+        sigs = [normal] + [sig((255, 255, 255))] * 3 + [sig((0, 0, 0))] + [normal]
+        flats = [x for x in f.flag_frames(sigs) if x["kind"] == "flat"]
+        black = [x for x in flats if x["black"]][0]
+        self.assertEqual(black["frames"], 1)
+        self.assertFalse(black["fail"])
+
+    def test_a_run_of_one_colour_stays_one_run(self):
+        normal = sig((90, 140, 200), (250, 250, 60))
+        sigs = [normal] + [sig((0, 0, 0))] * 5 + [normal]
+        self.assertEqual(f.flat_runs(sigs), [(1, 6)])
 
 
 class IosAuditSourceTests(unittest.TestCase):
