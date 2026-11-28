@@ -3691,7 +3691,8 @@ fn signal_first_frame() {
         })
     })();
     if let Err(e) = result {
-        log_debug!(LogCategory::Window, "[Android] first frame: {e}");
+        // The starting window is held until this call arrives (or the hold's limit): a failure costs the person seconds of a held splash.
+        log_warn!(LogCategory::Window, "[Android] the first picture could not be announced to the activity: {e}");
     }
 }
 

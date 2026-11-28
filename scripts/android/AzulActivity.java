@@ -256,14 +256,20 @@ public class AzulActivity extends NativeActivity {
             return; // the window of a process that has shown its picture already
         }
         final View decor = getWindow().getDecorView();
-        final long deadline = SystemClock.uptimeMillis() + FIRST_DRAW_HOLD_MS;
+        final long started = SystemClock.uptimeMillis();
+        final long deadline = started + FIRST_DRAW_HOLD_MS;
         decor.getViewTreeObserver().addOnPreDrawListener(new ViewTreeObserver.OnPreDrawListener() {
             @Override
             public boolean onPreDraw() {
-                if (!firstFrameShown && SystemClock.uptimeMillis() < deadline) {
+                final boolean engineSaidSo = firstFrameShown;
+                if (!engineSaidSo && SystemClock.uptimeMillis() < deadline) {
                     return false;
                 }
                 firstFrameShown = true;
+                // On the record: a start whose first draw went ahead at the limit is an engine that never said its first picture was posted.
+                android.util.Log.i("azul", "AzulActivity: the window's first draw goes ahead "
+                        + (engineSaidSo ? "after the engine's first picture" : "at the hold's limit, the engine never said so")
+                        + ", " + (SystemClock.uptimeMillis() - started) + " ms after onCreate");
                 ViewTreeObserver observer = decor.getViewTreeObserver();
                 if (observer.isAlive()) {
                     observer.removeOnPreDrawListener(this);

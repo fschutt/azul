@@ -79,10 +79,11 @@ fn the_windows_first_draw_is_held_until_the_first_picture_and_never_trapped() {
     assert!(hold.contains("getViewTreeObserver().addOnPreDrawListener("), "the first draw is held by a pre-draw listener");
     let listener = body(hold, "public boolean onPreDraw()");
     assert!(
-        listener.contains("if (!firstFrameShown && SystemClock.uptimeMillis() < deadline) {") && listener.contains("return false;"),
+        listener.contains("if (!engineSaidSo && SystemClock.uptimeMillis() < deadline) {") && listener.contains("return false;"),
         "the draw is cancelled until the engine's first picture or the deadline"
     );
     assert!(listener.contains("removeOnPreDrawListener(this)") && listener.contains("return true;"), "and let through, once");
+    assert!(listener.contains("the engine never said so"), "a draw let through at the limit says so in the log");
     assert!(java.contains("private static final long FIRST_DRAW_HOLD_MS = 4000;"), "the limit: the window must never stay away for good");
     assert!(hold.contains("if (firstFrameShown) {"), "a process that has shown its picture holds nothing");
 

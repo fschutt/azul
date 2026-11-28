@@ -42,9 +42,9 @@ SETTLED_DIFF = 0.02          # a frame this close to the recording's last frame 
 # a Resize pass of 330 ms after it, and the Java side as it was (`before`: the hold with the exit listener), with no hold at all (`none`) and as it is
 # in the tree (`tree`). The package of an APK is com.azul.startctl.<name>.
 DEFAULT_ROWS = [
-    {"name": "before-450", "apk": "before", "props": {"p1": 450, "p2": 330}},
+    {"name": "before-450", "apk": "before", "props": {"p1": 450, "p2": 330}, "resume": True},
     {"name": "none-450", "apk": "none", "props": {"p1": 450, "p2": 330}},
-    {"name": "tree-450", "apk": "tree", "props": {"p1": 450, "p2": 330}},
+    {"name": "tree-450", "apk": "tree", "props": {"p1": 450, "p2": 330}, "resume": True},
     {"name": "before-100", "apk": "before", "props": {"p1": 100, "p2": 330}},
     {"name": "tree-100", "apk": "tree", "props": {"p1": 100, "p2": 330}},
     {"name": "before-1000", "apk": "before", "props": {"p1": 1000, "p2": 330}},
@@ -182,6 +182,7 @@ EVENTS = [
     ("flat posted", re.compile(r"\[azctl\] POSTED flat")),
     ("page1 posted", re.compile(r"\[azctl\] POSTED page1|first_present ")),
     ("page2 posted", re.compile(r"\[azctl\] POSTED page2")),
+    ("first draw released", re.compile(r"AzulActivity: the window's first draw goes ahead")),
     ("redraw needed", re.compile(r"\[azctl\] RedrawNeeded")),
     ("retained posted", re.compile(r"\[azctl\] POSTED retained")),
     ("insets applied", re.compile(r"\[Android\] insets top=")),

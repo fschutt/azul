@@ -148,6 +148,14 @@ class EngineEventsTests(unittest.TestCase):
         self.assertEqual(ev["insets applied"], 854)
         self.assertEqual(ev["layout 2 begins"], 855)
 
+    def test_the_activitys_release_of_the_held_first_draw_is_an_event(self):
+        log = "\n".join([
+            "11-28 03:12:26.410   525  2222 I ActivityTaskManager: START u0 {flg=0x10000000 cmp=com.azul.AzWidgets/com.azul.app.AzulActivity}",
+            "11-28 03:12:27.300  2691  2691 I azul    : AzulActivity: the window's first draw goes ahead after the engine's first picture, 612 ms after onCreate",
+        ])
+        ev = {label: ms for label, ms, _ in lab.log_events(log)}
+        self.assertEqual(ev["first draw released"], 890)
+
     def test_a_second_layout_after_the_first_picture_is_the_jump(self):
         order = [label for label, _ms, _l in lab.log_events(self.LOG)]
         self.assertLess(order.index("page1 posted"), order.index("layout 2 begins"))
