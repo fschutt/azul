@@ -376,6 +376,9 @@ pub(crate) fn discover_timed(
     read_windows_registry_preferences(&mut raw);
     let high_contrast = raw.high_contrast == Some(true);
     style.set_preferences(raw.into_preferences());
+    if raw.dynamic_scrollbars == Some(false) {
+        style.scrollbar_preferences.visibility = azul_css::system::ScrollbarVisibility::Always;
+    }
 
     // GetSysColor stays light in dark mode; use the palette of the discovered theme (not under high contrast).
     if !high_contrast {
@@ -590,6 +593,14 @@ fn read_windows_registry_preferences(raw: &mut RawWindows) {
         "AccessibilityMonoMixState",
     )
     .map(|value| value != 0);
+    // Narrator does not set the screen reader flag: its own running state does
+    raw.narrator_running =
+        registry_dword(r"Software\Microsoft\Narrator\NoRoam", "RunningState").map(|value| value != 0);
+    raw.magnifier_running =
+        registry_dword(r"Software\Microsoft\ScreenMagnifier", "RunningState").map(|value| value != 0);
+    // "Always show scroll bars" (Visual effects): 0 turns the overlay bars off
+    raw.dynamic_scrollbars =
+        registry_dword(r"Control Panel\Accessibility", "DynamicScrollbars").map(|value| value != 0);
     if raw.high_contrast.is_none() {
         raw.high_contrast = Some(detect_windows_high_contrast() == BoolCondition::True);
     }

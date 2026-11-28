@@ -75,7 +75,7 @@ pub struct RawIos {
     pub grayscale: Option<bool>,
     /// `UIAccessibility.shouldDifferentiateWithoutColor`.
     pub differentiate_without_color: Option<bool>,
-    /// `UIAccessibility.isButtonShapesEnabled`.
+    /// `AXShowBordersEnabled()` (iOS 26.1: "Show Borders"), else `UIAccessibilityButtonShapesEnabled()`.
     pub button_shapes: Option<bool>,
     /// `UIAccessibility.isOnOffSwitchLabelsEnabled`.
     pub on_off_labels: Option<bool>,
@@ -89,10 +89,10 @@ pub struct RawIos {
     pub mono_audio: Option<bool>,
     /// `UIAccessibility.isVideoAutoplayEnabled`.
     pub video_autoplay: Option<bool>,
-    /// `UIAccessibility.isReduceWhitePointEnabled` ("Reduce white point"): dim bright colours.
-    pub reduce_white_point: Option<bool>,
-    /// `UIAccessibility.isZoomEnabled`.
-    pub zoom: Option<bool>,
+    /// `MADimFlashingLightsEnabled()` of MediaAccessibility ("Dim flashing lights", iOS 16.4).
+    pub dim_flashing_lights: Option<bool>,
+    /// `AXAnimatedImagesEnabled()` of the Accessibility framework ("Auto-Play Animated Images").
+    pub animated_images: Option<bool>,
 }
 
 impl RawIos {
@@ -129,8 +129,8 @@ impl RawIos {
         preferences.captions = state_of(self.closed_captioning);
         preferences.mono_audio = state_of(self.mono_audio);
         preferences.autoplay_video = state_of(self.video_autoplay);
-        preferences.dim_flashing_lights = state_of(self.reduce_white_point);
-        preferences.magnifier = state_of(self.zoom);
+        preferences.dim_flashing_lights = state_of(self.dim_flashing_lights);
+        preferences.autoplay_animated_images = state_of(self.animated_images);
         preferences
     }
 }
@@ -287,6 +287,14 @@ pub struct RawWindows {
     pub mono_audio: Option<bool>,
     /// `SPI_GETKEYBOARDCUES` / "always underline access keys": keyboard navigation is the way.
     pub keyboard_cues: Option<bool>,
+    /// `HKCU\Software\Microsoft\Narrator\NoRoam` `RunningState` is not 0 (Narrator does not set
+    /// `SPI_GETSCREENREADER`).
+    pub narrator_running: Option<bool>,
+    /// `HKCU\Software\Microsoft\ScreenMagnifier` `RunningState` is not 0.
+    pub magnifier_running: Option<bool>,
+    /// `HKCU\Control Panel\Accessibility` `DynamicScrollbars` (1 by default: bars auto-hide; 0 is
+    /// "Always show scroll bars").
+    pub dynamic_scrollbars: Option<bool>,
 }
 
 impl RawWindows {
@@ -319,7 +327,9 @@ impl RawWindows {
             (Some(_), _) => SettingState::Off,
             (None, _) => SettingState::Unknown,
         };
-        preferences.screen_reader = state_of(self.screen_reader);
+        // the SPI flag (NVDA, JAWS) or Narrator's own running state
+        preferences.screen_reader = state_of(either(self.screen_reader, self.narrator_running));
+        preferences.magnifier = state_of(self.magnifier_running);
         preferences.action_timeout_ms = match self.message_duration_s {
             Some(seconds) if seconds > 0 => OptionU32::Some(seconds.saturating_mul(1000)),
             _ => OptionU32::None,

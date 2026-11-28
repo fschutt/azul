@@ -264,9 +264,11 @@ fn windows_pointer_colour_filters_notifications_and_mono_audio() {
         screen_reader: Some(true),
         message_duration_s: Some(30),
         mono_audio: Some(true),
+        magnifier_running: Some(true),
         ..RawWindows::default()
     }
     .into_preferences();
+    assert_eq!(raw.magnifier, State::On);
     assert_eq!(raw.pointer_scale, crate::OptionF32::Some(3.0));
     assert_eq!(raw.color_filter, State::On);
     assert_eq!(raw.invert_colors, State::On);
@@ -365,4 +367,39 @@ fn kde_animation_factor_and_font_dpi() {
     let slow = RawKde { animation_duration_factor: Some(2.0), force_font_dpi: None }.into_preferences();
     assert_eq!(slow.reduced_motion, State::Off);
     assert_eq!(slow.text_scale, crate::OptionF32::None);
+}
+
+#[test]
+fn windows_narrator_does_not_set_the_screen_reader_flag_but_its_running_state_counts() {
+    let narrator = RawWindows {
+        screen_reader: Some(false),
+        narrator_running: Some(true),
+        ..RawWindows::default()
+    }
+    .into_preferences();
+    assert_eq!(narrator.screen_reader, State::On, "either source says on");
+    let none = RawWindows {
+        screen_reader: Some(false),
+        narrator_running: Some(false),
+        ..RawWindows::default()
+    }
+    .into_preferences();
+    assert_eq!(none.screen_reader, State::Off);
+    let unknown = RawWindows::default().into_preferences();
+    assert_eq!(unknown.screen_reader, State::Unknown);
+}
+
+#[test]
+fn ios_the_newer_settings_come_from_the_accessibility_and_media_frameworks() {
+    let p = RawIos {
+        dim_flashing_lights: Some(true),
+        animated_images: Some(false),
+        button_shapes: Some(true),
+        ..RawIos::default()
+    }
+    .into_preferences();
+    assert_eq!(p.dim_flashing_lights, State::On);
+    assert_eq!(p.autoplay_animated_images, State::Off);
+    assert_eq!(p.button_shapes, State::On);
+    assert_eq!(p.magnifier, State::Unknown, "iOS has no public flag for Zoom");
 }
