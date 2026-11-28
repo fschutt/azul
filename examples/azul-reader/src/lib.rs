@@ -313,9 +313,9 @@ extern "C" fn area_tick(mut data: RefAny, mut info: TimerCallbackInfo) -> TimerC
 
 /// The window's keys: the kit's first (settings, F1), then the reader's and the library's.
 extern "C" fn on_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
-    let Some((kit_ref, screen)) = data
+    let Some((kit_ref, screen, pane)) = data
         .downcast_ref::<AppState>()
-        .map(|s| (s.kit.clone(), s.screen))
+        .map(|s| (s.kit.clone(), s.screen, s.pane))
     else {
         return Update::DoNothing;
     };
@@ -360,6 +360,8 @@ extern "C" fn on_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
         (VirtualKeyCode::Minus | VirtualKeyCode::NumpadSubtract, true) if reading => {
             Command::FontSize(-2)
         }
+        // Escape (and a phone's Back) closes the strip of pages first, then leaves the book.
+        (VirtualKeyCode::Escape, false) if reading && pane != Pane::None => Command::Pane(pane),
         (VirtualKeyCode::Escape, false) if reading => Command::ShowLibrary,
         _ => return Update::DoNothing,
     };
