@@ -249,10 +249,13 @@ pub fn query_gpu_info(gl: &gl_context_loader::GenericGlContext) -> GpuCheckResul
     const GL_VERSION: u32 = 0x1F02;
     const GL_SHADING_LANGUAGE_VERSION: u32 = 0x8B8C;
 
-    let vendor = gl.get_string(GL_VENDOR);
-    let renderer = gl.get_string(GL_RENDERER);
-    let version = gl.get_string(GL_VERSION);
-    let glsl_version = gl.get_string(GL_SHADING_LANGUAGE_VERSION);
+    // The loader returns each C string WITH its terminating NUL: cleaned here, where the strings enter the engine, so that the log
+    // lines, the GPU-check dialog and the blacklist's comparisons see the driver's own words (`gles_probe::clean_driver_string`).
+    let ask = |name: u32| super::gles_probe::clean_driver_string(&gl.get_string(name));
+    let vendor = ask(GL_VENDOR);
+    let renderer = ask(GL_RENDERER);
+    let version = ask(GL_VERSION);
+    let glsl_version = ask(GL_SHADING_LANGUAGE_VERSION);
 
     if vendor.is_empty() && renderer.is_empty() && version.is_empty() {
         return GpuCheckResult::QueryFailed(
