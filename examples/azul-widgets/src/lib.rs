@@ -24,6 +24,7 @@ mod blocks;
 mod dialogs;
 mod mail;
 mod notifications;
+mod sounds;
 mod tab_looks;
 mod materials;
 mod video;
@@ -66,6 +67,8 @@ struct Showcase {
     /// How the modal dialog was last closed (its return value).
     dialog_result: azul::str::String,
     notifications: notifications::NotificationsDemo,
+    /// The "Sounds" section: the sound board (see `sounds.rs`).
+    sounds: sounds::SoundsDemo,
     /// The Video card's own state (see `video.rs`).
     video: RefAny,
     hotkey: hotkeys::HotkeyDemo,
@@ -961,6 +964,7 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
     );
 
     let notifications = notifications::notifications_section(&data, &s.notifications, theme);
+    let sounds = sounds::sounds_section(&data, &s.sounds, &info, theme);
     let video_card = video::card(&s.video, theme);
     let menus = menus_section(&data, s.menu_status.as_str());
     let hotkey = hotkeys::hotkey_section(&data, &s.hotkey, &info, theme);
@@ -1160,6 +1164,7 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
                 .with_child(video_card)
                 .with_child(feedback)
                 .with_child(notifications)
+                .with_child(sounds)
                 .with_child(menus)
                 .with_child(hotkey)
                 .with_child(files)
@@ -1484,6 +1489,7 @@ pub fn start() {
         split_ratio: 0.5,
         dialog_result: "Not opened yet.".into(),
         notifications: notifications::NotificationsDemo::probe(),
+        sounds: sounds::SoundsDemo::default(),
         video: video::new_state(),
         hotkey: hotkeys::HotkeyDemo::default(),
         // Follow the desktop's light / dark (the toolbar's "System").
