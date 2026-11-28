@@ -14,6 +14,9 @@
 #                 recording of each run; AZ_ANDROID_DEVICE=pixel_8 (when avdmanager has the profile) and
 #                 AZ_ANDROID_OVERLAYS=com.android.internal.emulation.pixel_8 give it the Pixel 8's camera cutout (first mode only);
 #                 AZ_QA_AZMAIL_APK (and AZ_QA_AZMAIL_DATA) adds AzMail on the same phone per orientation (scripts/ci/android_azmail.py);
+#            fontwait: the font-wait A/B of the startup agent's E73 lever (scripts/ci/font_wait_series.py): cold starts of one app, build A against build B, from an empty
+#                 font cache (pm clear before every start) and with the cache filled; AZ_QA_FONTWAIT_PLAN="control:A=a.apk;control:B=b.apk;bundled:A=...;bundled:B=...",
+#                 AZ_QA_FONTWAIT_STARTS starts per block (default 10); all builds are the same package, on one boot (first mode only);
 #            audit: the phone-fit audit of QA-variant APKs (scripts/ci/mobile_e2e.py --audit-only) on the first mode only: the
 #                 APK, then every APK of AZ_QA_AUDIT_APKS (space separated), each in its own folder <out>/<mode>/audit/<apk name>/
 #                 (layout-audit.md and .json, the dumps, both pictures per orientation, the dark-mode verdict, and the app's own
@@ -172,6 +175,10 @@ for mode in "${mode_list[@]}"; do
     # AZ_QA_MATRIX_ONLY=<text>: only the files whose path holds it (e.g. `sounds`: one scenario file of a new feature). The engine's frames of every
     # file (its take_screenshot steps) are kept in <matrix>/shots/<file stem>/shot-NNN.png (WP-E2's request: the pictures of a scenario run were lost)
     python3 "$here/e2e_matrix.py" android --repo . --out "$d/matrix" --shots "$d/matrix/shots" ${AZ_QA_MATRIX_ONLY:+--only "$AZ_QA_MATRIX_ONLY"} ${mapks[@]+"${mapks[@]}"} 2>&1 | tee "$d/e2e-matrix.log"
+  fi
+  if [ "$session" = fontwait ] && [ "$mode" = "${mode_list[0]}" ]; then
+    python3 "$here/font_wait_series.py" android --out "$d/fontwait" --package "$pkg" --activity "$act" --starts "${AZ_QA_FONTWAIT_STARTS:-10}" \
+      --plan "${AZ_QA_FONTWAIT_PLAN:?AZ_QA_FONTWAIT_PLAN}" --label "$label" 2>&1 | tee "$d/fontwait.log"
   fi
   if [ "$session" = tabs ] && [ "$mode" = "${mode_list[0]}" ]; then
     # THE TAB STRIP on the phone: the files of AZ_QA_TABS_FILES (parts of the file names, default tab_touch_phone tab_touch.json tab_touch_pictures tab_looks tab_touch_diag tab_overflow_phone tab_overflow_pictures tab_content_toggle: tab_touch_diag runs every step whatever the one before said, for the TABS agent's diagnosis of the clicks on a phone)
