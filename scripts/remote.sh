@@ -20,37 +20,11 @@ cmd="${1:-}"; [ $# -gt 0 ] && shift || true
 
 job_id() { gh run view "$1" --repo "$REPO" --json jobs --jq '.jobs[0].databaseId'; }
 
-# cond_get <endpoint> <cache-name>: GET with If-None-Match. Every agent and coordinator shares ONE token with a 5000/h REST quota
-# and an answer 304 (not modified) does NOT count against it. Prints the body (fresh or the cached one); returns 1 when there is
-# neither (an error, the rate limit, the network). The ETag and the body are kept in ${TMPDIR:-/tmp}/remote-sh-cache.
-cond_get() {
-  local endpoint="$1" name="$2" dir="${TMPDIR:-/tmp}/remote-sh-cache" etag="" out head first body
-  mkdir -p "$dir"
-  [ -f "$dir/$name.etag" ] && [ -f "$dir/$name.body" ] && etag="$(cat "$dir/$name.etag")"
-  if [ -n "$etag" ]; then
-    out="$(gh api -i -H "If-None-Match: $etag" "$endpoint" 2>/dev/null)" || true
-  else
-    out="$(gh api -i "$endpoint" 2>/dev/null)" || true
-  fi
-  first="${out%%$'\n'*}"; first="${first%$'\r'}"
-  case "$first" in
-    *" 304 "*) cat "$dir/$name.body"; return 0;;
-    *" 200 "*)
-      out="${out//$'\r'/}"; head="${out%%$'\n\n'*}"; body="${out#*$'\n\n'}"
-      etag="$(printf '%s\n' "$head" | sed -n 's/^[Ee][Tt][Aa][Gg]: *\(.*\)$/\1/p')"; etag="${etag%%$'\n'*}"
-      if [ -n "$etag" ] && [ -n "$body" ]; then printf '%s\n' "$etag" > "$dir/$name.etag"; printf '%s\n' "$body" > "$dir/$name.body"; fi
-      printf '%s\n' "$body"; return 0;;
-  esac
-  return 1
-}
-
-# run_state <id>: queued | in_progress | ... | <the conclusion of a finished run>; one conditional request (free while unchanged)
-run_state() {
-  cond_get "repos/$REPO/actions/runs/$1" "run-$(printf '%s' "$REPO" | tr '/' '_')-$1" \
-    | python3 -c 'import json,sys
-d = json.load(sys.stdin)
-print(d["conclusion"] if d.get("status") == "completed" else d.get("status", ""))' 2>/dev/null
-}
+# run_state <id>: queued | in_progress | ... | <the conclusion of a finished run>. Every agent and coordinator shares ONE token with a
+# 5000/h REST quota; scripts/gh_cond.py asks with If-None-Match, and an answer 304 does NOT count against it (the ETag and the body are
+# cached in ${TMPDIR:-/tmp}/remote-sh-cache; python on purpose: bash 3.2 splitting a 400 KB answer is quadratic).
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
+run_state() { python3 "$HERE/gh_cond.py" state "repos/$REPO/actions/runs/$1" "run-$(printf '%s' "$REPO" | tr '/' '_')-$1"; }
 
 case "$cmd" in
   run)
@@ -72,12 +46,7 @@ case "$cmd" in
     gh workflow run remote.yml --repo "$REPO" --ref master "${args[@]}"
     id=""
     for _ in $(seq 1 30); do
-      id="$(cond_get "repos/$REPO/actions/workflows/remote.yml/runs?per_page=30" "list-remote-$(printf '%s' "$REPO" | tr '/' '_')" 2>/dev/null \
-            | python3 -c 'import json,sys
-tag = sys.argv[1]
-for r in json.load(sys.stdin).get("workflow_runs", []):
-    if str(r.get("display_title", "")).endswith(tag):
-        print(r["id"]); break' "$tag" 2>/dev/null | head -n 1)"
+      id="$(python3 "$HERE/gh_cond.py" find-tag "repos/$REPO/actions/workflows/remote.yml/runs?per_page=30" "list-remote-$(printf '%s' "$REPO" | tr '/' '_')" "$tag" 2>/dev/null || true)"
       [ -n "$id" ] && break
       sleep 5
     done
