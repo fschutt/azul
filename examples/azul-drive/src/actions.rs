@@ -13,7 +13,7 @@ use std::{
 
 use azul::{
     dialog::{FileDialog, FileOpenMultiResult, FileOpenResult},
-    dom::{ClipboardContent, DomId, DomNodeId, FocusTarget, VirtualKeyCode},
+    dom::{ClipboardContent, VirtualKeyCode},
     menu::{Menu, MenuItem, MenuItemIcon, MenuItemState, MenuPopupPosition, StringMenuItem},
     option::{OptionFileTypeList, OptionMenuItemIcon},
     prelude::*,
@@ -810,7 +810,8 @@ pub(crate) fn run_action(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveSta
         Action::SearchFor(text) => {
             s.search = text;
             s.search_open = true;
-            set_search_box_text(info, &s.search.clone());
+            let query = s.search.clone();
+            crate::ui_command_bar::show_search(info, s, &query);
             crate::start_find(info, app, s);
         }
         Action::SearchContentsToo => {
@@ -901,7 +902,7 @@ fn run_saved_search(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState, a
     s.settings.search_ignore_files = saved.ignore_files;
     s.refines = saved.refines();
     s.search = saved.query.clone();
-    set_search_box_text(info, &saved.query);
+    crate::ui_command_bar::show_search(info, s, &saved.query);
     println!("AZDRIVE_SAVED_SEARCH_RUN {}", saved.name);
     save_settings(info, app, s);
     crate::start_find(info, app, s);
@@ -970,7 +971,7 @@ pub(crate) fn close_search(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveS
     let was_open = crate::stop_find(s);
     if was_open || s.search_open || !s.search.is_empty() {
         println!("AZDRIVE_SEARCH_CLOSED");
-        clear_search_box(info);
+        crate::ui_command_bar::clear_search(info, s);
     }
     s.search.clear();
     s.search_open = false;
@@ -984,7 +985,7 @@ fn escape_search(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState) {
         close_search(info, app, s);
     } else {
         s.search.clear();
-        clear_search_box(info);
+        crate::ui_command_bar::clear_search(info, s);
         crate::start_find(info, app, s);
     }
 }
@@ -1385,12 +1386,6 @@ pub(crate) extern "C" fn on_key_down(mut data: RefAny, mut info: CallbackInfo) -
         run_command(&mut info, &app, s, command);
         return Update::RefreshDom;
     }
-    // The source list's own keys while the keyboard is in it: the arrows walk its rows, Enter
-    // opens one (the rest - F5, Backspace, Ctrl+C ... - stays the window's).
-    if let Some(update) = crate::ui_sidebar::on_sidebar_key(&mut data, &mut info, key_of(code), mods)
-    {
-        return update;
-    }
     let Some(command) = keys::command_for(key_of(code), mods) else {
         return Update::DoNothing;
     };
@@ -1441,9 +1436,9 @@ pub(crate) extern "C" fn on_key_down(mut data: RefAny, mut info: CallbackInfo) -
 }
 
 /// The window was resized: the grid's rows for the arrow keys. The window is built again only
-/// when what its build reads of the size changes: the address bar folds another crumb into its
-/// « menu, or the icon grid (which draws exactly its viewport) is shown. The panes keep their
-/// widths and the folder view lays its rows out for its new box without a new window.
+/// when what its build reads of the size changes: the icon grid (which draws exactly its
+/// viewport) is shown. The frame keeps its parts' sizes and the folder view lays its rows out
+/// for its new box without a new window.
 pub(crate) extern "C" fn on_resized(mut data: RefAny, mut info: CallbackInfo) -> Update {
     let size = info.get_current_window_state().size.dimensions;
     let handle = data.clone();
@@ -1453,8 +1448,6 @@ pub(crate) extern "C" fn on_resized(mut data: RefAny, mut info: CallbackInfo) ->
     let s = &mut *guard;
     let wider = (s.window_width - size.width).abs() >= 1.0;
     let taller = size.height - s.window_height;
-    let refolds =
-        wider && crate::ui_panes::folded_crumbs(s, s.window_width) != crate::ui_panes::folded_crumbs(s, size.width);
     s.window_width = size.width;
     s.window_height = size.height;
     if wider {
@@ -1470,7 +1463,7 @@ pub(crate) extern "C" fn on_resized(mut data: RefAny, mut info: CallbackInfo) ->
         // Rows came into view: what they lack (sizes, counts, thumbnails) is asked for.
         request_view_work(&mut info, &handle, s);
     }
-    if refolds || (crate::ui_view::uses_icon_grid(s) && (wider || taller.abs() >= 1.0)) {
+    if crate::ui_view::uses_icon_grid(s) && (wider || taller.abs() >= 1.0) {
         Update::RefreshDom
     } else {
         Update::DoNothing
@@ -1535,7 +1528,7 @@ pub(crate) fn run_command(
             }
         }
         Command::Refresh => refresh(info, app, s),
-        Command::Search => focus_search(info),
+        Command::Search => crate::ui_command_bar::start_search(info, app, s),
         Command::Escape => {
             s.type_ahead.clear();
             if s.tab_overview {
@@ -1636,68 +1629,6 @@ pub(crate) fn grid_handles(command: Command) -> bool {
     )
 }
 
-/// Ctrl+F: the address bar's search box gets the focus.
-fn focus_search(info: &mut CallbackInfo) {
-    let hit = info.get_hit_node();
-    let host = info.get_node_id_by_id_attribute(hit.dom, AzString::from("shell-address-bar"));
-    if host.into_raw() == 0 {
-        return;
-    }
-    let start = DomNodeId {
-        dom: hit.dom,
-        node: host,
-    };
-    if let Some(search) = find_class(info, start, "__azul-native-address-bar-search", 16) {
-        if let Some(input) = info.get_first_child(search).into_option() {
-            info.set_focus(FocusTarget::Id(input));
-        }
-    }
-}
-
-/// The search box shows nothing any more: the app SETS its text (a rebuild with an empty text
-/// alone would not: what was typed there outranks the DOM until the app sets it).
-pub(crate) fn clear_search_box(info: &mut CallbackInfo) {
-    set_search_box_text(info, "");
-}
-
-/// Puts `text` into the address bar's search box (a saved search run again).
-pub(crate) fn set_search_box_text(info: &mut CallbackInfo, text: &str) {
-    let dom = DomId { inner: 0 };
-    let host = info.get_node_id_by_id_attribute(dom, AzString::from("shell-address-bar"));
-    if host.into_raw() == 0 {
-        return;
-    }
-    let start = DomNodeId { dom, node: host };
-    if let Some(search) = find_class(info, start, "__azul-native-address-bar-search", 16) {
-        if let Some(input) = info.get_first_child(search).into_option() {
-            TextInput::set_text_in(*info, input, AzString::from(text));
-        }
-    }
-}
-
-/// The first node under `node` (itself included) carrying `class`.
-pub(crate) fn find_class(
-    info: &CallbackInfo,
-    node: DomNodeId,
-    class: &str,
-    depth: usize,
-) -> Option<DomNodeId> {
-    let classes = info.get_node_classes(node);
-    if classes.as_slice().iter().any(|c| c.as_str() == class) {
-        return Some(node);
-    }
-    if depth == 0 {
-        return None;
-    }
-    let mut child = info.get_first_child(node).into_option();
-    while let Some(c) = child {
-        if let Some(found) = find_class(info, c, class, depth - 1) {
-            return Some(found);
-        }
-        child = info.get_next_sibling(c).into_option();
-    }
-    None
-}
 
 /// An arrow / Home / End / Page key: the focus (and the selection) moves.
 fn move_focus(
@@ -3139,7 +3070,7 @@ pub(crate) fn open_properties(
 /// The selection changed: the preview pane's file (fetched on a thread),
 /// and the details pane's metadata of a cloud file.
 pub(crate) fn request_preview(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState) {
-    let Some(entry) = s.single_selected().cloned() else {
+    let Some(entry) = s.preview_subject().cloned() else {
         s.clear_preview();
         return;
     };
@@ -3590,7 +3521,7 @@ pub(crate) fn sort_by(
 fn toggle(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState, which: Toggle) {
     let settings = &mut s.settings;
     match which {
-        Toggle::NavigationPane => settings.navigation_pane = !settings.navigation_pane,
+        Toggle::NavigationPane => settings.toggle_navigation_pane(),
         Toggle::PreviewPane => {
             settings.preview_pane = !settings.preview_pane;
             if settings.preview_pane {
@@ -3615,7 +3546,7 @@ fn toggle(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState, which: Togg
     }
     println!(
         "AZDRIVE_PANES {} {} {}",
-        s.settings.navigation_pane, s.settings.preview_pane, s.settings.details_pane
+        s.settings.navigation_pane(), s.settings.preview_pane, s.settings.details_pane
     );
     match which {
         Toggle::HiddenItems => {

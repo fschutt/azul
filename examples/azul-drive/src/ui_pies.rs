@@ -1,18 +1,18 @@
-//! The two pies at the right of the navigation pane's foot, in place of a status bar: the sync
-//! (how far it has come, coloured by its state: the accent while syncing, green up to date,
-//! amber paused or held back, red for a conflict or an error) and the drive's space (how full
-//! it is: the accent, amber past 85 %, red past 97 %). Their words are their accessible names;
-//! the numbers are in the sync popover a click on either opens: the sync's state and progress,
-//! the drive in view's storage problem (which also turns the sync pie red), the drive's usage
-//! with its meter, a warning near full, this computer's health line, the transfers running, and
-//! the actions (Sync now, Pause / Resume, Show transfers).
+//! The two pies of the sidebar's status slot, in place of a status bar: the sync (how far it has
+//! come, coloured by its state: the accent while syncing, green up to date, amber paused or held
+//! back, red for a conflict or an error) and the drive's space (how full it is: the accent,
+//! amber past 85 %, red past 97 %). They are only the app's data for the widget's slot - the
+//! Sidebar draws whatever list it is given, a pie each ([`statuses`]). Their words are their
+//! accessible names; the numbers are in the sync popover a click on either opens: the sync's
+//! state and progress, the drive in view's storage problem (which also turns the sync pie red),
+//! the drive's usage with its meter, a warning near full, this computer's health line, the
+//! transfers running, and the actions (Sync now, Pause / Resume, Show transfers).
 
 use azul::{
     callbacks::ButtonOnClickCallbackType,
-    misc::TransientAnchor,
     prelude::*,
     str::String as AzString,
-    widgets::{ButtonType, Dialog, DialogClosedBy, PieMarker, PieTone as MarkerTone},
+    widgets::{ButtonType, Dialog, PieTone as MarkerTone, SidebarStatus},
 };
 use azul_appkit::l10n::{label, t, t_args, t_text, Arg};
 
@@ -198,27 +198,45 @@ fn space_words(s: &DriveState, drive_id: &str) -> String {
     format!("{name}: {used}")
 }
 
-/// One pie in its 15 x 25 hit area, its words as its accessible name.
-fn pie_dom(id: AzString, pie: Pie, words: &str) -> Dom {
-    // A pie at work breathes: the widget's Busy tone is the accent, breathing.
-    let tone = match pie.tone {
+/// The widget's colour for `pie`: a pie at work breathes (the widget's Busy tone is the accent,
+/// breathing).
+#[must_use]
+pub(crate) fn tone_of(pie: &Pie) -> MarkerTone {
+    match pie.tone {
         PieTone::Accent if pie.breathing => MarkerTone::Busy,
         PieTone::Accent => MarkerTone::Accent,
         PieTone::Good => MarkerTone::Good,
         PieTone::Warn => MarkerTone::Warning,
         PieTone::Bad => MarkerTone::Danger,
-    };
-    // The widget is the 15 x 25 hit area, its hover face and its button: the words are its
-    // label.
-    PieMarker::create(pie.fraction, tone)
-        .with_label(AzString::from(words))
-        .dom()
-        .with_id(id)
+    }
 }
 
-/// The two pies at the right of the navigation pane's foot; each opens the sync popover (above
-/// it, left-aligned, kept in the window), which closes on a press outside it or Escape.
-pub(crate) fn pies(s: &DriveState, app: &RefAny) -> Dom {
+/// What stands beside a pie in the expanded sidebar: its percent while the sync works and for
+/// the drive's space, nothing for a sync that is not running (its colour says how it is).
+#[must_use]
+pub(crate) fn pie_text(pie: &Pie, space: bool) -> String {
+    if pie.breathing || space {
+        format!("{:.0} %", pie.fraction * 100.0)
+    } else {
+        String::new()
+    }
+}
+
+/// One status of the slot, before it is the widget's.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct PieFact {
+    /// A key of the resources: what the pie is called.
+    pub label: &'static str,
+    pub pie: Pie,
+    /// The sentence: the sync's state, the drive's usage.
+    pub words: String,
+    /// The drive's space (not the sync).
+    pub space: bool,
+}
+
+/// The pies of the window now: the sync's always, the drive's space when the drive in view (else
+/// Home) has one.
+pub(crate) fn pie_facts(s: &DriveState) -> Vec<PieFact> {
     let drive = sync_drive(s);
     let sync = sync_pie(
         drive
@@ -244,25 +262,37 @@ pub(crate) fn pies(s: &DriveState, app: &RefAny) -> Dom {
         }
         None => sync,
     };
-    let mut row = Dom::create_div().with_css(look::PIES);
-    row.add_child(popover(s, app, pie_dom(ids::SYNC_PIE, sync, &sync_words)));
+    let mut facts = vec![PieFact {
+        label: "azdrive-pie-sync-label",
+        pie: sync,
+        words: sync_words,
+        space: false,
+    }];
     if let Some(space) = space_drive(s) {
         let (used, total) = space_of(s, &space).unwrap_or((0, 0));
-        let words = space_words(s, &space);
-        row.add_child(popover(s, app, pie_dom(ids::SPACE_PIE, space_pie(used, total), &words)));
+        facts.push(PieFact {
+            label: "azdrive-pie-space-label",
+            pie: space_pie(used, total),
+            words: space_words(s, &space),
+            space: true,
+        });
     }
-    row
+    facts
 }
 
-/// The sync popover on `invoker` (a pie): 330 px, opened above it.
-fn popover(s: &DriveState, app: &RefAny, invoker: Dom) -> Dom {
-    Dialog::create(popover_content(s, app))
-        .with_invoker(invoker)
-        .with_modal(false)
-        .with_anchor(TransientAnchor::Top)
-        .with_closed_by(DialogClosedBy::Any)
-        .with_close_button(false)
-        .dom()
+/// The two pies as the Sidebar's status slot (the pie, its name and percent in the expanded
+/// sidebar, its sentence as its accessible name); each opens the sync popover, which closes on a
+/// press outside it or Escape.
+pub(crate) fn statuses(s: &DriveState, app: &RefAny) -> Vec<SidebarStatus> {
+    pie_facts(s)
+        .into_iter()
+        .map(|fact| {
+            SidebarStatus::create(label(fact.label), fact.pie.fraction, tone_of(&fact.pie))
+                .with_text(AzString::from(pie_text(&fact.pie, fact.space)))
+                .with_detail(AzString::from(fact.words.as_str()))
+                .with_popover(popover_content(s, app))
+        })
+        .collect()
 }
 
 /// A line of the popover.
@@ -455,3 +485,7 @@ mod tests {
         assert!(!space_pie(98, 100).breathing);
     }
 }
+
+#[cfg(test)]
+#[path = "ui_pies_test.rs"]
+mod ui_pies_test;

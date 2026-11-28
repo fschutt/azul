@@ -1,208 +1,27 @@
-//! The panes around the content: the navigation row (the address bar), the preview pane and the
-//! details pane. (The navigation pane is `ui_sidebar`'s.) The leaf has no path bar and no
-//! status line at its foot: the address row says where the window is, and the sync and the
-//! drive's space are the navigation pane's pies.
+//! The panes beside the content: the preview pane and the details pane. (The navigation pane is
+//! `ui_sidebar`'s, the address row is the File tab's location, `ui_location`.) The pane the
+//! window docks at its right is `ui_preview`'s: it wraps what is built here.
 
 use azul::{
     audio::{AudioConfig, AudioFrame, AudioSink},
-    callbacks::{AddressBarOnEventCallbackType, ButtonOnClickCallbackType},
+    callbacks::ButtonOnClickCallbackType,
     image::RawImageFormat,
-    menu::MenuItem,
     prelude::*,
     str::String as AzString,
-    vec::{F32Vec, StringVec},
+    vec::F32Vec,
     video::{VideoConfig, VideoSource},
-    widgets::{AddressBar, AddressBarEvent, AddressBarEventKind, DetailsPane, VideoWidget},
+    widgets::{DetailsPane, VideoWidget},
 };
 use azul_appkit::l10n::{grouped, label, t, t_args, t_text, Arg, Phrase, Text};
 use azul_storage::{config::DriveLocation, key};
 
 use crate::{
-    actions::{self, menu_item, Action},
+    actions::{self, Action},
     browse::{self, Place},
-    go, ids,
+    ids,
     jobs::PreviewContent,
-    look, place_up, start_tree_listing, ui_view, with_state, DriveState,
+    look, ui_preview, ui_view, with_state, DriveState,
 };
-
-// ==== The address bar ====
-
-/// Explorer's address row (azul's AddressBar): round Back and Forward, Up (the design has no
-/// Recent locations button: Back and Forward keep the way), the
-/// breadcrumb box - the place's icon, a crumb per step with a chevron that drops its folders,
-/// the first steps folded into « when the path is long, a click on the empty part for the typed
-/// path, Refresh at its end - and "Search <folder>". `width` is the window's (the bar folds its
-/// crumbs to it).
-pub(crate) fn address_bar(s: &DriveState, app: &RefAny, width: f32) -> Dom {
-    bar_model(s, width)
-        .with_on_event(app.clone(), on_address as AddressBarOnEventCallbackType)
-        .dom()
-}
-
-/// How many crumbs of the open place fold into the bar's « menu in a window `width` px wide:
-/// the one thing of the window's build that follows its width (the panes keep their widths and
-/// the folder view lays its rows out for its box by itself).
-pub(crate) fn folded_crumbs(s: &DriveState, width: f32) -> usize {
-    bar_model(s, width).folded_crumbs_at(width)
-}
-
-/// The address bar of the open place, for a window `width` px wide, without its callback.
-fn bar_model(s: &DriveState, width: f32) -> AddressBar {
-    let drive_name = s.drive_name(&s.place);
-    let labels: Vec<AzString> = browse::crumbs_of(&s.place, &drive_name)
-        .into_iter()
-        .map(|(label, _)| AzString::from(label))
-        .collect();
-    let path_drive = match &s.place {
-        Place::Folder { .. } => Some(drive_name.as_str()),
-        _ => None,
-    };
-    AddressBar::create(StringVec::from(labels))
-        .with_icon(AzString::from(crumb_icon(s, &s.place)))
-        // The git chip at the row's end takes its share of the width (`ui_git`).
-        .with_available_width((width - crate::ui_git::chip_room(s)).max(1.0))
-        .with_path(AzString::from(browse::path_text(&s.place, path_drive)))
-        .with_search(AzString::from(s.search.as_str()))
-        .with_search_placeholder(AzString::from(t_args(
-            "azdrive-search-placeholder",
-            &[("place", Arg::from(s.place_name()))],
-        )))
-        .with_can_go(
-            s.history.can_go_back(),
-            s.history.can_go_forward(),
-            place_up(&s.place).is_some(),
-        )
-        .with_editing(s.editing_path)
-        .with_recent(false)
-        // The design's key cap in the search box (it hides while the box has the focus).
-        .with_search_shortcut(AzString::from(if cfg!(target_os = "macos") {
-            "\u{2318}F"
-        } else {
-            "Ctrl+F"
-        }))
-}
-
-/// The folders under `place` the app knows: the tree's listing, or the
-/// open folder's rows. `None` when it was never listed.
-fn known_folders(s: &DriveState, place: &Place) -> Option<Vec<(String, Place)>> {
-    match place {
-        Place::QuickAccess => Some(
-            s.settings
-                .pinned
-                .iter()
-                .map(|p| (p.name.clone(), Place::folder(&p.drive, &p.prefix)))
-                .collect(),
-        ),
-        Place::ThisPc => Some(
-            s.slots
-                .iter()
-                .map(|slot| (slot.name(), Place::folder(&slot.entry.id, "")))
-                .collect(),
-        ),
-        Place::Folder { drive, prefix } => {
-            if let Some(folders) = s.tree.loaded.get(&(drive.clone(), prefix.clone())) {
-                return Some(
-                    folders
-                        .iter()
-                        .map(|f| (key::last_segment(f).to_string(), Place::folder(drive, f)))
-                        .collect(),
-                );
-            }
-            (*place == s.place && !s.loading).then(|| {
-                s.entries
-                    .iter()
-                    .filter(|e| e.is_folder && (s.settings.show_hidden || !e.is_hidden()))
-                    .map(|e| (e.name.clone(), Place::folder(drive, &e.key)))
-                    .collect()
-            })
-        }
-    }
-}
-
-extern "C" fn on_address(
-    mut data: RefAny,
-    mut info: CallbackInfo,
-    event: AddressBarEvent,
-) -> Update {
-    let index = event.index;
-    let text = event.text.as_str().to_string();
-    with_state(&mut data, &mut info, |info, app, s| match event.kind {
-        AddressBarEventKind::Back => actions::run_command(info, app, s, crate::keys::Command::Back),
-        AddressBarEventKind::Forward => {
-            actions::run_command(info, app, s, crate::keys::Command::Forward)
-        }
-        AddressBarEventKind::Up => actions::run_command(info, app, s, crate::keys::Command::Up),
-        AddressBarEventKind::Refresh => crate::refresh(info, app, s),
-        AddressBarEventKind::Recent => actions::run_action(info, app, s, Action::RecentMenu),
-        AddressBarEventKind::Crumb => {
-            let drive_name = s.drive_name(&s.place);
-            if let Some((_, place)) = browse::crumbs_of(&s.place, &drive_name).get(index) {
-                let place = place.clone();
-                if place == s.place {
-                    // The open folder's own crumb: Explorer reads the folder again.
-                    crate::refresh(info, app, s);
-                } else {
-                    go(info, app, s, place, true);
-                }
-            }
-        }
-        AddressBarEventKind::CrumbMenu => {
-            let drive_name = s.drive_name(&s.place);
-            let Some((_, place)) = browse::crumbs_of(&s.place, &drive_name).get(index).cloned()
-            else {
-                return;
-            };
-            match known_folders(s, &place) {
-                Some(folders) if !folders.is_empty() => {
-                    let items: Vec<MenuItem> = folders
-                        .into_iter()
-                        .map(|(label, place)| menu_item(app, &label, Action::Go(place), false))
-                        .collect();
-                    actions::open_menu_below(info, items);
-                }
-                Some(_) => s.info(Text::key("azdrive-no-subfolders")),
-                None => {
-                    if let Place::Folder { drive, prefix } = place {
-                        s.info(Text::key("azdrive-listing-folder"));
-                        start_tree_listing(info, app, s, (drive, prefix));
-                    }
-                }
-            }
-        }
-        AddressBarEventKind::EditStarted => s.editing_path = true,
-        AddressBarEventKind::PathEntered => {
-            s.editing_path = false;
-            match browse::parse_path(&text, &s.drive_names()) {
-                Some(place) => go(info, app, s, place, true),
-                None => s.error(Phrase::new("azdrive-no-drive-for").arg("path", text.trim())),
-            }
-        }
-        AddressBarEventKind::EditCancelled => s.editing_path = false,
-        AddressBarEventKind::Search => {
-            s.search = text.clone();
-            // The search running stops; one for the new text starts (none for an empty box):
-            // the open folder and every folder below it.
-            crate::start_find(info, app, s);
-            let keys = s.visible_keys();
-            let order: Vec<&str> = keys.iter().map(String::as_str).collect();
-            s.selection.retain(&order);
-            // Other rows are in view now: their sizes, counts and thumbnails.
-            actions::request_view_work(info, app, s);
-        }
-    })
-}
-
-/// The icon of a place in the address bar: This PC's, a drive's own, a folder.
-fn crumb_icon(s: &DriveState, place: &Place) -> &'static str {
-    match place {
-        Place::QuickAccess => "star",
-        Place::ThisPc => "computer",
-        Place::Folder { drive, prefix } if prefix.is_empty() => s
-            .slot_index(drive)
-            .map_or("storage", |i| s.slots[i].icon()),
-        Place::Folder { .. } => "folder",
-    }
-}
 
 // ==== The preview pane ====
 
@@ -252,12 +71,24 @@ extern "C" fn on_play_audio(mut data: RefAny, mut info: CallbackInfo) -> Update 
     })
 }
 
-/// The preview pane: the selected file's picture, text, PDF page, sound or
-/// video.
+/// The preview pane: the item's picture, text, PDF page, sound or video, and nothing else - what
+/// there is to say about it is behind the (?) of the pane's header (`ui_preview`), and a banner
+/// stands over the stage only when something needs saying. The item is the preview's subject (the
+/// selected one on a desktop, the one at the list's top edge on a phone); until its own content
+/// is in, the pane says so.
 pub(crate) fn preview_pane(s: &DriveState, app: &RefAny, _dark: bool) -> Dom {
-    let body = match &s.preview {
-        None => note(&t("azdrive-preview-select")),
-        Some(preview) => {
+    let subject = s.preview_subject();
+    let current = s
+        .preview
+        .as_ref()
+        .filter(|p| subject.map_or(true, |e| e.key == p.key));
+    let body = match (current, subject) {
+        (None, Some(entry)) => note(&t_args(
+            "azdrive-preview-loading",
+            &[("name", Arg::from(entry.name.clone()))],
+        )),
+        (None, None) => note(&t("azdrive-preview-select")),
+        (Some(preview), _) => {
             let name = key::last_segment(&preview.key).to_string();
             match &preview.content {
                 None => note(&t_args("azdrive-preview-loading", &[("name", Arg::from(name))])),
@@ -370,22 +201,21 @@ pub(crate) fn preview_pane(s: &DriveState, app: &RefAny, _dark: bool) -> Dom {
     };
     let mut pane = Dom::create_div()
         .with_id(ids::PREVIEW_PANE)
-        .with_css("display: flex; flex-direction: column; flex-grow: 1; min-height: 0px;")
-        .with_child(
-            Dom::create_div()
-                .with_css(look::PREVIEW_STAGE)
-                .with_child(body),
-        );
-    if let Some(info) = preview_info(s, app) {
-        pane.add_child(info);
+        .with_css("display: flex; flex-direction: column; flex-grow: 1; min-height: 0px;");
+    if let Some(banner) = ui_preview::banner(s) {
+        pane.add_child(ui_preview::banner_dom(&banner));
     }
-    pane
+    pane.with_child(
+        Dom::create_div()
+            .with_css(look::PREVIEW_STAGE)
+            .with_child(body),
+    )
 }
 
-/// Under the preview: the item's name and kind, what it is (Type, Size, Modified, Location,
-/// and where something syncs its state), and at the foot Open and Copy link.
-fn preview_info(s: &DriveState, app: &RefAny) -> Option<Dom> {
-    let entry = s.single_selected()?;
+/// Behind the preview's (?): the item's name and kind, what it is (Type, Size, Modified,
+/// Location, and where something syncs its state), and at the foot Open and Copy link.
+pub(crate) fn preview_info(s: &DriveState, app: &RefAny) -> Option<Dom> {
+    let entry = s.preview_subject()?;
     let kind = crate::model::cell_text(entry, browse::Column::Type, s.settings.show_extensions);
     let row = |key: &str, value: String| {
         Dom::create_div()

@@ -58,7 +58,8 @@ fn show_tab(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState, tab: TabS
     }
     if !tab.search.is_empty() {
         s.search = tab.search;
-        actions::set_search_box_text(info, &s.search);
+        let query = s.search.clone();
+        crate::ui_command_bar::show_search(info, s, &query);
         crate::start_find(info, app, s);
     }
     s.scroll_when_listed = (tab.scroll > 0.0).then_some(tab.scroll);

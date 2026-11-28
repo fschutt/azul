@@ -297,10 +297,6 @@ pub(crate) fn content(s: &DriveState, app: &RefAny, size: (f32, f32)) -> Dom {
         background,
         on_background_drop,
     ));
-    // A folder's command bar at the leaf's foot.
-    if let Some(bar) = crate::ui_command_bar::bar(s, app) {
-        area.add_child(bar);
-    }
     Dom::create_div()
         .with_id(ids::CONTENT)
         .with_css(look::PAGE)
@@ -631,12 +627,31 @@ pub(crate) fn interactive(s: &DriveState, app: &RefAny, entry: &Entry, dom: Dom)
             data.clone(),
             on_item_drag,
         );
+    // A phone has no right button: a long press is the context menu's quick actions (a sheet).
+    if s.phone {
+        dom = dom.with_callback(
+            EventFilter::Hover(HoverEventFilter::LongPress),
+            data.clone(),
+            on_item_long_press,
+        );
+    }
     if entry.is_folder {
         dom = dom
             .with_class(ids::FOLDER_CLASS)
             .with_callback(EventFilter::Hover(HoverEventFilter::Drop), data, on_item_drop);
     }
     dom
+}
+
+/// A long press on an item (a phone): the item is the selection and its quick-action sheet opens.
+extern "C" fn on_item_long_press(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let Some((mut app, key, _)) = item_parts(&mut data) else {
+        return Update::DoNothing;
+    };
+    info.stop_propagation();
+    with_state(&mut app, &mut info, |info, app, s| {
+        crate::ui_sheet::open_for_item(info, app, s, &key);
+    })
 }
 
 extern "C" fn on_item_click(mut data: RefAny, mut info: CallbackInfo) -> Update {
@@ -1676,6 +1691,8 @@ fn view_scrolled(mut data: RefAny, mut info: CallbackInfo, ended: bool) -> Updat
     };
     let s = &mut *guard;
     s.view_scroll = (offset, height);
+    // A phone's preview follows the item at the top edge, instantly: only its pane draws again.
+    crate::ui_preview::follow_top(&mut info, &handle, s, ended);
     let now = std::time::Instant::now();
     if ended {
         s.scroll_work_at = None;

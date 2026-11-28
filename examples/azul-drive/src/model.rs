@@ -760,6 +760,33 @@ impl Density {
     }
 }
 
+/// What the left sidebar shows: the whole list (`Expanded`), the icon rail every app starts as
+/// (`Rail`) or the 16 px handle (`Handle`). The Sidebar widget asks for a state with its toggle,
+/// its handle and a click on a pushed-aside view; the window keeps the answer here.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum SidebarMode {
+    Expanded,
+    #[default]
+    Rail,
+    Handle,
+}
+
+/// The widest a preview pane is kept (px): a size read from the settings file beyond it is
+/// brought back to it (the widget keeps the pane inside its window besides).
+pub const PREVIEW_SIZE_MAX: f32 = 4_000.0;
+
+/// `size` as a preview pane's size: 0 (the widget's default) for a number that is not one, a
+/// negative one or none; the largest a pane is kept at for one beyond it.
+#[must_use]
+pub fn clamped_preview_size(size: f32) -> f32 {
+    if !size.is_finite() || size < 0.0 {
+        0.0
+    } else {
+        size.min(PREVIEW_SIZE_MAX)
+    }
+}
+
 // ==== Settings ====
 
 /// A pinned folder of Quick access.
@@ -789,9 +816,14 @@ pub struct Settings {
     pub show_hidden: bool,
     pub show_extensions: bool,
     pub item_checkboxes: bool,
-    pub navigation_pane: bool,
+    /// The left sidebar's state; it starts as the rail, as every app does.
+    pub sidebar: SidebarMode,
     pub preview_pane: bool,
     pub details_pane: bool,
+    /// The preview pane's width at the window's right (px; 0: the widget's default) and its
+    /// height at a phone's foot, as the user last dragged them.
+    pub preview_width: f32,
+    pub preview_height: f32,
     pub columns: ColumnLayout,
     pub pinned: Vec<Pinned>,
     /// Ask before a delete that cannot be undone (a cloud drive, Shift+Delete).
@@ -849,9 +881,11 @@ impl Default for Settings {
             show_hidden: false,
             show_extensions: true,
             item_checkboxes: false,
-            navigation_pane: true,
+            sidebar: SidebarMode::Rail,
             preview_pane: true,
             details_pane: false,
+            preview_width: 0.0,
+            preview_height: 0.0,
             columns: ColumnLayout::default(),
             pinned: Vec::new(),
             confirm_delete: true,
@@ -874,6 +908,22 @@ impl Default for Settings {
 }
 
 impl Settings {
+    /// Whether the navigation pane (the expanded sidebar) shows.
+    #[must_use]
+    pub fn navigation_pane(&self) -> bool {
+        self.sidebar == SidebarMode::Expanded
+    }
+
+    /// The View tab's Navigation pane: the expanded sidebar closes to the rail, anything else
+    /// opens it.
+    pub fn toggle_navigation_pane(&mut self) {
+        self.sidebar = if self.navigation_pane() {
+            SidebarMode::Rail
+        } else {
+            SidebarMode::Expanded
+        };
+    }
+
     /// The largest file a cloud drive's index downloads (bytes, at least 1 MB); `None` while
     /// "Index files in the cloud" is off.
     #[must_use]
@@ -1150,7 +1200,8 @@ mod tests {
     #[test]
     fn the_defaults_are_the_users_final_settings() {
         let settings = Settings::default();
-        assert!(settings.navigation_pane);
+        assert_eq!(settings.sidebar, SidebarMode::Rail, "every app starts as the rail");
+        assert!(!settings.navigation_pane());
         assert!(settings.preview_pane);
         assert!(!settings.details_pane);
         assert!(settings.search_contents, "File contents is on");
@@ -1298,7 +1349,7 @@ mod tests {
     fn settings_round_trip_through_json_and_unknown_fields_fall_back_to_defaults() {
         let mut settings = Settings::default();
         assert_eq!(settings.layout, ViewLayout::Details);
-        assert!(settings.navigation_pane && settings.preview_pane && !settings.details_pane);
+        assert!(!settings.navigation_pane() && settings.preview_pane && !settings.details_pane);
         settings.layout = ViewLayout::LargeIcons;
         settings.group_by = GroupBy::Type;
         settings.sort = Sort {

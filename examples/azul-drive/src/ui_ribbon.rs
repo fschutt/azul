@@ -476,7 +476,7 @@ fn view_tab(s: &DriveState, app: &RefAny) -> RibbonTab {
                     "vertical_split",
                     "azdrive-ribbon-navigation-pane",
                     Toggle::NavigationPane,
-                    settings.navigation_pane,
+                    settings.navigation_pane(),
                 )),
                 small(toggle_button(
                     app,

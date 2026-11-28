@@ -701,7 +701,12 @@ fn section_line(key: &str) -> Dom {
 
 /// An (i) whose tooltip explains, in sentences.
 pub(crate) fn info_mark(key: &str) -> Dom {
-    let words = AzString::from(t(key));
+    info_mark_text(&t(key))
+}
+
+/// An (i) whose tooltip is `words` as they are.
+pub(crate) fn info_mark_text(words: &str) -> Dom {
+    let words = AzString::from(words);
     Dom::create_icon(AzString::from("info"))
         .with_css("font-size: 16px; opacity: 0.6; margin-left: 6px; flex-shrink: 0;")
         .with_attribute(AttributeType::Title(words.clone()))

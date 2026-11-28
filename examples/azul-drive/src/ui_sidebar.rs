@@ -1,30 +1,29 @@
-//! The navigation pane as Finder's source list (Leopard's, in AzNews' manner), on a soft
-//! vertical gradient ([`crate::look`]):
+//! The navigation pane as azul's Sidebar widget: Finder's source list in its three sections
+//! (the widget's `SidebarSection`s, each with the triangle that opens and closes it):
 //!
 //! - FAVORITES: Quick access (the pinned folders and the places visited last), the standard
 //!   folders the Home drive holds (Desktop, Documents, Downloads, Pictures, Music, Videos /
 //!   Movies), then the folders the user pinned;
 //! - LOCATIONS: This PC, Home, the Azlin data tree and the folders added as drives - a drive
-//!   opens its folders under it (its triangle; listed lazily, one listing per opening), a
-//!   folder the user added has Finder's eject button, which forgets it;
-//! - CLOUD: the S3 drives, each with its state (syncing - the count of its transfers as a pill
-//!   -, its keys still in the keyring, connected) and its eject button, then "Add drive";
-//! - under the list its foot: the + (Add drive, Add a folder, Pin) and the gear (Options) on the
-//!   left, the two pies on the right (the sync and the drive's space, `ui_pies`; a click opens
-//!   the sync popover with the numbers and the transfers).
+//!   opens its folders under it (its triangle; listed lazily, one listing per opening);
+//! - CLOUD: the S3 drives, each with its state (a glyph at its end: syncing - the count of its
+//!   transfers as the row's badge -, its keys still in the keyring, connected), then "Add
+//!   drive".
 //!
-//! A section title has a disclosure triangle (a click opens or closes the section); the row of
-//! the place the window shows has the rounded highlight; a folder's row takes dropped items (a
-//! move within a drive, Ctrl a copy, a copy across drives), and FAVORITES (its title, Quick
-//! access) pins dropped folders. A right click is the row's menu (Open, Properties, Remove from
-//! Favorites, Remove drive).
+//! The rows are data first ([`rows`], [`sections_of`]: what the tests read) and the widget's
+//! after ([`sidebar`]); a row's tag is its place in [`rows`], which the widget hands back with
+//! every report ([`on_sidebar`] runs what a click, a triangle, a section's title, the toggle,
+//! the help row, a long press, a right click and a drop ran before). The two pies of the sync and
+//! the drive's space are the widget's status slot (`ui_pies::statuses`); the rail is the state
+//! the sidebar starts in (the settings keep the user's choice).
 //!
-//! The KEYBOARD ([`on_sidebar_key`], from the window's key handler, for the rows, the pane F6
-//! lands on and the buttons under the list): Up / Down / Home / End / Page Up / Page Down move
-//! between the rows, Right opens a section or a drive (again: steps into it), Left closes it
-//! (again: up to its title or its drive), Enter / Space open the row (a section opens or
-//! closes), a letter jumps to the next row starting with it, the menu key opens the row's menu.
-//! The rows are ONE Tab stop (the selected row, else the first): the arrows move the stop.
+//! A folder's row takes dropped items (a move within a drive, Ctrl a copy, a copy across
+//! drives), and Quick access pins dropped folders. A right click (a long press on a phone: the
+//! quick-action sheet) is the row's menu (Open, Properties, Remove from Favorites, Remove drive,
+//! the drive's keys and sync).
+//!
+//! The KEYBOARD is the widget's: the arrows walk the rows, Right opens a row, Left closes it,
+//! Enter opens the place.
 
 use std::{
     collections::{HashMap, HashSet},
@@ -32,25 +31,23 @@ use std::{
 };
 
 use azul::{
-    callbacks::CallbackType,
-    dom::{DomNodeId, FocusTarget, TabIndex},
+    callbacks::SidebarOnEventCallbackType,
     menu::{Menu, MenuItem, StringMenuItem},
     prelude::*,
     str::String as AzString,
+    widgets::{
+        Sidebar, SidebarEvent, SidebarEventKind, SidebarRow, SidebarSection, SidebarState,
+        SidebarSurface,
+    },
 };
-use azul_appkit::{
-    l10n::{self, t, t_args, t_label, Arg, Phrase, Text},
-    pieces::{block, text},
-};
+use azul_appkit::l10n::{self, t, t_args, Arg, Phrase, Text};
 use azul_storage::key;
 
 use crate::{
-    actions::{self, action_ref, menu_item, on_action, Action},
+    actions::{self, Action},
     browse::Place,
-    go, ids,
-    keys::{Key, Mods},
-    look,
-    model::{self, Pinned},
+    go,
+    model::{Pinned, SidebarMode},
     save_settings, start_tree_listing, with_state, DriveState, Popup, TreeKey, TreeState,
     HOME_ID,
 };
@@ -73,14 +70,6 @@ impl Section {
             Section::Favorites => "azdrive-side-favorites",
             Section::Locations => "azdrive-side-locations",
             Section::Cloud => "azdrive-side-cloud",
-        }
-    }
-
-    fn id(self) -> AzString {
-        match self {
-            Section::Favorites => ids::SIDE_FAVORITES,
-            Section::Locations => ids::SIDE_LOCATIONS,
-            Section::Cloud => ids::SIDE_CLOUD,
         }
     }
 }
@@ -174,8 +163,6 @@ pub(crate) struct Row {
     pub icon: &'static str,
     /// Folders deep under its drive (0 for a section's own rows and the titles).
     pub depth: usize,
-    /// Its DOM id, when the scripts name it.
-    pub id: Option<String>,
     /// A section, a drive or a folder that opens: open (`Some(true)`) or closed; `None` for a
     /// row that does not open (a folder listed without folders under it).
     pub open: Option<bool>,
@@ -192,23 +179,9 @@ impl Row {
             label: label.to_string(),
             icon,
             depth: 0,
-            id: None,
             open: None,
             drive: None,
             pin: None,
-        }
-    }
-
-    fn with_id(mut self, id: AzString) -> Row {
-        self.id = Some(id.as_str().to_string());
-        self
-    }
-
-    /// The level the keyboard's Left climbs from: a title 0, a section's row 1, a folder deeper.
-    fn level(&self) -> usize {
-        match self.kind {
-            RowKind::Section(_) => 0,
-            _ => self.depth + 1,
         }
     }
 
@@ -316,8 +289,7 @@ fn drive_rows(src: &Sources, index: usize, drive: &DriveRow, out: &mut Vec<Row>)
         RowKind::Go(Place::folder(drive.id, "")),
         drive.name,
         drive.icon,
-    )
-    .with_id(ids::side_drive(drive.id));
+    );
     row.open = open;
     row.drive = Some(index);
     out.push(row);
@@ -328,7 +300,7 @@ fn drive_rows(src: &Sources, index: usize, drive: &DriveRow, out: &mut Vec<Row>)
 
 /// A section's title row.
 fn section_row(section: Section, open: bool) -> Row {
-    let mut row = Row::new(RowKind::Section(section), section.title(), "").with_id(section.id());
+    let mut row = Row::new(RowKind::Section(section), section.title(), "");
     row.open = Some(open);
     row
 }
@@ -340,19 +312,17 @@ pub(crate) fn rows(src: &Sources) -> Vec<Row> {
     let mut out = Vec::new();
     out.push(section_row(Section::Favorites, src.open[0]));
     if src.open[0] {
-        out.push(
-            Row::new(RowKind::Go(Place::QuickAccess), "azdrive-quick-access", "star")
-                .with_id(ids::SIDE_QUICK_ACCESS),
-        );
+        out.push(Row::new(
+            RowKind::Go(Place::QuickAccess),
+            "azdrive-quick-access",
+            "star",
+        ));
         for f in src.standard {
-            out.push(
-                Row::new(
-                    RowKind::Go(Place::folder(HOME_ID, &f.prefix)),
-                    standard_label(&f.name),
-                    f.icon,
-                )
-                    .with_id(ids::side_favorite(&f.name)),
-            );
+            out.push(Row::new(
+                RowKind::Go(Place::folder(HOME_ID, &f.prefix)),
+                standard_label(&f.name),
+                f.icon,
+            ));
         }
         for (i, pin) in src.pins.iter().enumerate() {
             // A pinned standard folder has its row already.
@@ -364,18 +334,18 @@ pub(crate) fn rows(src: &Sources) -> Vec<Row> {
                 RowKind::Go(Place::folder(&pin.drive, &pin.prefix)),
                 &pin.name,
                 "folder",
-            )
-            .with_id(ids::side_pin(i));
+            );
             row.pin = Some(i);
             out.push(row);
         }
     }
     out.push(section_row(Section::Locations, src.open[1]));
     if src.open[1] {
-        out.push(
-            Row::new(RowKind::Go(Place::ThisPc), "azdrive-this-pc", "computer")
-                .with_id(ids::SIDE_THIS_PC),
-        );
+        out.push(Row::new(
+            RowKind::Go(Place::ThisPc),
+            "azdrive-this-pc",
+            "computer",
+        ));
         for (i, drive) in src.drives.iter().enumerate().filter(|(_, d)| d.local) {
             drive_rows(src, i, drive, &mut out);
         }
@@ -385,10 +355,11 @@ pub(crate) fn rows(src: &Sources) -> Vec<Row> {
         for (i, drive) in src.drives.iter().enumerate().filter(|(_, d)| !d.local) {
             drive_rows(src, i, drive, &mut out);
         }
-        out.push(
-            Row::new(RowKind::AddDrive, "azdrive-side-add-drive", "add_link")
-                .with_id(ids::SIDE_ADD_DRIVE),
-        );
+        out.push(Row::new(
+            RowKind::AddDrive,
+            "azdrive-side-add-drive",
+            "add_link",
+        ));
     }
     out
 }
@@ -396,92 +367,6 @@ pub(crate) fn rows(src: &Sources) -> Vec<Row> {
 /// Whether `row` is the place the window shows.
 fn shows(place: &Place, row: &Row) -> bool {
     matches!(&row.kind, RowKind::Go(p) if p == place)
-}
-
-// ==== The keyboard, as data ====
-
-/// What a key does in the source list.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum SideMove {
-    /// The keyboard moves to row `n`.
-    Focus(usize),
-    /// Row `n` (a section, a drive, a folder) opens (`true`) or closes.
-    Open(usize, bool),
-    /// Row `n` is activated: its place opens, its section opens or closes, "Add drive".
-    Activate(usize),
-    /// Row `n`'s menu opens.
-    Menu(usize),
-    /// Nothing happens - and nothing else acts on the key.
-    Stay,
-}
-
-/// The row `current` climbs to with Left: the nearest row above it on a lower level (a
-/// folder's drive or parent folder, a row's section title).
-fn parent_of(rows: &[Row], current: usize) -> Option<usize> {
-    let level = rows.get(current)?.level();
-    (0..current).rev().find(|&i| rows[i].level() < level)
-}
-
-/// What `key` does on row `current` of `rows` (`None`: the keyboard is in the list's pane or on
-/// a button under it - an arrow enters the list at `stop`). `None` back: the key is not the
-/// list's (F5, Backspace, Escape, a letter, Enter on a button ...).
-#[must_use]
-pub(crate) fn key_move(
-    rows: &[Row],
-    current: Option<usize>,
-    stop: usize,
-    key: Key,
-    shift: bool,
-) -> Option<SideMove> {
-    let last = rows.len().checked_sub(1)?;
-    let navigation = matches!(
-        key,
-        Key::Up | Key::Down | Key::Left | Key::Right | Key::Home | Key::End | Key::PageUp
-            | Key::PageDown
-    );
-    let Some(c) = current.filter(|c| *c <= last) else {
-        return navigation.then_some(SideMove::Focus(stop.min(last)));
-    };
-    if shift && navigation {
-        // Shift+arrow extends a selection - the list has none, and the content's is not
-        // under the keyboard.
-        return Some(SideMove::Stay);
-    }
-    let focus = |to: usize| {
-        if to == c {
-            SideMove::Stay
-        } else {
-            SideMove::Focus(to)
-        }
-    };
-    let row = &rows[c];
-    let into = rows
-        .get(c + 1)
-        .filter(|next| next.level() > row.level())
-        .map(|_| c + 1);
-    Some(match key {
-        Key::Up => focus(c.saturating_sub(1)),
-        Key::Down => focus((c + 1).min(last)),
-        Key::Home => focus(0),
-        Key::End => focus(last),
-        Key::PageUp => focus(c.saturating_sub(10)),
-        Key::PageDown => focus((c + 10).min(last)),
-        Key::Right => match row.open {
-            Some(false) => SideMove::Open(c, true),
-            Some(true) => into.map_or(SideMove::Stay, SideMove::Focus),
-            None => SideMove::Stay,
-        },
-        Key::Left => match row.open {
-            Some(true) => SideMove::Open(c, false),
-            _ => parent_of(rows, c).map_or(SideMove::Stay, SideMove::Focus),
-        },
-        Key::Enter | Key::Space => SideMove::Activate(c),
-        Key::Apps => SideMove::Menu(c),
-        Key::F10 if shift => SideMove::Menu(c),
-        // The content's selection is not under the keyboard: Delete and F2 do nothing here.
-        Key::Delete | Key::F2 => SideMove::Stay,
-        _ => return None,
-    })
 }
 
 // ==== What a row does ====
@@ -821,6 +706,7 @@ fn pin_dropped(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState) {
 
 // ==== Callbacks ====
 
+
 /// A click on a row (or one of its menu's entries).
 extern "C" fn on_row_click(mut data: RefAny, mut info: CallbackInfo) -> Update {
     let Some((mut app, action)) = row_parts(&mut data) else {
@@ -829,107 +715,7 @@ extern "C" fn on_row_click(mut data: RefAny, mut info: CallbackInfo) -> Update {
     with_state(&mut app, &mut info, |info, app, s| run(info, app, s, action))
 }
 
-/// A click on a row's triangle (or its eject button): only that, not the row's click.
-extern "C" fn on_row_part(data: RefAny, mut info: CallbackInfo) -> Update {
-    info.stop_propagation();
-    on_row_click(data, info)
-}
-
-/// What a row's right click carries: the app and its menu.
-struct MenuRef {
-    app: RefAny,
-    entries: Vec<(String, SideAction)>,
-}
-
-/// A right click on a row: its menu.
-extern "C" fn on_row_menu(mut data: RefAny, mut info: CallbackInfo) -> Update {
-    let Some((app, entries)) = data
-        .downcast_ref::<MenuRef>()
-        .map(|m| (m.app.clone(), m.entries.clone()))
-    else {
-        return Update::DoNothing;
-    };
-    info.stop_propagation();
-    if !entries.is_empty() {
-        // At the row; where the pointer is when the row cannot anchor it.
-        let menu = menu_of(&app, entries);
-        if !info.open_menu_for_hit_node(menu.clone()) {
-            info.open_menu(menu);
-        }
-    }
-    Update::DoNothing
-}
-
-/// Items dragged over a row that takes them.
-extern "C" fn on_row_drag_over(_data: RefAny, mut info: CallbackInfo) -> Update {
-    info.accept_drop();
-    Update::DoNothing
-}
-
-/// Items dropped on a row: into its folder (a move within a drive, Ctrl a copy, a copy across
-/// drives); folders dropped on FAVORITES (its title, Quick access) are pinned.
-extern "C" fn on_row_drop(mut data: RefAny, mut info: CallbackInfo) -> Update {
-    let Some((mut app, action)) = row_parts(&mut data) else {
-        return Update::DoNothing;
-    };
-    info.stop_propagation();
-    let copy = info.get_key_modifiers().primary_down();
-    with_state(&mut app, &mut info, |info, app, s| match action {
-        SideAction::Go(place @ Place::Folder { .. }) => actions::drop_on_place(info, app, s, place, copy),
-        SideAction::Go(Place::QuickAccess) | SideAction::Section(Section::Favorites) => {
-            pin_dropped(info, app, s);
-        }
-        _ => s.dragging = None,
-    })
-}
-
-/// The + under the list: Add drive, Add a folder as a drive, Pin the open folder.
-extern "C" fn on_add_menu(mut data: RefAny, mut info: CallbackInfo) -> Update {
-    let app = data.clone();
-    let Some(s) = data.downcast_ref::<DriveState>() else {
-        return Update::DoNothing;
-    };
-    let pinned = match &s.place {
-        Place::Folder { drive, prefix } => s.settings.is_pinned(drive, prefix),
-        _ => false,
-    };
-    let pin_label = t_args(
-        if pinned {
-            "azdrive-side-unpin-place"
-        } else {
-            "azdrive-side-pin-place"
-        },
-        &[("name", Arg::from(s.place_name()))],
-    );
-    let items = vec![
-        menu_item(&app, "azdrive-side-add-drive", Action::AddDrive, false),
-        menu_item(&app, "azdrive-menu-add-local-drive", Action::AddLocalDrive, false),
-        MenuItem::separator(),
-        menu_item(
-            &app,
-            &pin_label,
-            Action::Pin,
-            actions::why_not(&s, &Action::Pin).is_some(),
-        ),
-    ];
-    drop(s);
-    actions::open_menu_below(&mut info, items);
-    Update::DoNothing
-}
-
-// ==== The DOM ====
-
-/// A count as a pill.
-fn pill(n: usize, selected: bool) -> Dom {
-    block(
-        &format!(
-            "{} {}",
-            look::PILL,
-            if selected { look::PILL_SELECTED } else { "" }
-        ),
-        text(n.to_string()),
-    )
-}
+// ==== The rows as the Sidebar widget takes them ====
 
 /// A cloud drive's state: its glyph, what it says, its transfers. A synced drive says its
 /// sync's status line ("Up to date", "Syncing 12 files (340 MB)", "Paused", ...).
@@ -954,395 +740,345 @@ fn cloud_state(s: &DriveState, index: usize) -> (&'static str, String, usize) {
     }
 }
 
-/// A section's title row.
-fn section_dom(app: &RefAny, row: &Row, section: Section, stop: bool) -> Dom {
-    let open = row.open == Some(true);
-    let mut css = format!("{} {}", look::SECTION_HEAD, look::ROW_FOCUS);
-    if section == Section::Favorites {
-        css.push(' ');
-        css.push_str(look::ROW_DROP);
-    }
-    let mut dom = Dom::create_div()
-        .with_id(section.id())
-        .with_class(ids::SIDE_ROW_CLASS)
-        .with_class(ids::SIDE_SECTION_CLASS)
-        .with_css(css)
-        .with_tab_index(if stop {
-            TabIndex::Auto
-        } else {
-            TabIndex::NoKeyboardFocus
-        })
-        .with_accessibility_name(l10n::label(section.title()))
-        .with_child(
-            Dom::create_icon(if open { "expand_more" } else { "chevron_right" })
-                .with_css(look::TRIANGLE),
-        )
-        .with_child(block(look::SECTION_TITLE, text(l10n::label(section.title()))))
-        .with_callback(
-            EventFilter::Hover(HoverEventFilter::Click),
-            row_ref(app, SideAction::Section(section)),
-            on_row_click,
-        );
-    if section == Section::Favorites {
-        dom = dom
-            .with_callback(
-                EventFilter::Hover(HoverEventFilter::DragOver),
-                row_ref(app, SideAction::Section(section)),
-                on_row_drag_over,
-            )
-            .with_callback(
-                EventFilter::Hover(HoverEventFilter::Drop),
-                row_ref(app, SideAction::Section(section)),
-                on_row_drop,
-            );
-    }
-    dom
+/// One row of the widget, as data: what [`widget_row`] makes a `SidebarRow` of.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct RowSpec {
+    /// The row's name for the events: its place in [`rows`] (the widget hands it back).
+    pub tag: usize,
+    /// The label: a key of the resources, or a folder's or drive's own name.
+    pub label: String,
+    pub icon: &'static str,
+    /// How deep a folder row is under its drive (0 for the section's own rows).
+    pub depth: usize,
+    /// The row opens (a drive, a folder): its triangle, open (`true`) or closed.
+    pub disclosure: Option<bool>,
+    /// The row is the place the window shows.
+    pub selected: bool,
+    /// The count after the label: a cloud drive's transfers running; empty for none.
+    pub badge: String,
+    /// A cloud drive's state at the row's end: its glyph and what it says.
+    pub status: Option<(&'static str, String)>,
+    /// Items dragged in the window can be dropped on the row.
+    pub accepts_drops: bool,
+    /// The row is a button of the icon rail (the top level's rows: the folders under a drive
+    /// stay out of it).
+    pub in_rail: bool,
 }
 
-/// A place's row (or "Add drive"): its triangle (or the room for one), its icon, its name,
-/// a cloud drive's state and pill, an added drive's eject button.
-fn row_dom(s: &DriveState, app: &RefAny, row: &Row, stop: bool) -> Dom {
-    let selected = shows(&s.place, row);
-    let takes_drops = matches!(
-        &row.kind,
-        RowKind::Go(Place::Folder { .. } | Place::QuickAccess)
-    );
-    let mut css = format!(
-        "{} padding-left: {}px; height: {}px; {} {} {}",
-        look::ROW,
-        4 + row.depth * 14,
-        s.settings.density.nav_row_px(),
-        if selected { look::ROW_SELECTED } else { "" },
-        look::ROW_FOCUS,
-        if takes_drops { look::ROW_DROP } else { "" },
-    );
-    if matches!(row.kind, RowKind::AddDrive) {
-        css.push_str(" cursor: pointer;");
-    }
-    let mut dom = Dom::create_div()
-        .with_class(ids::SIDE_ROW_CLASS)
-        .with_css(css)
-        .with_tab_index(if stop {
-            TabIndex::Auto
-        } else {
-            TabIndex::NoKeyboardFocus
-        })
-        .with_accessibility_name(l10n::label(&row.label));
-    if let Some(id) = &row.id {
-        dom = dom.with_id(AzString::from(id.as_str()));
-    }
-    if selected {
-        dom.add_class(ids::SIDE_SELECTED_CLASS);
-    }
-    dom.add_child(match (row.open, row.node()) {
-        (Some(open), Some(node)) => {
-            Dom::create_icon(if open { "expand_more" } else { "chevron_right" })
-                .with_css(look::TRIANGLE)
-                .with_accessibility_name(l10n::label(if open {
-                    "azdrive-side-collapse"
-                } else {
-                    "azdrive-side-expand"
-                }))
-                .with_callback(
-                    EventFilter::Hover(HoverEventFilter::Click),
-                    row_ref(app, SideAction::Expand(node)),
-                    on_row_part,
-                )
+/// A section of the widget, as data.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct SectionSpec {
+    pub section: Section,
+    /// Its title, a key of the resources.
+    pub title: &'static str,
+    /// Whether the section shows its rows (its title's triangle is open).
+    pub open: bool,
+    pub rows: Vec<RowSpec>,
+}
+
+/// What the rows say of the window: the place it shows and each drive's state.
+pub(crate) struct Facts<'a> {
+    pub place: &'a Place,
+    /// By drive (the slot's place in [`Sources::drives`]): a cloud drive's glyph, words and the
+    /// number of its transfers running; `None` for a drive on this computer.
+    pub cloud: Vec<Option<(&'static str, String, usize)>>,
+}
+
+/// The widget's sections of the source list's `rows`: a section's title row starts a section, the
+/// rows after it are its rows. A row's tag is its place in `rows`.
+#[must_use]
+pub(crate) fn sections_of(rows: &[Row], facts: &Facts) -> Vec<SectionSpec> {
+    let mut sections: Vec<SectionSpec> = Vec::new();
+    for (tag, row) in rows.iter().enumerate() {
+        if let RowKind::Section(section) = row.kind {
+            sections.push(SectionSpec {
+                section,
+                title: section.title(),
+                open: row.open == Some(true),
+                rows: Vec::new(),
+            });
+            continue;
         }
-        _ => Dom::create_div().with_css(look::TRIANGLE_ROOM),
-    });
-    dom.add_child(Dom::create_icon(row.icon).with_css(format!(
-        "{} {}",
-        look::ROW_ICON,
-        if selected { "" } else { look::ICON_TINT }
-    )));
-    dom.add_child(block(look::CLIP, text(l10n::label(&row.label))));
-    if let Some(index) = row.drive.filter(|i| *i < s.slots.len()) {
-        let slot = &s.slots[index];
-        if !slot.is_local() {
-            let (glyph, says, busy) = cloud_state(s, index);
-            dom.add_child(
-                Dom::create_icon(glyph)
-                    .with_id(ids::side_sync_state(&slot.entry.id))
-                    .with_css(look::STATE)
-                    .with_accessibility_name(says),
-            );
-            if busy > 0 {
-                dom.add_child(pill(busy, selected));
-            }
-        }
-        if !slot.is_built_in() {
-            dom.add_child(
-                Dom::create_div()
-                    .with_id(ids::side_eject(&slot.entry.id))
-                    .with_css(format!(
-                        "{} {}",
-                        look::EJECT,
-                        if selected { look::EJECT_SELECTED } else { "" }
-                    ))
-                    .with_accessibility_name(t_args(
-                        "azdrive-side-eject",
-                        &[("name", Arg::from(slot.entry.name.as_str()))],
-                    ))
-                    .with_child(Dom::create_icon("eject"))
-                    .with_callback(
-                        EventFilter::Hover(HoverEventFilter::Click),
-                        row_ref(app, SideAction::Eject(slot.entry.id.clone())),
-                        on_row_part,
-                    ),
-            );
-        }
-    }
-    dom = dom.with_callback(
-        EventFilter::Hover(HoverEventFilter::Click),
-        row_ref(app, click_action(row)),
-        on_row_click,
-    );
-    let entries = menu_entries(s, row);
-    if !entries.is_empty() {
-        dom = dom.with_callback(
-            EventFilter::Hover(HoverEventFilter::RightMouseUp),
-            RefAny::new(MenuRef {
-                app: app.clone(),
-                entries,
-            }),
-            on_row_menu,
-        );
-    }
-    if takes_drops {
-        dom = dom
-            .with_callback(
-                EventFilter::Hover(HoverEventFilter::DragOver),
-                row_ref(app, click_action(row)),
-                on_row_drag_over,
-            )
-            .with_callback(
-                EventFilter::Hover(HoverEventFilter::Drop),
-                row_ref(app, click_action(row)),
-                on_row_drop,
-            );
-    }
-    dom
-}
-
-/// A small button under the list.
-fn small_button(icon: &str, label: &str, id: AzString, data: RefAny, callback: CallbackType) -> Dom {
-    Dom::create_div()
-        .with_id(id)
-        .with_css(look::SMALL_BUTTON)
-        .with_tab_index(TabIndex::Auto)
-        .with_accessibility_name(l10n::label(label))
-        .with_child(Dom::create_icon(icon))
-        .with_callback(EventFilter::Hover(HoverEventFilter::Click), data, callback)
-}
-
-/// The bar under the list: + (Add drive, Add a folder, Pin) and the gear (Options) on the
-/// left, the pies (the sync, the drive's space) on the right.
-fn foot(s: &DriveState, app: &RefAny) -> Dom {
-    Dom::create_div()
-        .with_css(look::SIDEBAR_FOOT)
-        .with_child(small_button(
-            "add",
-            "azdrive-side-add",
-            ids::SIDE_ADD,
-            app.clone(),
-            on_add_menu,
-        ))
-        .with_child(small_button(
-            "settings",
-            "azdrive-backstage-options",
-            ids::SIDE_ACTIONS,
-            action_ref(app, Action::Options),
-            on_action,
-        ))
-        .with_child(crate::ui_pies::pies(s, app))
-}
-
-/// The navigation pane: the source list and its foot (no Transfers block: the transfers are
-/// the sync pie's and its popover's).
-pub(crate) fn sidebar(s: &DriveState, app: &RefAny) -> Dom {
-    let rows = rows(&sources(s));
-    let stop = rows.iter().position(|r| shows(&s.place, r)).unwrap_or(0);
-    let mut list = Dom::create_div()
-        .with_id(ids::NAV_PANE)
-        .with_css(look::SIDEBAR_LIST);
-    for (i, row) in rows.iter().enumerate() {
-        list.add_child(match &row.kind {
-            RowKind::Section(section) => section_dom(app, row, *section, i == stop),
-            _ => row_dom(s, app, row, i == stop),
+        let Some(current) = sections.last_mut() else {
+            continue;
+        };
+        let state = row
+            .drive
+            .and_then(|index| facts.cloud.get(index))
+            .and_then(Option::as_ref);
+        current.rows.push(RowSpec {
+            tag,
+            label: row.label.clone(),
+            icon: row.icon,
+            depth: row.depth,
+            disclosure: row.node().and(row.open),
+            selected: shows(facts.place, row),
+            badge: match state {
+                Some((_, _, busy)) if *busy > 0 => busy.to_string(),
+                _ => String::new(),
+            },
+            status: state.map(|(glyph, says, _)| (*glyph, says.clone())),
+            accepts_drops: takes_drops(row),
+            in_rail: row.depth == 0,
         });
     }
-    let mut column = Dom::create_div()
-        .with_id(ids::SIDEBAR)
-        .with_class(ids::SIDEBAR_CLASS)
-        .with_css(look::SIDEBAR)
-        .with_accessibility_name(l10n::label("azdrive-side-sources"))
-        .with_child(list);
+    sections
+}
+
+/// Whether items dropped on `row` go somewhere: into a folder, or onto Quick access to pin.
+fn takes_drops(row: &Row) -> bool {
+    matches!(
+        &row.kind,
+        RowKind::Go(Place::Folder { .. } | Place::QuickAccess)
+    )
+}
+
+/// The widget's section of `spec`.
+fn widget_section(spec: &SectionSpec) -> SidebarSection {
+    let mut section =
+        SidebarSection::create(l10n::label(spec.title)).with_collapsible(spec.open);
+    for row in &spec.rows {
+        section = section.with_row(widget_row(row));
+    }
+    section
+}
+
+/// The widget's row of `spec`.
+fn widget_row(spec: &RowSpec) -> SidebarRow {
+    let mut row = SidebarRow::create(l10n::label(&spec.label))
+        .with_icon(AzString::from(spec.icon))
+        .with_tag(spec.tag)
+        .with_depth(spec.depth)
+        .with_selected(spec.selected)
+        .with_in_rail(spec.in_rail)
+        .with_accepts_drops(spec.accepts_drops);
+    if let Some(open) = spec.disclosure {
+        row = row.with_disclosure(open);
+    }
+    if !spec.badge.is_empty() {
+        row = row.with_badge(AzString::from(spec.badge.as_str()));
+    }
+    if let Some((glyph, says)) = &spec.status {
+        row = row.with_status(AzString::from(*glyph), AzString::from(says.as_str()));
+    }
+    row
+}
+
+/// The left sidebar: the source list in its sections, the status pies above its toggle
+/// (`ui_pies::statuses`), the help row, the cash orders still waiting for their letters in the
+/// slot over the rows. It is the rail until the user opens it.
+pub(crate) fn sidebar(s: &DriveState, app: &RefAny) -> Sidebar {
+    let rows = rows(&sources(s));
+    let facts = Facts {
+        place: &s.place,
+        cloud: s
+            .slots
+            .iter()
+            .enumerate()
+            .map(|(index, slot)| (!slot.is_local()).then(|| cloud_state(s, index)))
+            .collect(),
+    };
+    let mut sidebar = Sidebar::create()
+        .with_state(s.sidebar_state())
+        .with_surface(SidebarSurface::Theme)
+        .with_form(s.form)
+        .with_label(l10n::label("azdrive-side-sources"))
+        .with_help(l10n::label("azdrive-side-help"))
+        .with_window_controls(s.controls.0, s.controls.1)
+        .with_on_event(app.clone(), on_sidebar as SidebarOnEventCallbackType);
+    for section in sections_of(&rows, &facts) {
+        sidebar = sidebar.with_section(widget_section(&section));
+    }
+    for status in crate::ui_pies::statuses(s, app) {
+        sidebar = sidebar.with_status(status);
+    }
     // Cash by post: the orders waiting for their letters (or why one ended).
     if let Some(area) = crate::cash::waiting_area(s, app) {
-        column.add_child(area);
+        sidebar = sidebar.with_header(area);
     }
-    column.add_child(foot(s, app));
-    column
+    sidebar
 }
 
-// ==== The keyboard, on the DOM ====
+// ==== What the sidebar reports ====
 
-/// The DOM id of the shell's navigation pane (BrowserShell's tree pane: what F6 focuses).
-const TREE_PANE_ID: &str = "shell-tree";
-
-fn has_class(info: &CallbackInfo, node: DomNodeId, class: &AzString) -> bool {
-    info.get_node_classes(node)
-        .as_slice()
-        .iter()
-        .any(|c| c.as_str() == class.as_str())
+/// The sidebar's state the settings keep for `state`.
+#[must_use]
+pub(crate) fn mode_of(state: SidebarState) -> SidebarMode {
+    match state {
+        SidebarState::Expanded => SidebarMode::Expanded,
+        SidebarState::Rail => SidebarMode::Rail,
+        SidebarState::Handle => SidebarMode::Handle,
+    }
 }
 
-/// The node with the keyboard, when it is in the source list - a row (its row then), the pane
-/// F6 lands on, a button under the list.
-fn focus_in_sidebar(info: &CallbackInfo) -> Option<(DomNodeId, Option<DomNodeId>)> {
-    let focused = info.get_focused_node().into_option()?;
-    let mut node = focused;
-    let mut row = None;
-    for _ in 0..16 {
-        if row.is_none() && has_class(info, node, &ids::SIDE_ROW_CLASS) {
-            row = Some(node);
-        }
-        if has_class(info, node, &ids::SIDEBAR_CLASS) {
-            return Some((focused, row));
-        }
-        if info
-            .get_node_id(node)
-            .into_option()
-            .is_some_and(|id| id.as_str() == TREE_PANE_ID)
-        {
-            return Some((focused, row));
-        }
-        node = info.get_parent(node).into_option()?;
-    }
-    None
+/// The section a section title of the widget is: the sections come in the order of [`Section`].
+#[must_use]
+pub(crate) fn section_at(index: usize) -> Option<Section> {
+    [Section::Favorites, Section::Locations, Section::Cloud]
+        .get(index)
+        .copied()
 }
 
-/// The rows' nodes in document order (the list's children that are rows).
-fn row_nodes(info: &CallbackInfo, dom: DomNodeId) -> Vec<DomNodeId> {
-    let list = info.get_node_id_by_id_attribute(dom.dom, ids::NAV_PANE);
-    if list.into_raw() == 0 {
-        return Vec::new();
+/// What the widget's report `event` does to the window: what a click on the row, its triangle,
+/// the section's title, the toggle, the help row and a long press did in the source list before.
+fn side_event(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState, event: SidebarEvent) {
+    match event.kind {
+        SidebarEventKind::RowClicked => {
+            let rows = rows(&sources(s));
+            let Some(row) = rows.get(event.tag) else {
+                return;
+            };
+            let action = click_action(row);
+            let opens_place = matches!(action, SideAction::Go(_) | SideAction::AddDrive);
+            run(info, app, s, action);
+            // A phone's drawer closes once a place was chosen.
+            if s.phone && opens_place && s.settings.sidebar == SidebarMode::Expanded {
+                s.settings.sidebar = SidebarMode::Rail;
+                save_settings(info, app, s);
+            }
+        }
+        SidebarEventKind::RowToggled => {
+            let rows = rows(&sources(s));
+            if let Some(row) = rows.get(event.tag) {
+                open_row(info, app, s, row, event.expand);
+            }
+        }
+        SidebarEventKind::SectionToggled => {
+            if let Some(section) = section_at(event.index) {
+                s.tree.set_section_open(section, event.expand);
+            }
+        }
+        SidebarEventKind::StateChanged => {
+            let mode = mode_of(event.state);
+            if s.settings.sidebar != mode {
+                s.settings.sidebar = mode;
+                println!("AZDRIVE_SIDEBAR {mode:?}");
+                save_settings(info, app, s);
+            }
+        }
+        SidebarEventKind::HelpClicked => crate::ui_command_bar::show_help(info, app, s),
+        SidebarEventKind::RowLongPressed => {
+            s.sheet = Some(crate::ui_frame::Sheet::Place(event.tag));
+        }
+        SidebarEventKind::RowDropped => {
+            let copy = info.get_key_modifiers().primary_down();
+            let rows = rows(&sources(s));
+            match rows.get(event.tag).map(click_action) {
+                Some(SideAction::Go(place @ Place::Folder { .. })) => {
+                    actions::drop_on_place(info, app, s, place, copy);
+                }
+                Some(SideAction::Go(Place::QuickAccess)) => pin_dropped(info, app, s),
+                _ => s.dragging = None,
+            }
+        }
+        // The rows carry no pie or collaboration icon; a right click is answered apart.
+        SidebarEventKind::RowStatusClicked
+        | SidebarEventKind::RowCollabToggled
+        | SidebarEventKind::RowMenuRequested => {}
     }
-    let list = DomNodeId {
-        dom: dom.dom,
-        node: list,
+}
+
+/// The sidebar's reports.
+extern "C" fn on_sidebar(mut data: RefAny, mut info: CallbackInfo, event: SidebarEvent) -> Update {
+    if event.kind == SidebarEventKind::RowMenuRequested {
+        return open_row_menu(&mut data, &mut info, event.tag);
+    }
+    with_state(&mut data, &mut info, |info, app, s| side_event(info, app, s, event))
+}
+
+/// A right click on a row: its menu, at the row (where the pointer is when the row cannot
+/// anchor it).
+fn open_row_menu(data: &mut RefAny, info: &mut CallbackInfo, tag: usize) -> Update {
+    let app = data.clone();
+    let entries = {
+        let Some(s) = data.downcast_ref::<DriveState>() else {
+            return Update::DoNothing;
+        };
+        let rows = rows(&sources(&s));
+        rows.get(tag)
+            .map(|row| menu_entries(&s, row))
+            .unwrap_or_default()
     };
-    let mut out = Vec::new();
-    let mut child = info.get_first_child(list).into_option();
-    while let Some(node) = child {
-        if has_class(info, node, &ids::SIDE_ROW_CLASS) {
-            out.push(node);
-        }
-        child = info.get_next_sibling(node).into_option();
+    if entries.is_empty() {
+        return Update::DoNothing;
     }
-    out
+    let menu = menu_of(&app, entries);
+    if !info.open_menu_for_hit_node(menu.clone()) {
+        info.open_menu(menu);
+    }
+    Update::DoNothing
 }
 
-/// Row `to` takes the keyboard - and the list's one Tab stop.
-fn focus_row(info: &mut CallbackInfo, nodes: &[DomNodeId], to: usize) {
-    let Some(target) = nodes.get(to).copied() else {
+// ==== The phone's sheet of a row ====
+
+/// The icon of a menu entry in the quick-action sheet.
+#[must_use]
+fn entry_icon(action: &SideAction) -> &'static str {
+    match action {
+        SideAction::Go(_) => "folder_open",
+        SideAction::Unpin(_) => "push_pin",
+        SideAction::Properties(_) => "info",
+        SideAction::UnlockKeys(_) => "lock_open",
+        SideAction::LockKeys(_) => "lock",
+        SideAction::SignInAgain(_) => "login",
+        SideAction::Sync(..) => "sync",
+        SideAction::Restore(_) => "history",
+        SideAction::Eject(_) => "eject",
+        _ => "more_horiz",
+    }
+}
+
+/// One entry of a row's quick-action sheet.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct SheetEntry {
+    pub label: String,
+    pub icon: &'static str,
+    /// Removing a drive: shown in red.
+    pub danger: bool,
+}
+
+/// The quick-action sheet of row `tag` (what a long press opens on a phone): the row's name and
+/// the entries of its menu. `None` for a row with no menu (a section, "Add drive").
+#[must_use]
+pub(crate) fn place_sheet(s: &DriveState, tag: usize) -> Option<(String, Vec<SheetEntry>)> {
+    let rows = rows(&sources(s));
+    let row = rows.get(tag)?;
+    let entries = menu_entries(s, row);
+    if entries.is_empty() {
+        return None;
+    }
+    let items = entries
+        .iter()
+        .map(|(label, action)| SheetEntry {
+            label: label.clone(),
+            icon: entry_icon(action),
+            danger: matches!(action, SideAction::Eject(_)),
+        })
+        .collect();
+    Some((row.label.clone(), items))
+}
+
+/// Entry `choice` of row `tag`'s sheet was chosen.
+pub(crate) fn run_place_sheet(
+    info: &mut CallbackInfo,
+    app: &RefAny,
+    s: &mut DriveState,
+    tag: usize,
+    choice: usize,
+) {
+    let rows = rows(&sources(s));
+    let Some(row) = rows.get(tag) else {
         return;
     };
-    for (i, node) in nodes.iter().enumerate() {
-        info.set_tab_index(
-            *node,
-            if i == to {
-                TabIndex::Auto
-            } else {
-                TabIndex::NoKeyboardFocus
-            },
-        );
+    if let Some((_, action)) = menu_entries(s, row).into_iter().nth(choice) {
+        run(info, app, s, action);
     }
-    info.set_focus(FocusTarget::Id(target));
-}
-
-/// The source list's keys, from the window's key handler: `Some` when the keyboard is in the
-/// list and the key is the list's (the arrows, Enter, Space, a letter, the menu key - and Enter
-/// or Space on a button under the list, left to the engine, which turns it into the button's
-/// click), `None` leaves the key to the window (F5, Backspace, Ctrl+C, Escape ...).
-pub(crate) fn on_sidebar_key(
-    data: &mut RefAny,
-    info: &mut CallbackInfo,
-    key: Key,
-    mods: Mods,
-) -> Option<Update> {
-    // A modified key is the window's (Ctrl+Tab and Ctrl+1 switch the location tab, also with
-    // the keyboard in the list).
-    if mods.ctrl || mods.alt || mods.control {
-        return None;
-    }
-    let (focused, row_node) = focus_in_sidebar(info)?;
-    let nodes = row_nodes(info, focused);
-    if nodes.is_empty() {
-        return None;
-    }
-    let current = row_node.and_then(|r| nodes.iter().position(|n| *n == r));
-    let app = data.clone();
-    let mut guard = data.downcast_mut::<DriveState>()?;
-    let s = &mut *guard;
-    if s.popup.is_some() || s.backstage_shown().is_some() || s.renaming.is_some() {
-        return None;
-    }
-    let rows = rows(&sources(s));
-    if rows.len() != nodes.len() {
-        // The list changed since it was built: the rebuild on its way shows the new one.
-        return None;
-    }
-    let stop = rows.iter().position(|r| shows(&s.place, r)).unwrap_or(0);
-    // A letter: the next row whose name starts with what was typed (Finder's type-ahead).
-    if let Key::Char(c) = key {
-        let query = s.type_ahead.push(c, actions::now_ms());
-        let shown: Vec<String> = rows.iter().map(|r| t_label(&r.label)).collect();
-        let names: Vec<&str> = shown.iter().map(String::as_str).collect();
-        if let Some(to) = model::type_ahead_match(&names, &query, current) {
-            focus_row(info, &nodes, to);
-        }
-        info.prevent_default();
-        return Some(Update::DoNothing);
-    }
-    let Some(decided) = key_move(&rows, current, stop, key, mods.shift) else {
-        // Enter / Space on a button under the list (or the pane): the engine's activation clicks
-        // the button - the window's Open must not run on the content, nor veto that click.
-        return (current.is_none() && matches!(key, Key::Enter | Key::Space))
-            .then_some(Update::DoNothing);
-    };
-    info.prevent_default();
-    Some(match decided {
-        SideMove::Stay => Update::DoNothing,
-        SideMove::Focus(to) => {
-            focus_row(info, &nodes, to);
-            Update::DoNothing
-        }
-        SideMove::Open(at, open) => {
-            open_row(info, &app, s, &rows[at], open);
-            Update::RefreshDom
-        }
-        SideMove::Activate(at) => {
-            run(info, &app, s, click_action(&rows[at]));
-            Update::RefreshDom
-        }
-        SideMove::Menu(at) => {
-            let entries = menu_entries(s, &rows[at]);
-            if !entries.is_empty() {
-                let menu = menu_of(&app, entries);
-                if !info.open_menu_for_node(menu.clone(), nodes[at]) {
-                    info.open_menu(menu);
-                }
-            }
-            Update::DoNothing
-        }
-    })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use azul_appkit::l10n::t_label;
 
     fn pin(drive: &str, prefix: &str, name: &str) -> Pinned {
         Pinned {
@@ -1430,9 +1166,6 @@ mod tests {
             "a pinned standard folder shows once"
         );
         assert_eq!(rows[4].pin, Some(1), "the pin keeps its place among the pins");
-        assert_eq!(rows[4].id.as_deref(), Some("__azdrive_side_pin_1"));
-        assert_eq!(rows[2].id.as_deref(), Some("__azdrive_side_fav_documents"));
-        assert_eq!(rows[7].id.as_deref(), Some("__azdrive_side_drive_home"));
         assert_eq!(rows[10].drive, Some(2), "a drive's row names its slot");
         assert_eq!(rows[7].open, Some(false), "a drive opens its folders");
         assert_eq!(rows[0].open, Some(true), "a section's title opens and closes");
@@ -1490,89 +1223,6 @@ mod tests {
         assert_eq!(rows[3].node(), Some(("home".to_string(), String::new())));
     }
 
-    fn walk() -> Vec<Row> {
-        let standard = standard();
-        let pins = Vec::new();
-        let mut expanded = HashSet::new();
-        expanded.insert(("home".to_string(), String::new()));
-        let mut loaded = HashMap::new();
-        loaded.insert(("home".to_string(), String::new()), vec!["Code/".to_string()]);
-        let src = Sources {
-            open: [true, true, false],
-            standard: &standard,
-            pins: &pins,
-            drives: drives(),
-            expanded: &expanded,
-            loaded: &loaded,
-        };
-        rows(&src)
-    }
-
-    #[test]
-    fn the_arrows_walk_the_rows_and_hold_at_the_ends() {
-        let rows = walk();
-        // Favorites, Quick access, Documents, Pictures, Locations, This PC, Home, Code, Azlin,
-        // Cloud.
-        assert_eq!(rows.len(), 10);
-        assert_eq!(key_move(&rows, Some(1), 0, Key::Down, false), Some(SideMove::Focus(2)));
-        assert_eq!(key_move(&rows, Some(1), 0, Key::Up, false), Some(SideMove::Focus(0)));
-        assert_eq!(key_move(&rows, Some(0), 0, Key::Up, false), Some(SideMove::Stay));
-        assert_eq!(key_move(&rows, Some(9), 0, Key::Down, false), Some(SideMove::Stay));
-        assert_eq!(key_move(&rows, Some(4), 0, Key::Home, false), Some(SideMove::Focus(0)));
-        assert_eq!(key_move(&rows, Some(4), 0, Key::End, false), Some(SideMove::Focus(9)));
-        assert_eq!(
-            key_move(&rows, None, 6, Key::Down, false),
-            Some(SideMove::Focus(6)),
-            "from the pane (F6), an arrow enters the list at its stop"
-        );
-        assert_eq!(key_move(&rows, Some(2), 0, Key::Down, true), Some(SideMove::Stay));
-    }
-
-    #[test]
-    fn right_opens_and_steps_in_left_closes_and_climbs() {
-        let rows = walk();
-        assert_eq!(
-            key_move(&rows, Some(9), 0, Key::Right, false),
-            Some(SideMove::Open(9, true)),
-            "a closed section opens"
-        );
-        assert_eq!(
-            key_move(&rows, Some(6), 0, Key::Right, false),
-            Some(SideMove::Focus(7)),
-            "an open drive: into its first folder"
-        );
-        assert_eq!(
-            key_move(&rows, Some(7), 0, Key::Right, false),
-            Some(SideMove::Open(7, true)),
-            "a folder not listed yet opens"
-        );
-        assert_eq!(
-            key_move(&rows, Some(6), 0, Key::Left, false),
-            Some(SideMove::Open(6, false)),
-            "an open drive closes"
-        );
-        assert_eq!(
-            key_move(&rows, Some(7), 0, Key::Left, false),
-            Some(SideMove::Focus(6)),
-            "a closed folder climbs to its drive"
-        );
-        assert_eq!(
-            key_move(&rows, Some(2), 0, Key::Left, false),
-            Some(SideMove::Focus(0)),
-            "a favourite climbs to its section's title"
-        );
-        assert_eq!(
-            key_move(&rows, Some(0), 0, Key::Left, false),
-            Some(SideMove::Open(0, false)),
-            "an open section closes"
-        );
-        assert_eq!(key_move(&rows, Some(3), 0, Key::Enter, false), Some(SideMove::Activate(3)));
-        assert_eq!(key_move(&rows, Some(3), 0, Key::Space, false), Some(SideMove::Activate(3)));
-        assert_eq!(key_move(&rows, Some(3), 0, Key::Delete, false), Some(SideMove::Stay));
-        assert_eq!(key_move(&rows, Some(3), 0, Key::F5, false), None, "F5 is the window's");
-        assert_eq!(key_move(&rows, None, 0, Key::Enter, false), None, "Enter on a button clicks it");
-    }
-
     #[test]
     fn a_standard_folder_counts_only_when_the_home_folder_holds_it() {
         let home = std::env::temp_dir().join(format!("azdrive-sidebar-{}", std::process::id()));
@@ -1587,3 +1237,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&home);
     }
 }
+
+#[cfg(test)]
+#[path = "ui_sidebar_test.rs"]
+mod ui_sidebar_test;

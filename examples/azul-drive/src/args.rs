@@ -1,8 +1,8 @@
 //! AzDrive's command line: the switches every Azlin app understands (azul-appkit's
 //! `--screen`, `--size`, `--theme`, `--mode`, `--shot`, `--sample`, `--data-dir`) with
 //! AzDrive's screens (`this-pc | quick-access | home | settings`), plus its own `--layout <name>`,
-//! `--home <dir>`, `--downloads <dir>`, `--drives <file>`, `--dialogs <window|inline>` and
-//! `--cache-dir <dir>`.
+//! `--home <dir>`, `--downloads <dir>`, `--drives <file>`, `--dialogs <window|inline>`,
+//! `--form <auto|desktop|phone>` and `--cache-dir <dir>`.
 //! `--sample` writes the sample files into the Home drive.
 //!
 //! Every setting is a flag; the environment variables of older builds are read only when their
@@ -26,6 +26,34 @@ pub const DOWNLOADS_VAR: &str = "AZDRIVE_DOWNLOADS";
 pub const DIALOGS_VAR: &str = "AZDRIVE_DIALOGS";
 /// What `--cache-dir` falls back to: where the caches are kept.
 pub const CACHE_VAR: &str = "AZDRIVE_CACHE";
+/// What `--form` falls back to: the layout the window is built for.
+pub const FORM_VAR: &str = "AZDRIVE_FORM";
+
+/// The layout the window is built for (`--form`): a desktop's (the left sidebar, the preview
+/// docked at the right), a phone's (the sidebar a drawer, the preview a pane at the foot), or
+/// what the window is. AzDrive ships for desktops; the phone's layout is how a desktop window
+/// shows it (and how the scenarios test it).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum FormArg {
+    /// A phone on a touch platform in a narrow window, a desktop anywhere else.
+    #[default]
+    Auto,
+    Desktop,
+    Phone,
+}
+
+impl FormArg {
+    /// `auto`, `desktop` or `phone`.
+    #[must_use]
+    pub fn from_name(name: &str) -> Option<FormArg> {
+        match name.trim() {
+            "auto" => Some(FormArg::Auto),
+            "desktop" => Some(FormArg::Desktop),
+            "phone" => Some(FormArg::Phone),
+            _ => None,
+        }
+    }
+}
 
 /// How the dialogs (Add drive, Properties, the conflicts, ...) show.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -93,6 +121,8 @@ const AZDRIVE_HELP: &str = concat!(
     "                             else <config dir>/azul-storage/drives.json)\n",
     "    --dialogs <HOW>          window | inline: the dialogs as windows, or as sheets inside\n",
     "                             the window (default: $AZDRIVE_DIALOGS, else window)\n",
+    "    --form <FORM>            auto | desktop | phone: the layout the window is built for\n",
+    "                             (default: $AZDRIVE_FORM, else auto: the window decides)\n",
     "    --cache-dir <DIR>        Where a cloud drive's last listing and the drives' search\n",
     "                             indexes are kept (default: $AZDRIVE_CACHE, else\n",
     "                             <cache dir>/AzDrive; none in a --shot run)\n",
@@ -112,12 +142,13 @@ const AZDRIVE_HELP: &str = concat!(
 
 /// AzDrive's own switches that take a value (after a space or an equals sign), and what the
 /// value is called in an error.
-const OWN: [(&str, &str); 9] = [
+const OWN: [(&str, &str); 10] = [
     ("--layout", "name"),
     ("--home", "folder"),
     ("--downloads", "folder"),
     ("--drives", "file"),
     ("--dialogs", "window or inline"),
+    ("--form", "auto, desktop or phone"),
     ("--open", "place such as Home/Documents"),
     ("--token-url", "address such as https://token.example"),
     ("--profile", "profile: local, trial or production"),
@@ -138,6 +169,8 @@ pub struct Args {
     pub drives: Option<PathBuf>,
     /// `--dialogs`: dialog windows or inline sheets (windows when absent).
     pub dialogs: Option<Dialogs>,
+    /// `--form`: the layout the window is built for (the window decides when absent).
+    pub form: Option<FormArg>,
     /// `--open`: the place to open at, as the address bar names it (`Home/Documents`); it wins
     /// over `--screen`.
     pub open: Option<String>,
@@ -234,6 +267,11 @@ impl Args {
                     }
                     args.open = Some(place.to_string());
                 }
+                "--form" => {
+                    args.form = Some(FormArg::from_name(&value).ok_or_else(|| {
+                        format!("--form: expected auto, desktop or phone, got {value:?}")
+                    })?);
+                }
                 "--token-url" | "--profile" => {
                     let value = value.trim();
                     if value.is_empty() {
@@ -290,6 +328,9 @@ impl Args {
         }
         if self.cache_dir.is_none() {
             self.cache_dir = path(CACHE_VAR);
+        }
+        if self.form.is_none() {
+            self.form = env(FORM_VAR).and_then(|v| FormArg::from_name(&v));
         }
         self
     }

@@ -1132,7 +1132,7 @@ fn options_of(s: &DriveState, app: &RefAny, category: usize) -> Vec<(String, Dom
                         app,
                         "azdrive-options-navigation-pane",
                         Toggle::NavigationPane,
-                        s.settings.navigation_pane,
+                        s.settings.navigation_pane(),
                     ),
                     setting_check(
                         app,

@@ -337,6 +337,11 @@ mod ui_dialogs;
 /// The search's results in the folder view.
 mod ui_find;
 mod ui_panes;
+mod ui_frame;
+mod ui_location;
+mod ui_preview;
+mod ui_sheet;
+mod ui_status;
 /// The navigation pane's two pies (the sync, the drive's space) and their popover.
 mod ui_pies;
 /// Windows 8's ribbon and its File menu.
@@ -365,6 +370,12 @@ mod git_repo_tests;
 mod command_line;
 #[cfg(test)]
 mod command_line_tests;
+#[cfg(test)]
+mod command_line_search_test;
+#[cfg(test)]
+mod model_sidebar_test;
+#[cfg(test)]
+mod args_form_test;
 /// The command bar's "/" actions: a registry later macros and agent actions join.
 mod micro_actions;
 #[cfg(test)]
@@ -388,12 +399,11 @@ use std::{
 };
 
 use azul::{
-    callbacks::ShellOnPaneResizeCallbackType,
     css::DarkLightMode,
     error::KeyringResult,
     file::FilePath,
     prelude::*,
-    shells::{BrowserShell, ShellPane, ShellPaneKind, ShellThemeScope},
+    shells::ShellThemeScope,
     str::String as AzString,
     url::Url,
     widgets::{AlertKind, Dialog, IconGridView, ToastKind},
@@ -1287,9 +1297,6 @@ pub(crate) struct DriveState {
     /// The overview row the keyboard highlights (`usize::MAX`: none); the widget reports each
     /// move and the window is rebuilt with it.
     pub tab_overview_highlight: usize,
-    /// The ribbon's reveal machine (a hovered tab opens its commands, a double click locks them
-    /// open): one handle kept for the window's life, so a rebuild keeps what is open.
-    pub ribbon_reveal: azul::widgets::TabReveal,
     /// The search view is open: from the first key typed into the search box until Escape on
     /// an empty box (or another place). An empty query shows the recent and saved searches.
     pub search_open: bool,
@@ -1302,7 +1309,23 @@ pub(crate) struct DriveState {
     pub quick_look_when_listed: bool,
     /// The command palette, while it is open (Cmd+K): what was typed, the hot row.
     pub palette: Option<ui_overlays::PaletteState>,
+    /// The location block's pen is open: its field takes the typed text (`location_text`), and
+    /// the folder's rows narrow to the names holding it.
     pub editing_path: bool,
+    /// What the location's field holds while `editing_path`.
+    pub location_text: String,
+    /// The layout the window is built for (`--form`): `Auto` asks the window.
+    pub form: azul::widgets::FormFactor,
+    /// Whether the last build was the phone's layout (`form` answered by the window): what the
+    /// callbacks, which cannot ask the window, go by.
+    pub phone: bool,
+    /// The room the OS's window controls take at the window's top: how far from its left edge
+    /// (px) and how tall the band is, as the last build read them from the system.
+    pub controls: (f32, f32),
+    /// The phone's quick-action sheet: the key of the item it is open for.
+    pub sheet: Option<ui_sheet::Sheet>,
+    /// The item at the top edge of the folder view (its key): what a phone's preview follows.
+    pub top_key: Option<String>,
     pub renaming: Option<Renaming>,
     pub column_drag: Option<ColumnDrag>,
     /// The items being dragged in the window (their drive, their items).
@@ -1315,11 +1338,6 @@ pub(crate) struct DriveState {
     /// The icon layouts' grid as its last event left it: the first row in view, a rubber band
     /// in progress (its selection is the app's, handed in on every build).
     pub grid_view: IconGridView,
-    /// The panes' widths as the user dragged their splitters, in px: the navigation pane's and
-    /// the right pane's (preview or details); `0.0` until a splitter moves, the panes then at
-    /// the design's widths ([`DriveState::pane_widths`]). The engine keeps them through a resize
-    /// (fixed-size panes): the content takes the change.
-    pub pane_widths: (f32, f32),
     /// The backstage, open on its page (0 the Options, 1 About).
     pub backstage: Option<usize>,
     /// The ribbon's tab chosen last (the place shows it where it has it).
@@ -1529,6 +1547,8 @@ impl DriveState {
             .iter()
             .filter(|e| self.settings.show_hidden || !e.is_hidden())
             .filter(|e| browse::matches_search(e, &self.search))
+            // The location's field, while it is typed in: the names that hold its text.
+            .filter(|e| !self.editing_path || browse::matches_search(e, &self.location_text))
             // A picker's type filter: folders, and the files it lets through.
             .filter(|e| self.picker.as_ref().map_or(true, |p| p.shows(&e.name, e.is_folder)))
             .collect()
@@ -1587,6 +1607,23 @@ impl DriveState {
     pub fn single_selected(&self) -> Option<&Entry> {
         let key = self.selection.single()?;
         self.entry(key)
+    }
+
+    /// The item the preview shows. On a desktop the selected one (the first of several), else the
+    /// folder's first item. On a phone the item at the top edge of the folder view
+    /// ([`DriveState::top_key`], which the view's scroll follows), the first one before it has
+    /// scrolled: the selection never follows a scroll, only the preview does.
+    pub fn preview_subject(&self) -> Option<&Entry> {
+        if self.phone {
+            return self
+                .top_key
+                .as_deref()
+                .and_then(|key| self.entry(key))
+                .or_else(|| self.visible_entries().into_iter().next());
+        }
+        self.single_selected()
+            .or_else(|| self.selected_entries().into_iter().next())
+            .or_else(|| self.visible_entries().into_iter().next())
     }
 
     /// The row of `key`: a search's result while a search is open, else the open folder's.
@@ -1703,45 +1740,78 @@ impl DriveState {
         self.view_layout().columns_in(width - 32.0 - LEAF_FRAME_X)
     }
 
-    /// The navigation pane's and the right pane's widths in px: the ones the user dragged, else
-    /// the design's 228 px and 300 px (SPEC 2.7, 2.9), whatever the window's width.
-    pub fn pane_widths(&self) -> (f32, f32) {
-        let nav = if self.pane_widths.0 > 0.0 {
-            self.pane_widths.0
-        } else {
-            NAV_PANE_PX
-        };
-        let right = if self.pane_widths.1 > 0.0 {
-            self.pane_widths.1
-        } else {
-            RIGHT_PANE_PX
-        };
-        (nav, right)
+    /// The left sidebar's state as the widget names it.
+    pub fn sidebar_state(&self) -> azul::widgets::SidebarState {
+        use azul::widgets::SidebarState;
+        match self.settings.sidebar {
+            model::SidebarMode::Expanded => SidebarState::Expanded,
+            model::SidebarMode::Rail => SidebarState::Rail,
+            model::SidebarMode::Handle => SidebarState::Handle,
+        }
     }
 
-    /// What the content pane has of a window `width` px wide: the window less the panes
-    /// shown beside it and their splitters.
-    pub fn content_pane_width(&self, width: f32) -> f32 {
-        let (nav, right) = self.pane_widths();
-        let mut width = width;
-        if self.settings.navigation_pane {
-            width -= nav + PANE_SPLITTER_PX;
+    /// The layout of the last build, answered: a phone's or a desktop's (`form` itself may still
+    /// say `Auto`, which only a build can answer).
+    pub fn form_now(&self) -> azul::widgets::FormFactor {
+        if self.phone {
+            azul::widgets::FormFactor::Phone
+        } else {
+            azul::widgets::FormFactor::Desktop
         }
-        if self.settings.preview_pane || self.settings.details_pane {
-            width -= right + PANE_SPLITTER_PX;
+    }
+
+    /// How wide the left sidebar's column is, px: what the main view lies beside. 0 where the
+    /// sidebar pushes the main view aside instead of narrowing it (a phone's open drawer).
+    pub fn sidebar_px(&self) -> f32 {
+        let column = azul::widgets::Sidebar::create()
+            .with_state(self.sidebar_state())
+            .with_form(self.form_now())
+            .with_window_controls(self.controls.0, self.controls.1)
+            .column();
+        if column.percent > 0.0 {
+            0.0
+        } else {
+            column.px
+        }
+    }
+
+    /// The preview pane's size, px: its width at the right (a desktop), its height at the foot
+    /// (a phone) - as the user dragged it, else the widget's default.
+    pub fn preview_px(&self) -> f32 {
+        let (dragged, default) = if self.phone {
+            (self.settings.preview_height, PREVIEW_HEIGHT_PX)
+        } else {
+            (self.settings.preview_width, PREVIEW_WIDTH_PX)
+        };
+        if dragged > 0.0 {
+            dragged
+        } else {
+            default
+        }
+    }
+
+    /// Whether the preview pane (or the details pane, which takes its place) shows.
+    pub fn preview_shown(&self) -> bool {
+        self.settings.preview_pane || self.settings.details_pane
+    }
+
+    /// What the content pane has of a window `width` px wide: the window less the sidebar's
+    /// column and, on a desktop, the preview pane beside it.
+    pub fn content_pane_width(&self, width: f32) -> f32 {
+        let mut width = width - self.sidebar_px();
+        if !self.phone && self.preview_shown() {
+            width -= self.preview_px();
         }
         width
     }
 
     /// The px the content pane has, for the icon grid (which draws exactly its viewport): the
-    /// window less the panes beside it (their shares as the splitters left them), the chrome
-    /// over it and the leaf's frame and foot around it. An estimate that errs small - an empty
-    /// strip, never a clipped row.
+    /// window less the sidebar and the preview pane beside it (their sizes as the user left
+    /// them), the ribbon over it and the leaf's frame and the command line around it. An
+    /// estimate that errs small - an empty strip, never a clipped row.
     pub fn content_size(&self, window: (f32, f32)) -> (f32, f32) {
-        /// The ribbon (its tab strip in the title bar, its band) and the address row.
-        const CHROME_PX: f32 = 172.0;
-        /// A splitter and the pane's edges.
-        const SPLITTER_PX: f32 = 8.0;
+        /// The ribbon: its tab row (the window's title bar) and its band.
+        const CHROME_PX: f32 = 138.0;
         let (mut width, mut height) = window;
         if width <= 0.0 {
             width = self.window_width;
@@ -1753,8 +1823,11 @@ impl DriveState {
                 760.0
             };
         }
-        width = self.content_pane_width(width) - 2.0 * (SPLITTER_PX - PANE_SPLITTER_PX);
+        width = self.content_pane_width(width);
         height -= CHROME_PX + LEAF_FRAME_Y + ui_command_bar::height(self);
+        if self.phone && self.preview_shown() {
+            height -= self.preview_px();
+        }
         width -= LEAF_FRAME_X;
         if self.message.is_some() {
             height -= 52.0;
@@ -2486,13 +2559,16 @@ pub(crate) fn go(
     s.place = place;
     s.clear_notice();
     s.editing_path = false;
+    s.location_text.clear();
+    s.sheet = None;
+    s.top_key = None;
     s.renaming = None;
     // A search ends where its folder is left (a result's folder opens without it): the box
     // empties too - what was typed there outranks the rebuild until the app sets it.
     let searching = stop_find(s);
     if searching || !s.search.is_empty() {
         println!("AZDRIVE_SEARCH_CLOSED");
-        actions::clear_search_box(info);
+        ui_command_bar::clear_search(info, s);
     }
     s.search.clear();
     s.refines = find::Refines::default();
@@ -3824,55 +3900,11 @@ pub(crate) fn with_state(
     Update::RefreshDom
 }
 
-/// Explorer's address row under the ribbon (Back, Forward, Recent, Up, the breadcrumb box with
-/// Refresh, "Search <folder>"): the shell's address bar slot (the `shell-address-bar` host).
-fn chrome(s: &DriveState, app: &RefAny, width: f32) -> Dom {
-    Dom::create_div()
-        .with_id(ids::CHROME)
-        .with_css("display: flex; flex-direction: column;")
-        .with_child(ui_git::address_row(s, app, ui_panes::address_bar(s, app, width)))
-}
-
-/// The DOM id of the details pane, which shares the right side with the preview pane.
-const DETAILS_PANE_ID: &str = "shell-details";
-
-/// The navigation pane's width until its splitter is dragged (SPEC 2.7).
-const NAV_PANE_PX: f32 = 228.0;
-/// The right pane's (preview or details) width until its splitter is dragged (SPEC 2.9).
-const RIGHT_PANE_PX: f32 = 300.0;
-/// A splitter's own width between two panes.
-const PANE_SPLITTER_PX: f32 = 4.0;
-
-/// A splitter was dragged: the pane it sizes keeps its new width (the navigation pane's, the
-/// right pane's - both are panes of fixed size, so the splitter reports px), handed back on
-/// every rebuild - and the icon grid takes the new width.
-extern "C" fn on_pane_resize(
-    mut data: RefAny,
-    _info: CallbackInfo,
-    pane: usize,
-    width: f32,
-) -> Update {
-    let Some(mut s) = data.downcast_mut::<DriveState>() else {
-        return Update::DoNothing;
-    };
-    if !width.is_finite() || width <= 0.0 {
-        return Update::DoNothing;
-    }
-    // The index counts the panes shown: the navigation pane first, when it is.
-    let nav = s.settings.navigation_pane;
-    if nav && pane == 0 {
-        s.pane_widths.0 = width;
-    } else if (nav && pane == 1) || (!nav && pane == 0) {
-        s.pane_widths.1 = width;
-    } else {
-        return Update::DoNothing;
-    }
-    if ui_view::uses_icon_grid(&s) {
-        Update::RefreshDom
-    } else {
-        Update::DoNothing
-    }
-}
+/// The preview pane's width at the window's right until it is dragged (px): the widget's
+/// default, for the estimates of what the content pane has.
+const PREVIEW_WIDTH_PX: f32 = 320.0;
+/// The preview pane's height at a phone's foot until it is dragged (px).
+const PREVIEW_HEIGHT_PX: f32 = 168.0;
 
 extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
     // The window's language for the text that is no DOM text node (titles, tooltips, menus);
@@ -3881,55 +3913,40 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
     // Reading the mode makes a light / dark switch rebuild the window.
     let dark = matches!(info.get_mode(), DarkLightMode::Dark);
     let window = (info.get_window_width(), info.get_window_height());
+    // What only a build can answer, kept for the callbacks (they cannot ask the window): which
+    // layout this is, and how much room the OS's window controls take at the window's top.
+    let insets = azul_appkit::ui::title_insets(&info);
+    {
+        let Some(mut guard) = data.downcast_mut::<DriveState>() else {
+            return Dom::create_body();
+        };
+        let phone = guard.form.is_phone();
+        guard.phone = phone;
+        guard.controls = (insets.left, insets.height);
+    }
     let app = data.clone();
     let Some(guard) = data.downcast_ref::<DriveState>() else {
         return Dom::create_body();
     };
     let s = &*guard;
-    let width = if window.0 > 0.0 {
-        window.0
-    } else {
-        s.window_width
-    };
 
-    // Finder's body under the ribbon: the source list, the content as a leaf on the page, the
-    // right pane a leaf too.
-    let backstage = s.backstage_shown();
-    let mut browser = BrowserShell::create(
-        chrome(s, &app, width),
-        ui_sidebar::sidebar(s, &app),
-        ui_view::content(s, &app, s.content_size(window)),
-    )
-    .with_tree_visible(s.settings.navigation_pane)
-    .with_tree_width(s.pane_widths().0)
-    .with_preview_width(s.pane_widths().1);
-    if s.settings.preview_pane {
-        browser = browser.with_preview(ui_view::on_page(ui_panes::preview_pane(s, &app, dark)));
-    }
-    // Windows 8's ribbon over the address row; its tab strip is the window's title bar.
-    if backstage.is_none() {
-        browser = browser.with_ribbon(ui_ribbon::ribbon(s, &app));
-    }
-    let mut shell = browser.office_shell();
-    // Explorer 10's right side: the preview pane OR the details pane.
-    if s.settings.details_pane && !s.settings.preview_pane {
-        shell.add_pane(
-            ShellPane::create(DETAILS_PANE_ID, ui_view::on_page(ui_panes::details_pane(s)))
-                .with_kind(ShellPaneKind::Side)
-                .with_size(s.pane_widths().1)
-                .with_label(azul_appkit::l10n::label("azdrive-pane-details")),
-        );
-    }
-    // No title row while the ribbon shows - its tabs are the title bar; the backstage (the
-    // Options, About), which has no ribbon, keeps azul's title row to move the window by. There
-    // is no status bar: the navigation pane's pies say the sync and the space.
-    let mut shell =
-        shell.with_on_pane_resize(app.clone(), on_pane_resize as ShellOnPaneResizeCallbackType);
-    if let Some(page) = backstage {
-        shell = shell
-            .with_title_row(azul_appkit::ui::title_row(&window_title(s)))
-            .with_backstage(ui_dialogs::backstage(s, &app, page));
-    }
+    // The sidebar full height at the left (the window controls over its top), the ribbon over
+    // the rest, the folder view with the preview beside it, the command line at the foot
+    // (`ui_frame`). No title row while the frame shows - the ribbon's tabs are the title bar; the
+    // backstage (the Options, About), which has no ribbon, keeps azul's title row to move the
+    // window by.
+    let main = match s.backstage_shown() {
+        Some(page) => ui_frame::backstage_window(s, &app, page),
+        None => ui_frame::frame(
+            s,
+            &app,
+            &ui_frame::Look {
+                window,
+                dark,
+                insets,
+            },
+        ),
+    };
     let mut body = Dom::create_body()
         // The design's typeface under flora: Calmet UI everywhere (EB Garamond for what it
         // lacks), 15 px on 1.3, tabular figures so sizes and dates line up.
@@ -3942,7 +3959,7 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
         .with_child(
             Dom::create_div()
                 .with_css("display: flex; flex-direction: column; flex-grow: 1; min-height: 0px;")
-                .with_child(ShellThemeScope::create(shell.dom()).dom()),
+                .with_child(ShellThemeScope::create(main).dom()),
         )
         // The keyring's answers arrive as a window event.
         .with_callback(
@@ -4468,15 +4485,22 @@ pub fn start() {
         tabs: location_tabs::LocationTabs::new(first_tab),
         tab_overview: false,
         tab_overview_highlight: usize::MAX,
-        ribbon_reveal: azul::widgets::TabReveal::create(
-            azul::widgets::TabClickBehaviour::HoverRevealDoubleClickLock,
-        ),
         search_open: false,
         search_cleared_now: false,
         quick_look: false,
         quick_look_when_listed: false,
         palette: None,
         editing_path: false,
+        location_text: String::new(),
+        form: match args.form.unwrap_or_default() {
+            args::FormArg::Auto => azul::widgets::FormFactor::Auto,
+            args::FormArg::Desktop => azul::widgets::FormFactor::Desktop,
+            args::FormArg::Phone => azul::widgets::FormFactor::Phone,
+        },
+        phone: args.form == Some(args::FormArg::Phone),
+        controls: (0.0, 0.0),
+        sheet: None,
+        top_key: None,
         renaming: None,
         column_drag: None,
         dragging: None,
@@ -4490,7 +4514,6 @@ pub fn start() {
         standard_folders: Vec::new(),
         groups_closed: HashSet::new(),
         grid_view: IconGridView::create(),
-        pane_widths: (0.0, 0.0),
         backstage: (args.screen == args::Screen::Settings).then_some(0),
         ribbon_tab: ui_ribbon::RibbonTabKind::default(),
         settings_found: None,

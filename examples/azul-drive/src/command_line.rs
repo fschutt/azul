@@ -1,5 +1,5 @@
 //! The command bar's model, without azul types: what a typed line is (a shell command, a "/"
-//! micro-action, a `cd`), how the shell runs a line (the user's login shell in the open folder,
+//! micro-action, a `cd`, a search after a "?", a window's command after a ":"), how the shell runs a line (the user's login shell in the open folder,
 //! the pagers off, a terminal type the bar's screen understands), which programs need a whole
 //! terminal, and the history of the lines run (up / down; kept per profile in the data tree by
 //! `ui_command_bar`).
@@ -16,6 +16,12 @@ use std::path::{Component, Path, PathBuf};
 pub enum Line {
     /// Nothing typed.
     Empty,
+    /// `?text`: the folder is searched for `text` (names, then contents). A bare `?` is an empty
+    /// search: the search view with the recent searches.
+    Search(String),
+    /// `:name`: a command of the window (`:options`, `:new window`). The name is as
+    /// [`command_name`] normalizes it; a bare `:` has none and lists the commands.
+    Command(String),
     /// `/name args`: a micro-action of the registry (`micro_actions`). A bare `/` is `/help`
     /// (an empty name).
     Action { name: String, args: String },
@@ -33,12 +39,82 @@ fn is_action_name(word: &str) -> bool {
         && chars.all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
 }
 
+/// The name of a `:` command as the window knows it: lower case, the words one space apart.
+#[must_use]
+pub fn command_name(text: &str) -> String {
+    text.split_whitespace()
+        .map(str::to_lowercase)
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+/// What a `:` command asks of the window.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Colon {
+    /// The Options.
+    Options,
+    NewWindow,
+    NewTab,
+    About,
+    /// Add drive: where a provider's sign-in and Azlin's storage are.
+    SignIn,
+    /// The window closes.
+    Exit,
+    /// The Options at the keyboard shortcuts.
+    Shortcuts,
+    /// The list of what the bar takes (`/help`).
+    Help,
+}
+
+/// The `:` commands: each name (normalized) and what it asks. Several names may ask the same.
+pub const COLON: [(&str, Colon); 12] = [
+    ("options", Colon::Options),
+    ("settings", Colon::Options),
+    ("new window", Colon::NewWindow),
+    ("new tab", Colon::NewTab),
+    ("about", Colon::About),
+    ("sign in", Colon::SignIn),
+    ("add drive", Colon::SignIn),
+    ("exit", Colon::Exit),
+    ("quit", Colon::Exit),
+    ("shortcuts", Colon::Shortcuts),
+    ("help", Colon::Help),
+    ("commands", Colon::Help),
+];
+
+/// What the `:` command called `name` (as [`command_name`] normalizes it) asks; `None` for a
+/// name that is none.
+#[must_use]
+pub fn colon_command(name: &str) -> Option<Colon> {
+    let name = command_name(name);
+    COLON.iter().find(|(n, _)| *n == name).map(|(_, c)| *c)
+}
+
+/// The names that start with `prefix` (normalized), sorted: what Tab completes after a ":".
+#[must_use]
+pub fn colon_complete(prefix: &str) -> Vec<&'static str> {
+    let prefix = command_name(prefix);
+    let mut names: Vec<&'static str> = COLON
+        .iter()
+        .map(|(name, _)| *name)
+        .filter(|name| name.starts_with(&prefix))
+        .collect();
+    names.sort_unstable();
+    names
+}
+
 /// What `text` asks for.
 #[must_use]
 pub fn classify(text: &str) -> Line {
     let line = text.trim();
     if line.is_empty() {
         return Line::Empty;
+    }
+    if let Some(query) = line.strip_prefix('?') {
+        return Line::Search(query.trim().to_string());
+    }
+    if let Some(name) = line.strip_prefix(':') {
+        return Line::Command(command_name(name));
     }
     if let Some(rest) = line.strip_prefix('/') {
         let (name, args) = rest.split_once(char::is_whitespace).unwrap_or((rest, ""));

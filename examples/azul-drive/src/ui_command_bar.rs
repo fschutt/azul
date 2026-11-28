@@ -1,23 +1,36 @@
-//! The command bar at the foot of the folder view: one line that runs a command in the folder
-//! the view shows, so a `git pull` or a `make` needs no trip to a terminal window.
+//! The command line at the window's foot (the frame's footer): one line that takes a SEARCH, a
+//! PATH or a COMMAND - and, at rest, says how the folder stands.
 //!
-//! It rests as a thin line (non-intrusive) and opens on a click, on typing, or on Ctrl+`. A line
-//! runs in the user's login shell with the user's rights (`command_line`), on a PTY through
-//! azul-termkit - AzTerm's and AzCode's terminal plumbing - so programs colour and behave as
-//! in a terminal; its output streams into a small pane above the line (azul's TerminalView:
-//! the colours, the selection, the copy, and the keys when the pane is clicked, for a program
-//! that asks something). Ctrl+C (or Stop) interrupts; a second Stop ends the program. Up and
-//! down walk the history, kept per profile in the data tree (`drive/command-history.txt`).
-//! When a command ends, the folder is listed again and the git chip looks again.
+//! At rest it is a thin line (non-intrusive): the folder's status - how many items, how many
+//! selected and their size, what is on the clipboard, the transfer running - before the field,
+//! the git chip of the folder at its start. It opens on a click, on typing, on Ctrl+`, and on
+//! Ctrl+F (which starts a search). What is typed is read by its first character
+//! ([`command_line::classify`]):
 //!
-//! A line starting with "/" goes to the micro-action registry (`micro_actions`), a plain `cd`
-//! moves the folder view, and a program that takes the whole screen (an editor, a pager) is
-//! named before it runs - or, should one switch to the alternate screen anyway, ended at
-//! once - with "Open in Terminal" for it. A cloud folder has no folder on this computer to run
-//! in: the bar says so and takes no line.
+//! - `?text` searches the open folder and everything below it for `text` - while it is typed:
+//!   the search view takes the folder's place, Escape empties the line and then closes the view;
+//! - `:name` is a command of the window - `:options`, `:new window`, `:about`, `:sign in`,
+//!   `:exit` - and Tab completes its name;
+//! - a path (`Home/Documents`, `This PC`, `~/Pictures`) goes there;
+//! - a line starting with "/" goes to the micro-action registry (`micro_actions`), a plain `cd`
+//!   moves the folder view;
+//! - anything else is a shell command: it runs in the user's login shell with the user's rights
+//!   in the folder the view shows, on a PTY through azul-termkit - AzTerm's and AzCode's terminal
+//!   plumbing - so programs colour and behave as in a terminal; its output streams into a small
+//!   pane above the line (azul's TerminalView: the colours, the selection, the copy, and the
+//!   keys when the pane is clicked, for a program that asks something). Ctrl+C (or Stop)
+//!   interrupts; a second Stop ends the program. Up and down walk the history, kept per profile
+//!   in the data tree (`drive/command-history.txt`). When a command ends, the folder is listed
+//!   again and the git chip looks again.
+//!
+//! A program that takes the whole screen (an editor, a pager) is named before it runs - or,
+//! should one switch to the alternate screen anyway, ended at once - with "Open in Terminal" for
+//! it. A cloud folder has no folder on this computer to run in: the line says so and runs
+//! nothing - a search, a path and a `:` command work there as anywhere.
 //!
 //! On stdout, for scripts: `AZDRIVE_CLI_RUN <program>`, `AZDRIVE_CLI_DONE <code or ->`,
-//! `AZDRIVE_CLI_STOPPED`, `AZDRIVE_CLI_FULL_SCREEN <program>`, `AZDRIVE_CLI_ACTION <name>`.
+//! `AZDRIVE_CLI_STOPPED`, `AZDRIVE_CLI_FULL_SCREEN <program>`, `AZDRIVE_CLI_ACTION <name>`,
+//! `AZDRIVE_CLI_COMMAND <name>`, `AZDRIVE_CLI_SEARCH <query>`, `AZDRIVE_CLI_PATH <place>`.
 //! The line itself is never printed: it may hold a secret.
 
 use std::{
@@ -32,6 +45,7 @@ use azul::{
         TextInputOnVirtualKeyDownCallbackType, TimerCallbackInfo, TimerCallbackReturn,
     },
     dom::{AttributeType, ClipboardContent, DomId, DomNodeId, FocusTarget, VirtualKeyCode},
+    misc::TransientAnchor,
     option::{OptionString, OptionU8Vec},
     prelude::*,
     str::String as AzString,
@@ -53,10 +67,10 @@ use azul_termkit::{
 
 use crate::{
     actions::{self, Action},
-    browse::Place,
+    browse::{self, Place},
     command_line::{
-        self, classify, invocation, needs_terminal, resolve_cd, CdTarget, History, Line, Platform,
-        HISTORY_LIMIT,
+        self, classify, colon_command, colon_complete, invocation, needs_terminal, resolve_cd,
+        CdTarget, Colon, History, Line, Platform, COLON, HISTORY_LIMIT,
     },
     look::themed,
     micro_actions::{Context, Outcome, Registry},
@@ -69,6 +83,8 @@ const BAR_ID: &str = "__azdrive_command_bar";
 const INPUT_ID: &str = "__azdrive_command_bar_input";
 /// The output's TerminalView.
 const OUTPUT_ID: &str = "__azdrive_command_bar_output";
+/// What the resting line says of the place (items, selection, transfers).
+const STATUS_ID: &str = "__azdrive_command_bar_status";
 /// The history's file in the data tree.
 const HISTORY_KEY: &str = "drive/command-history.txt";
 /// Lines of output a command keeps.
@@ -98,6 +114,9 @@ const LINE_ROW: &str =
 /// The folder before the field, as a prompt writes it.
 const FOLDER: &str = "font-family: monospace; font-size: 11px; opacity: 0.7; margin-right: 8px; \
                       white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 260px;";
+/// The resting line's words about the place: quiet, in one line, before the field.
+const STATUS: &str = "font-size: 12px; opacity: 0.75; margin-right: 10px; white-space: nowrap; \
+                      overflow: hidden; text-overflow: ellipsis; max-width: 50%; flex-shrink: 1;";
 /// The output pane: its head over the TerminalView.
 const OUTPUT: &str = themed!(
     "display: flex; flex-direction: column; flex-shrink: 0;",
@@ -183,6 +202,8 @@ pub(crate) struct CommandBar {
     pub ticking: bool,
     /// Ticks in a row with new output ([`pane::renders_now`]).
     pub streak: u32,
+    /// The line starts with `?`: its text is the search the folder view shows.
+    pub searching: bool,
 }
 
 impl Default for CommandBar {
@@ -200,6 +221,7 @@ impl Default for CommandBar {
             notice: None,
             ticking: false,
             streak: 0,
+            searching: false,
         }
     }
 }
@@ -213,11 +235,8 @@ impl CommandBar {
     }
 }
 
-/// The height the bar takes from the folder view now (px).
+/// The height the line takes from the window now (px).
 pub(crate) fn height(s: &DriveState) -> f32 {
-    if !matches!(s.place, Place::Folder { .. }) {
-        return 0.0;
-    }
     let bar = &s.command_bar;
     if !bar.expanded {
         return BAR_PX;
@@ -352,7 +371,8 @@ fn show_lines(s: &mut DriveState, line: &str, lines: &[Text]) {
     bar.notice = None;
 }
 
-/// The typed line was entered: a shell command, a micro-action or a `cd`.
+/// The typed line was entered: a search, a command of the window, a path, a micro-action, a
+/// `cd` or a shell command.
 fn submit(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState, text: String) {
     let line = classify(&text);
     if line == Line::Empty {
@@ -360,11 +380,16 @@ fn submit(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState, text: Strin
     }
     s.command_bar.history.push(&text);
     save_history(info, app, s);
-    s.command_bar.input.clear();
-    set_input_text(info, "");
+    // A search stays in the line, so that what is searched can be read; the rest empties it.
+    if !matches!(line, Line::Search(_)) {
+        s.command_bar.input.clear();
+        set_input_text(info, "");
+    }
     match line {
         Line::Empty => {}
-        Line::Shell(command) => run_line(info, app, s, &command),
+        Line::Search(query) => apply_search(info, app, s, query),
+        Line::Command(name) => run_window_command(info, app, s, &name),
+        Line::Shell(command) => run_path_or_shell(info, app, s, &command),
         Line::ChangeFolder(target) => change_folder(info, app, s, &target),
         Line::Action { name, args } => {
             println!("AZDRIVE_CLI_ACTION {}", if name.is_empty() { "help" } else { name.as_str() });
@@ -383,6 +408,126 @@ fn submit(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState, text: Strin
             );
             carry_out(info, app, s, text.trim(), outcome);
         }
+    }
+}
+
+/// `?query`: the folder and everything below it are searched (the one search running stops); the
+/// search view takes the folder's place until the line stops starting with `?`.
+fn apply_search(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState, query: String) {
+    println!("AZDRIVE_CLI_SEARCH {query}");
+    s.command_bar.searching = true;
+    s.search = query;
+    crate::start_find(info, app, s);
+    let keys = s.visible_keys();
+    let order: Vec<&str> = keys.iter().map(String::as_str).collect();
+    s.selection.retain(&order);
+    // Other rows are in view now: their sizes, counts and thumbnails.
+    actions::request_view_work(info, app, s);
+}
+
+/// The line stopped being a search (a letter other than `?` first, or nothing): the search ends
+/// and the folder's own rows show again.
+fn end_search(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState) {
+    s.command_bar.searching = false;
+    if s.search_open || s.find.is_some() || !s.search.is_empty() {
+        actions::close_search(info, app, s);
+        let keys = s.visible_keys();
+        let order: Vec<&str> = keys.iter().map(String::as_str).collect();
+        s.selection.retain(&order);
+        actions::request_view_work(info, app, s);
+    }
+}
+
+/// What a `:` command does as an action of the window; `None` for the ones that are the line's
+/// own (the list of what is taken).
+#[must_use]
+pub(crate) fn colon_action(command: Colon) -> Option<Action> {
+    match command {
+        Colon::Options => Some(Action::Options),
+        Colon::NewWindow => Some(Action::NewWindow),
+        Colon::NewTab => Some(Action::NewTab),
+        Colon::About => Some(Action::About),
+        Colon::SignIn => Some(Action::AddDrive),
+        Colon::Exit => Some(Action::CloseWindow),
+        Colon::Shortcuts => Some(Action::Shortcuts),
+        Colon::Help => None,
+    }
+}
+
+/// The `:` commands as the line lists them: `:options  :settings  ...`.
+#[must_use]
+pub(crate) fn colon_names() -> String {
+    COLON
+        .iter()
+        .map(|(name, _)| format!(":{name}"))
+        .collect::<Vec<_>>()
+        .join("  ")
+}
+
+/// `:name`: a command of the window. A bare colon, `:help` and a name that is none list them.
+fn run_window_command(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState, name: &str) {
+    println!("AZDRIVE_CLI_COMMAND {}", if name.is_empty() { "-" } else { name });
+    match colon_command(name) {
+        Some(command) => match colon_action(command) {
+            Some(action) => actions::run_action(info, app, s, action),
+            None => show_help(info, app, s),
+        },
+        None if name.is_empty() => say(s, Text::plain(colon_names())),
+        None => say(
+            s,
+            Phrase::new("azdrive-cmd-unknown")
+                .arg("name", name)
+                .arg("names", colon_names())
+                .into(),
+        ),
+    }
+}
+
+/// `/help`, as the help row of the sidebar and `:help` ask for it: the list of what the line
+/// takes, in the output pane.
+pub(crate) fn show_help(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState) {
+    let cwd = ui_git::local_folder(s).unwrap_or_default();
+    let outcome = s.command_bar.actions.dispatch(
+        "",
+        "",
+        &Context {
+            cwd: &cwd,
+            branch: None,
+        },
+    );
+    carry_out(info, app, s, "/help", outcome);
+}
+
+/// A line that is none of the line's own: a path that names a place goes there, a folder of this
+/// computer typed with its path (`~/Pictures`, `/usr/share`) too; anything else is the shell's.
+fn run_path_or_shell(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState, line: &str) {
+    if let Some(place) = browse::parse_path(line, &s.drive_names()) {
+        crate::go(info, app, s, place, true);
+        return;
+    }
+    if let Some(folder) = typed_folder(line) {
+        go_to_folder(info, app, s, &folder);
+        return;
+    }
+    run_line(info, app, s, line);
+}
+
+/// The folder of this computer a line names by its path - from the root, from `~`, or with a
+/// drive letter - when there is such a folder; `None` for anything else (a command, a file).
+#[must_use]
+pub(crate) fn typed_folder(line: &str) -> Option<PathBuf> {
+    let line = line.trim();
+    let drive_letter = {
+        let bytes = line.as_bytes();
+        bytes.len() >= 2 && bytes[0].is_ascii_alphabetic() && bytes[1] == b':'
+    };
+    if !(line.starts_with('/') || line.starts_with('~') || drive_letter) {
+        return None;
+    }
+    let home = pane::home_dir();
+    match resolve_cd(std::path::Path::new("/"), line, home.as_deref())? {
+        CdTarget::Folder(folder) if folder.is_dir() => Some(folder),
+        _ => None,
     }
 }
 
@@ -432,29 +577,33 @@ fn change_folder(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState, targ
                 );
                 return;
             }
-            let roots: Vec<(String, PathBuf)> = s
-                .slots
-                .iter()
-                .filter_map(|slot| match &slot.entry.location {
-                    DriveLocation::Local { root } => {
-                        Some((slot.entry.id.clone(), PathBuf::from(root)))
-                    }
-                    _ => None,
-                })
-                .collect();
-            match crate::picker::place_of_path(&folder, &roots) {
-                Some((drive, prefix)) => {
-                    s.command_bar.notice = None;
-                    crate::go(info, app, s, Place::folder(&drive, &prefix), true);
-                }
-                None => say(
-                    s,
-                    Phrase::new("azdrive-cli-cd-outside")
-                        .arg("folder", folder.display().to_string())
-                        .into(),
-                ),
-            }
+            go_to_folder(info, app, s, &folder);
         }
+    }
+}
+
+/// The folder view goes to `folder` of this computer: to the drive that holds it, or - for a
+/// folder in none - a sentence says how to add it.
+fn go_to_folder(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState, folder: &std::path::Path) {
+    let roots: Vec<(String, PathBuf)> = s
+        .slots
+        .iter()
+        .filter_map(|slot| match &slot.entry.location {
+            DriveLocation::Local { root } => Some((slot.entry.id.clone(), PathBuf::from(root))),
+            _ => None,
+        })
+        .collect();
+    match crate::picker::place_of_path(folder, &roots) {
+        Some((drive, prefix)) => {
+            s.command_bar.notice = None;
+            crate::go(info, app, s, Place::folder(&drive, &prefix), true);
+        }
+        None => say(
+            s,
+            Phrase::new("azdrive-cli-cd-outside")
+                .arg("folder", folder.display().to_string())
+                .into(),
+        ),
     }
 }
 
@@ -712,13 +861,11 @@ extern "C" fn on_bar_button(mut data: RefAny, mut info: CallbackInfo) -> Update 
     })
 }
 
-/// The bar at the foot of a folder's leaf: the thin resting line, or the line with its
-/// buttons, the notice and the output. A cloud folder's bar says why it takes no command.
-/// `None` off a folder (This PC, Quick access).
-pub(crate) fn bar(s: &DriveState, app: &RefAny) -> Option<Dom> {
-    if !matches!(s.place, Place::Folder { .. }) {
-        return None;
-    }
+/// The line at the window's foot: at rest the thin line - the git chip of the folder, how the
+/// place stands ([`crate::ui_status`]), the field -, open the line with its buttons, the notice
+/// and the output. A cloud folder takes no shell command and says why when one is typed; a
+/// search, a path and a `:` command work anywhere.
+pub(crate) fn footer(s: &DriveState, app: &RefAny) -> Dom {
     let mut root = Dom::create_div()
         .with_id(BAR_ID)
         .with_css(BAR)
@@ -727,27 +874,8 @@ pub(crate) fn bar(s: &DriveState, app: &RefAny) -> Option<Dom> {
             app.clone(),
             on_window_key,
         );
-    let Some(cwd) = ui_git::local_folder(s) else {
-        let why = t_text(&why_not(s));
-        return Some(
-            root.with_child(
-                Dom::create_div()
-                    .with_css(LINE_ROW)
-                    .with_attribute(AttributeType::Title(AzString::from(why.as_str())))
-                    .with_child(
-                        Dom::create_icon(AzString::from("terminal"))
-                            .with_css("font-size: 16px; opacity: 0.4; margin-right: 8px;"),
-                    )
-                    .with_child(
-                        Dom::create_div()
-                            .with_css("opacity: 0.6; flex-grow: 1; min-width: 0px;")
-                            .with_child(Dom::create_span_with_text(AzString::from(why))),
-                    ),
-            ),
-        );
-    };
     let bar = &s.command_bar;
-    let folder = pane::tilde_folder(&cwd, pane::home_dir().as_deref());
+    let cwd = ui_git::local_folder(s);
     if bar.expanded {
         if let (true, Some(run)) = (bar.output_open, bar.run.as_ref()) {
             root.add_child(output_pane(app, run));
@@ -756,31 +884,57 @@ pub(crate) fn bar(s: &DriveState, app: &RefAny) -> Option<Dom> {
             root.add_child(notice_row(app, notice));
         }
     }
+    let folder = cwd
+        .as_deref()
+        .map(|cwd| pane::tilde_folder(cwd, pane::home_dir().as_deref()))
+        .unwrap_or_else(|| s.place_name());
     let keys = if cfg!(target_os = "macos") { "\u{2303}`" } else { "Ctrl+`" };
     let input = TextInput::create()
         .with_text(AzString::from(bar.input.as_str()))
-        .with_placeholder(AzString::from(t_args(
-            "azdrive-cli-placeholder",
-            &[("folder", Arg::from(folder.as_str())), ("keys", Arg::from(keys))],
-        )))
+        .with_placeholder(label("azdrive-bar-placeholder"))
         .with_on_text_input(app.clone(), on_input_text as TextInputOnTextInputCallbackType)
         .with_on_virtual_key_down(app.clone(), on_input_key as TextInputOnVirtualKeyDownCallbackType)
         .with_accessibility_name(label("azdrive-cli-field"))
         .dom()
         .with_id(INPUT_ID)
-        .with_css("flex-grow: 1; min-width: 0px;");
-    let mut row = Dom::create_div()
-        .with_css(LINE_ROW)
-        .with_child(
+        .with_css("flex-grow: 1; min-width: 0px;")
+        .with_attribute(AttributeType::Title(AzString::from(t_args(
+            "azdrive-bar-tip",
+            &[("keys", Arg::from(keys))],
+        ))));
+    let mut row = Dom::create_div().with_css(LINE_ROW);
+    // The git chip of the folder (its switcher opens above the line).
+    if let Some(chip) = ui_git::chip(s, app, TransientAnchor::Top) {
+        row.add_child(
+            Dom::create_div()
+                .with_css("display: flex; align-items: center; flex-shrink: 0; margin-right: 8px;")
+                .with_child(chip),
+        );
+    }
+    if bar.expanded {
+        // The prompt of the folder the line runs in.
+        row.add_child(
             Dom::create_div()
                 .with_css(FOLDER)
-                .with_attribute(AttributeType::Title(AzString::from(t_args(
-                    "azdrive-cli-folder-tip",
-                    &[("folder", Arg::from(cwd.display().to_string()))],
-                ))))
+                .with_attribute(AttributeType::Title(AzString::from(match &cwd {
+                    Some(cwd) => t_args(
+                        "azdrive-cli-folder-tip",
+                        &[("folder", Arg::from(cwd.display().to_string()))],
+                    ),
+                    None => t_text(&why_not(s)),
+                })))
                 .with_child(Dom::create_span_with_text(AzString::from(format!("{folder} \u{276F}")))),
-        )
-        .with_child(input);
+        );
+    } else {
+        // At rest: how the place stands.
+        row.add_child(
+            Dom::create_div()
+                .with_id(STATUS_ID)
+                .with_css(STATUS)
+                .with_child(Dom::create_span_with_text(AzString::from(crate::ui_status::status_line(s)))),
+        );
+    }
+    row.add_child(input);
     if bar.expanded {
         let running = bar.running();
         let empty = bar.input.trim().is_empty();
@@ -816,7 +970,7 @@ pub(crate) fn bar(s: &DriveState, app: &RefAny) -> Option<Dom> {
             "open_in_new",
             &t("azdrive-cli-open-terminal-tip"),
             BarAct::OpenTerminal,
-            None,
+            cwd.is_none().then(|| t_text(&why_not(s))),
         ));
         row.add_child(bar_button(
             app,
@@ -837,7 +991,7 @@ pub(crate) fn bar(s: &DriveState, app: &RefAny) -> Option<Dom> {
             on_bar_click,
         );
     }
-    Some(root)
+    root
 }
 
 /// The output pane: what ran, where, how it went; the TerminalView of its output.
@@ -936,6 +1090,35 @@ fn focus_input(info: &mut CallbackInfo) {
     }
 }
 
+/// The line shows `query` as a search (`?query`): a saved search run again, a recent search
+/// chosen, a tab that comes back with its search. The search itself is the caller's.
+pub(crate) fn show_search(info: &mut CallbackInfo, s: &mut DriveState, query: &str) {
+    let line = format!("?{query}");
+    set_input_text(info, &line);
+    s.command_bar.input = line;
+    s.command_bar.searching = true;
+    s.command_bar.expanded = true;
+}
+
+/// The search ended: the line that held it empties (a command typed there is left alone).
+pub(crate) fn clear_search(info: &mut CallbackInfo, s: &mut DriveState) {
+    if s.command_bar.searching || s.command_bar.input.trim_start().starts_with('?') {
+        s.command_bar.input.clear();
+        set_input_text(info, "");
+    }
+    s.command_bar.searching = false;
+}
+
+/// Ctrl+F: the line opens with a `?` in it and takes the keyboard: what is typed next is searched.
+pub(crate) fn start_search(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState) {
+    open(info, app, s);
+    if !s.command_bar.input.trim_start().starts_with('?') {
+        s.command_bar.input = String::from("?");
+        set_input_text(info, "?");
+    }
+    focus_input(info);
+}
+
 /// The bar opens (and its history is read the first time).
 fn open(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState) {
     s.command_bar.expanded = true;
@@ -963,10 +1146,8 @@ extern "C" fn on_window_key(mut data: RefAny, mut info: CallbackInfo) -> Update 
     let m = info.get_key_modifiers();
     if code == VirtualKeyCode::Grave && m.ctrl && !m.alt && !m.shift {
         return with_state(&mut data, &mut info, |info, app, s| {
-            if ui_git::local_folder(s).is_some() {
-                open(info, app, s);
-                focus_input(info);
-            }
+            open(info, app, s);
+            focus_input(info);
         });
     }
     if code == VirtualKeyCode::B && m.primary_down() && !m.alt && !m.shift {
@@ -993,12 +1174,29 @@ extern "C" fn on_input_text(
             let s = &mut *guard;
             let was_empty = s.command_bar.input.trim().is_empty();
             let empty = text.trim().is_empty();
+            let search = match classify(&text) {
+                Line::Search(query) => Some(query),
+                _ => None,
+            };
             s.command_bar.input = text;
             s.command_bar.history.reset_walk();
+            // A line that starts with `?` is the search the view shows, every key searching
+            // again; one that stopped starting with it ends the search.
+            let searched = match search {
+                Some(query) => {
+                    apply_search(&mut info, &app, s, query);
+                    true
+                }
+                None if s.command_bar.searching => {
+                    end_search(&mut info, &app, s);
+                    true
+                }
+                None => false,
+            };
             if !s.command_bar.expanded {
                 open(&mut info, &app, s);
                 Update::RefreshDom
-            } else if was_empty != empty {
+            } else if was_empty != empty || searched {
                 Update::RefreshDom
             } else {
                 Update::DoNothing
@@ -1067,6 +1265,24 @@ extern "C" fn on_input_key(
                 }
             })
         }
+        Some(VirtualKeyCode::Tab) if text.starts_with(':') => {
+            info.stop_propagation();
+            with_state(&mut data, &mut info, |info, _app, s| {
+                let names = colon_complete(&text[1..]);
+                if let [only] = names.as_slice() {
+                    let line = format!(":{only}");
+                    set_input_text(info, &line);
+                    s.command_bar.input = line;
+                } else if !names.is_empty() {
+                    let listed = names
+                        .iter()
+                        .map(|name| format!(":{name}"))
+                        .collect::<Vec<_>>()
+                        .join("  ");
+                    say(s, Text::plain(listed));
+                }
+            })
+        }
         Some(VirtualKeyCode::C) if m.ctrl && !m.alt && !m.shift => {
             let running = data
                 .downcast_ref::<DriveState>()
@@ -1080,8 +1296,15 @@ extern "C" fn on_input_key(
         }
         Some(VirtualKeyCode::Escape) => {
             info.stop_propagation();
-            with_state(&mut data, &mut info, |_info, _app, s| {
-                s.command_bar.expanded = false;
+            with_state(&mut data, &mut info, |info, app, s| {
+                if s.command_bar.searching {
+                    // A search in the line: Escape empties it and the folder shows again.
+                    s.command_bar.input.clear();
+                    set_input_text(info, "");
+                    end_search(info, app, s);
+                } else {
+                    s.command_bar.expanded = false;
+                }
             })
         }
         _ => Update::DoNothing,
