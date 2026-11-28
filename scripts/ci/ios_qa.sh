@@ -114,6 +114,45 @@ if [ "$session" = matrix ]; then
     python3 "$here/e2e_matrix.py" ios --repo . --out "$out" --udid "$udid" --shots "$out/shots" ${AZ_QA_MATRIX_ONLY:+--only "$AZ_QA_MATRIX_ONLY"} ${apps[@]+"${apps[@]}"} 2>&1 | tee "$out/e2e-matrix.log"
   fi
 fi
+if [ "$session" = a11y ]; then
+  # WP-A11Y: the Simulator's accessibility settings changed FOR REAL (simctl ui), and what the engine does with them. (1) the scenario file of the
+  # AzWidgets "Display settings" section (a11y_display_settings_system: no override) once per set, each in its own folder <out>/a11y-<set>/ with the
+  # engine's frames (shots/); (2) a LIVE sequence on the running app: the settings switched one after the other, the device's own picture after each
+  # (<out>/a11y-live/NN-<set>.png). simctl switches the text size (the twelve categories), the appearance and "increase contrast"; bold text, reduce
+  # motion, reduce transparency and differentiate without colour have no simctl switch: the override scenario (a11y_display_settings) shows those.
+  apps=()
+  for z in ${AZ_QA_MATRIX_APPS:-$app}; do apps+=(--app "$z"); done
+  a11y_reset() {
+    xcrun simctl ui "$udid" content_size large >/dev/null 2>&1
+    xcrun simctl ui "$udid" increase_contrast disabled >/dev/null 2>&1
+    xcrun simctl ui "$udid" appearance light >/dev/null 2>&1
+  }
+  a11y_apply() {   # a11y_apply <set>
+    case "$1" in
+      default) ;;
+      text-xl) xcrun simctl ui "$udid" content_size extra-extra-large ;;
+      text-ax3) xcrun simctl ui "$udid" content_size accessibility-large ;;
+      text-ax5) xcrun simctl ui "$udid" content_size accessibility-extra-extra-extra-large ;;
+      text-small) xcrun simctl ui "$udid" content_size extra-small ;;
+      contrast) xcrun simctl ui "$udid" increase_contrast enabled ;;
+      contrast-dark) xcrun simctl ui "$udid" increase_contrast enabled; xcrun simctl ui "$udid" appearance dark ;;
+    esac
+  }
+  for set in ${AZ_QA_A11Y_SETS:-default text-small text-xl text-ax3 text-ax5 contrast contrast-dark}; do
+    a11y_reset; a11y_apply "$set" >/dev/null 2>&1; sleep 3
+    python3 "$here/e2e_matrix.py" ios --repo . --out "$out/a11y-$set" --udid "$udid" --shots "$out/a11y-$set/shots" --only a11y_display_settings_system ${apps[@]+"${apps[@]}"} 2>&1 | tee -a "$out/e2e-matrix.log"
+  done
+  a11y_reset
+  mkdir -p "$out/a11y-live"
+  xcrun simctl install "$udid" "$appdir" >"$out/install.log" 2>&1 || echo "the app did not install: $(tail -n 2 "$out/install.log")"
+  xcrun simctl launch "$udid" "$bid" >"$out/a11y-live/launch.log" 2>&1; sleep 30
+  n=0
+  for set in default text-xl text-ax5 default contrast default contrast-dark default text-small default; do
+    a11y_reset; a11y_apply "$set" >/dev/null 2>&1; sleep 3
+    n=$((n + 1)); xcrun simctl io "$udid" screenshot "$out/a11y-live/$(printf '%02d' "$n")-$set.png" >/dev/null 2>&1 || true
+  done
+  a11y_reset
+fi
 if [ "$session" = tabs ]; then
   # THE TAB STRIP on the phone: per orientation (1) the device's own pictures of a plain start, light and dark, (2) per file of AZ_QA_TABS_FILES a
   # recording of its run and the engine's frames of it (AZ_E2E_SHOT_DIR, scripts/ci/e2e_matrix.py --shots), its verdicts in the table
