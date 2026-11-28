@@ -95,6 +95,7 @@ fn no_folder_tag_is_a_module_tag() {
 
 #[test]
 fn the_sections_are_the_accounts_then_local_folders_then_the_module_buttons() {
+    crate::l10n::in_english();
     let accounts = accounts();
     let folders = folders();
     let open = vec![true; 4];
@@ -123,6 +124,7 @@ fn local_folders_are_a_section_only_when_they_show() {
 
 #[test]
 fn a_folder_row_has_its_icon_its_label_its_unread_count_and_its_depth() {
+    crate::l10n::in_english();
     let accounts = accounts();
     let folders = folders();
     let open = vec![true; 4];
@@ -139,6 +141,7 @@ fn a_folder_row_has_its_icon_its_label_its_unread_count_and_its_depth() {
 
 #[test]
 fn only_the_shown_folder_of_the_shown_mailbox_is_selected() {
+    crate::l10n::in_english();
     let accounts = accounts();
     let folders = folders();
     let open = vec![true; 4];
@@ -155,6 +158,7 @@ fn only_the_shown_folder_of_the_shown_mailbox_is_selected() {
 
 #[test]
 fn the_rail_has_the_shown_mailbox_s_top_level_and_the_module_buttons_only() {
+    crate::l10n::in_english();
     let accounts = accounts();
     let folders = folders();
     let open = vec![true; 4];
@@ -173,6 +177,7 @@ fn the_rail_has_the_shown_mailbox_s_top_level_and_the_module_buttons_only() {
 
 #[test]
 fn a_folder_with_folders_under_it_has_a_triangle_and_a_closed_one_hides_them() {
+    crate::l10n::in_english();
     let accounts = accounts();
     let folders = folders();
     let open = vec![true; 4];
@@ -195,6 +200,7 @@ fn a_folder_with_folders_under_it_has_a_triangle_and_a_closed_one_hides_them() {
 
 #[test]
 fn a_folder_closed_in_another_mailbox_stays_open_here() {
+    crate::l10n::in_english();
     let accounts = accounts();
     let folders = folders();
     let open = vec![true; 4];
@@ -219,6 +225,7 @@ fn a_section_is_open_as_the_mailbox_s_slot_says_and_open_without_one() {
 
 #[test]
 fn the_tag_of_a_row_leads_back_to_its_folder() {
+    crate::l10n::in_english();
     let accounts = accounts();
     let folders = folders();
     let open = vec![true; 4];
