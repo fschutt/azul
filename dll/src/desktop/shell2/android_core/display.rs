@@ -115,19 +115,22 @@ fn bar(flat: &[i32], at: usize) -> Option<Option<Bar>> {
     Some(Some(Bar { rect, visible: b[5] != 0 }))
 }
 
-/// Whether what the app asks of the system bars (`WindowFlags::system_bars`) changes the insets the window is dispatched: a bar the app hides
-/// takes its inset away, a window that draws into the cutout area takes the cutout's. An app that asks for neither (the default) keeps the insets
-/// of the window's first dispatch, which are right for its first layout; one that asks for either gets NEW insets a few frames after the request
-/// (the UI thread applies it, the system relayouts the window and dispatches it again, a hide with an animation of its own), so the first
-/// dispatch is the window before the request: not the page the app's first layout should be made for.
+/// Whether what the app asks of the system bars changes the insets the window is dispatched.
+///
+/// A bar the app hides (`WindowFlags::system_bars`) takes its inset away, a window that draws into the cutout area takes the cutout's. An app that
+/// asks for neither (the default) keeps the insets of the window's first dispatch, which are right for its first layout; one that asks for either
+/// gets NEW insets a few frames after the request (the UI thread applies it, the system relayouts the window and dispatches it again, a hide with an
+/// animation of its own), so the first dispatch is the window before the request: not the page the app's first layout should be made for.
 #[must_use]
 pub const fn bars_request_moves_insets(status_hidden: bool, navigation_hidden: bool, draw_into_cutout: bool) -> bool {
     status_hidden || navigation_hidden || draw_into_cutout
 }
 
-/// What `NativeTextBridge.insetsSnapshot` hands the engine when its surface is created, before its first layout: the insets of the window's
-/// first dispatch (five ints: top, bottom, left, right, the keyboard, physical px) followed by its display features (the array
-/// [`decode`] reads, absent when the platform refused them). `None` for an array too short to hold the insets.
+/// Split what `NativeTextBridge.insetsSnapshot` hands the engine into the insets and the display features.
+///
+/// The snapshot is asked for when the surface is created, before the first layout: the insets of the window's first dispatch (five ints: top,
+/// bottom, left, right, the keyboard, physical px) followed by its display features (the array [`decode`] reads, absent when the platform refused
+/// them). `None` for an array too short to hold the insets.
 #[must_use]
 pub fn split_snapshot(snapshot: &[i32]) -> Option<([i32; 5], &[i32])> {
     let head = snapshot.get(..5)?;

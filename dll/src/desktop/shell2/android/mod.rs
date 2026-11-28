@@ -1725,9 +1725,11 @@ fn night_mode_of(app: &AndroidApp) -> Option<azul_core::window::DarkLightMode> {
     }
 }
 
-/// Whether the insets of the window's first dispatch are the ones the app's first layout should be made with: they are unless the app asks the
-/// system to hide a bar or to draw into the cutout area (`android_core::display::bars_request_moves_insets`), which changes them a few frames
-/// after the request (the UI thread applies it, the system relayouts the window and dispatches it again, a hide with an animation).
+/// Whether the insets of the window's first dispatch are the ones the app's first layout should be made with.
+///
+/// They are unless the app asks the system to hide a bar or to draw into the cutout area (`android_core::display::bars_request_moves_insets`),
+/// which changes them a few frames after the request (the UI thread applies it, the system relayouts the window and dispatches it again, a hide
+/// with an animation).
 #[cfg(all(target_os = "android", feature = "android-activity"))]
 fn early_insets_fit_the_request(window: &AndroidWindow) -> bool {
     use crate::desktop::shell2::android_core::display::bars_request_moves_insets;
@@ -1743,9 +1745,11 @@ fn early_insets_fit_the_request(window: &AndroidWindow) -> bool {
     !moves
 }
 
-/// What the window's first insets dispatch gave (`NativeTextBridge.insetsSnapshot`, asked of Java synchronously: the dispatch comes
-/// before the surface exists, this is asked when the surface does), applied before the first layout. Nothing when the activity has no
-/// dispatch yet: the insets then come the way they always did, from the Java UI thread, after the first picture.
+/// Apply what the window's first insets dispatch gave, before the first layout.
+///
+/// The snapshot (`NativeTextBridge.insetsSnapshot`) is asked of Java synchronously: the dispatch comes before the surface exists, this is asked
+/// when the surface does. Nothing when the activity has no dispatch yet: the insets then come the way they always did, from the Java UI thread,
+/// after the first picture.
 #[cfg(all(target_os = "android", feature = "android-activity"))]
 fn apply_early_insets(window: &mut AndroidWindow) {
     let Some(snapshot) = early_insets() else {
@@ -1779,8 +1783,10 @@ fn apply_early_insets(window: &mut AndroidWindow) {
     }
 }
 
-/// `NativeTextBridge.insetsSnapshot()` through JNI: the insets of the window's first dispatch and its display features, flat; `None` when the
-/// window has had no dispatch, without a JNI context, or when the call fails.
+/// `NativeTextBridge.insetsSnapshot()` through JNI.
+///
+/// The insets of the window's first dispatch and its display features, flat; `None` when the window has had no dispatch, without a JNI context,
+/// or when the call fails.
 #[cfg(all(target_os = "android", feature = "jni"))]
 fn early_insets() -> Option<Vec<i32>> {
     use jni::JavaVM;
