@@ -423,3 +423,10 @@ extern "C" fn on_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
     info.prevent_default();
     commands::run(&mut data, cmd, &mut info)
 }
+
+/// The Android entry: the loaded library's constructor starts the app (the other phone apps do the same).
+#[cfg(target_os = "android")]
+#[ctor::ctor]
+fn azul_android_init() {
+    start();
+}

@@ -17,6 +17,7 @@ dependencies = [
  "azul-appkit",
  "azul-dll",
  "bigdecimal",
+ "ctor",
  "serde",
  "serde_json",
 ]
@@ -48,6 +49,7 @@ dependencies = [
  "azul-storage",
  "chrono",
  "chrono-tz",
+ "ctor",
  "iana-time-zone",
  "serde",
  "serde_json",
@@ -318,6 +320,7 @@ dependencies = [
  "azul-appkit",
  "azul-dll",
  "azul-storage",
+ "ctor",
  "serde",
  "serde_json",
 ]

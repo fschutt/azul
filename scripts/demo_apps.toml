@@ -265,8 +265,10 @@ weight = 2
 package = "AzCalculator"
 dir = "examples/azul-calculator"
 description = "Standard, Scientific, Programmer, Date and Convert calculators"
-platforms = ["linux", "macos-arm64", "macos-intel", "windows"]
+platforms = ["linux", "macos-arm64", "macos-intel", "windows", "android", "ios"]
 weight = 1
+mobile_lib = "mobile"
+e2e = true   # the QA variant too: the layout audit and the scripted checks of the phone apps (an artifact, never shipped)
 
 [[app]]
 package = "AzCalendar"
@@ -279,8 +281,10 @@ weight = 2
 package = "AzClock"
 dir = "examples/azul-clock"
 description = "alarms, timers, a stopwatch and a world clock"
-platforms = ["linux", "macos-arm64", "macos-intel", "windows"]
+platforms = ["linux", "macos-arm64", "macos-intel", "windows", "android", "ios"]
 weight = 2
+mobile_lib = "mobile"
+e2e = true   # the QA variant too: the layout audit and the scripted checks of the phone apps (an artifact, never shipped)
 
 [[app]]
 package = "AzCode"
@@ -408,8 +412,10 @@ weight = 2
 package = "AzReader"
 dir = "examples/azul-reader"
 description = "an EPUB reader with a library, a table of contents and bookmarks"
-platforms = ["linux", "macos-arm64", "macos-intel", "windows"]
+platforms = ["linux", "macos-arm64", "macos-intel", "windows", "android", "ios"]
 weight = 2
+mobile_lib = "mobile"
+e2e = true   # the QA variant too: the layout audit and the scripted checks of the phone apps (an artifact, never shipped)
 
 [[app]]
 package = "AzSetup"

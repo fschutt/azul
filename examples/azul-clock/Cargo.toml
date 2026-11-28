@@ -38,6 +38,10 @@ chrono-tz = "0.10"
 # `fallback`): no new crate, no new feature.
 iana-time-zone = { version = "0.1", features = ["fallback"] }
 
+# The Android entry (src/lib.rs): the library's constructor starts the app, as in the other phone apps.
+[target.'cfg(target_os = "android")'.dependencies]
+ctor = "0.2"
+
 [lib]
 name = "azclock"
 path = "src/lib.rs"

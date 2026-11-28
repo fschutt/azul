@@ -29,6 +29,10 @@ bigdecimal = "0.4"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 
+# The Android entry (src/lib.rs): the library's constructor starts the app, as in the other phone apps.
+[target.'cfg(target_os = "android")'.dependencies]
+ctor = "0.2"
+
 [lib]
 name = "azcalculator"
 path = "src/lib.rs"
