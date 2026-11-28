@@ -4140,11 +4140,20 @@ impl Device {
         let total = after.len() / 4;
         let program = self.bound_program_name.to_string_lossy().into_owned();
         let fbo = self.bound_draw_fbo.0;
+        // The texture units the device believes are bound (unit:GL texture name).
+        let units: Vec<String> = self
+            .bound_textures
+            .iter()
+            .enumerate()
+            .filter(|(_, id)| **id != 0)
+            .map(|(unit, id)| format!("{unit}:{id}"))
+            .collect();
+        let units = units.join(",");
         if let Some(probe) = self.draw_probe.borrow_mut().as_mut() {
             probe.draws += 1;
             let number = probe.draws;
             probe.lines.push(format!(
-                "draw {number} {program} {kind} count {count} instances {instances} fbo {fbo} viewport {},{} {}x{}: {changed} of {total} pixels changed, {visible} not transparent after",
+                "draw {number} {program} {kind} count {count} instances {instances} fbo {fbo} viewport {},{} {}x{}: {changed} of {total} pixels changed, {visible} not transparent after; textures {units}",
                 viewport[0], viewport[1], viewport[2], viewport[3]
             ));
         }

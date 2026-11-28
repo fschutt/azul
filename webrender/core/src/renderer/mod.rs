@@ -973,9 +973,30 @@ impl Renderer {
         let dummy = self
             .device
             .debug_read_texture_pixel(&self.texture_resolver.dummy_cache_texture, 0, 0);
+        // Every texture of the cache: GL name, format, size, category.
+        let mut all: Vec<String> = self
+            .texture_resolver
+            .texture_cache_map
+            .iter()
+            .map(|(_, item)| {
+                let size = item.texture.get_dimensions();
+                format!(
+                    "gl {:03} {:?} {}x{} {:?}",
+                    item.texture.debug_id(),
+                    item.texture.get_format(),
+                    size.width,
+                    size.height,
+                    item.category
+                )
+            })
+            .collect();
+        all.sort();
+        all.truncate(30);
+        let dummy_name = self.texture_resolver.dummy_cache_texture.debug_id();
         self.device.end_frame();
         format!(
-            "dummy texture reads #{:02x}{:02x}{:02x}{:02x} (expect #ffffffff); texture cache: {} atlases, {} standalone, {} picture tiles, {} render targets; tiles: {}",
+            "textures of the cache: dummy gl {dummy_name}; {}; dummy texture reads #{:02x}{:02x}{:02x}{:02x} (expect #ffffffff); texture cache: {} atlases, {} standalone, {} picture tiles, {} render targets; tiles: {}",
+            all.join("; "),
             dummy[0],
             dummy[1],
             dummy[2],
