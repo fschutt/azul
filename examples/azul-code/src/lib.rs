@@ -223,10 +223,15 @@ pub fn start() {
 
 /// VSCode's default: dark until the user picks a mode - a `--mode` switch,
 /// or the settings page's Mode, which the settings file keeps. (The kit's
-/// own default follows the OS.) The settings page shows Dark then, and a
-/// save of the settings keeps it.
+/// own default follows the OS, which is what a phone keeps.) The settings
+/// page shows Dark then, and a save of the settings keeps it.
 fn dark_by_default(kit_ref: &RefAny, args: &AppArgs) {
     if args.mode.is_some() {
+        return;
+    }
+    // A phone follows the system's light or dark (the way every phone app does, and what the system's own switch
+    // is for); the dark default is the desktop editor's, as VSCode's.
+    if cfg!(any(target_os = "android", target_os = "ios")) {
         return;
     }
     let mut kit_ref = kit_ref.clone();
