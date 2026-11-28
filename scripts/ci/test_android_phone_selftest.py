@@ -49,5 +49,26 @@ class TableTest(unittest.TestCase):
         self.assertEqual(t.failures({"rows": [{**ROW, "verdict": "UNAVAILABLE"}, {**ROW, "verdict": "DENIED"}]}), [])
 
 
+class PermissionDialogTest(unittest.TestCase):
+    def test_the_permission_controller_in_front_is_seen_on_every_flavour_of_android(self):
+        for line in (
+            "  mCurrentFocus=Window{4f2d1a1 u0 com.google.android.permissioncontroller/com.android.permissioncontroller.permission.ui.GrantPermissionsActivity}",
+            "  mCurrentFocus=Window{9a1 u0 com.android.permissioncontroller/com.android.permissioncontroller.permission.ui.GrantPermissionsActivity}",
+            "  mFocusedWindow=Window{77 u0 com.samsung.android.permissioncontroller/x.GrantPermissionsActivity}",
+        ):
+            self.assertTrue(t.permission_dialog_focused(line), line)
+
+    def test_the_app_the_launcher_or_nothing_in_front_is_no_dialog(self):
+        for line in (
+            "  mCurrentFocus=Window{4f2d1a1 u0 com.azul.AzSelfTest/com.azul.app.AzulActivity}",
+            "  mCurrentFocus=Window{1 u0 com.google.android.apps.nexuslauncher/com.google.android.apps.nexuslauncher.NexusLauncherActivity}",
+            "  mCurrentFocus=null",
+            "",
+        ):
+            self.assertFalse(t.permission_dialog_focused(line), line)
+        # a permission controller that is NOT the focus (a task list mentioning it) is not a dialog in front
+        self.assertFalse(t.permission_dialog_focused("  mFocusedApp=ActivityRecord{1 u0 com.google.android.permissioncontroller/x t5}"))
+
+
 if __name__ == "__main__":
     unittest.main()
