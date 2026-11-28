@@ -1049,6 +1049,9 @@ impl AppInternal {
             // azul writes the manifest and its key file together (the persist thread below); the registry's own
             // write at the end of every scan, a hit's included, would leave a manifest the key file does not describe.
             registry.set_persist_on_complete(false);
+            // TODO(rust-fontconfig#35): on Android and iOS `registry.set_builder_threads(1)` goes here, once the pin has the
+            // release that holds it: a start without a manifest (an install, an OS update) must not give the scan's builders
+            // (one fewer than the cores) the CPUs the first frame needs (iOS Simulator, 3 vCPUs: 1332 ms against 74 ms).
             let cache_key = crate::desktop::font_cache_guard::Key::current(
                 rust_fontconfig::disk_cache::FontManifest::CURRENT_VERSION,
                 registry.scan_dirs(),

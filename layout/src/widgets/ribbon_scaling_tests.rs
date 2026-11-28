@@ -216,13 +216,15 @@ const fn at(size: GroupSize) -> GroupScale {
 
 // ---- reading a built ribbon ----
 
-/// The groups of the content band, left to right.
+/// The groups of the content band, left to right (a band that scrolls also holds the fades at its
+/// ends and the room they keep clear: not groups).
 fn band(dom: &Dom) -> Vec<&Dom> {
     tc::find(dom, "__azul-native-ribbon-content")
         .expect("the content band")
         .children
         .as_ref()
         .iter()
+        .filter(|child| tc::has_class(child, "__azul-native-ribbon-group"))
         .collect()
 }
 

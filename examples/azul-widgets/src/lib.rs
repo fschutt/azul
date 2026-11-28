@@ -26,6 +26,7 @@ mod mail;
 mod notifications;
 mod sounds;
 mod tab_looks;
+mod sidebar;
 mod materials;
 mod display_settings;
 mod video;
@@ -94,6 +95,8 @@ struct Showcase {
     tab_looks: tab_looks::TabLooksDemo,
     /// The "Materials" section's switch (see `materials.rs`).
     materials: materials::MaterialsDemo,
+    /// The "Sidebar" section's state: the frame every heavy app shares (see `sidebar.rs`).
+    sidebar: sidebar::SidebarDemo,
 }
 
 const CHOICES: &[&str] = &["Red", "Green", "Blue"];
@@ -990,6 +993,7 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
             ),
         )
     };
+    let sidebar = sidebar::sidebar_section(&data, &s.sidebar, theme);
     // `get_mode` DECLARES that this DOM depends on the light / dark the
     // window shows (the "System (dark)" note): a mode switch re-runs this
     // `layout()` rather than only re-styling the page.
@@ -1195,6 +1199,7 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
                 .with_child(files)
                 .with_child(tabs)
                 .with_child(tab_looks)
+                .with_child(sidebar)
                 .with_child(materials)
                 .with_child(display_settings)
                 .with_child(docking)
@@ -1527,6 +1532,7 @@ pub fn start() {
         blocks: blocks::BlocksDemo::create(),
         tab_looks: tab_looks::TabLooksDemo::default(),
         materials: materials::MaterialsDemo::default(),
+        sidebar: sidebar::SidebarDemo::default(),
     });
     // `None` follows the desktop - the default, spelled out: an app that
     // starts pinned passes `OptionDarkLightMode::Some(DarkLightMode::Dark)`.
