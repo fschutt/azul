@@ -47,8 +47,7 @@ tests() {
 run tests tests
 
 workspace() {
-  sudo apt-get update -qq || true
-  sudo apt-get install -y fonts-liberation fonts-dejavu-core || true
+  # the fonts are the runner's (the box has them from its setup): no installs here
   AZ_REQUIRE_TEST_FONTS=1 cargo test -p azul-css -p azul-core -p azul-layout -p webrender --lib --tests \
     --features "$features" --no-fail-fast 2>&1 | tee workspace-tests.txt
   local code=${PIPESTATUS[0]}
