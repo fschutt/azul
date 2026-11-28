@@ -40888,6 +40888,134 @@
                         ],
                         "repr": "C"
                     },
+                    "ActionSheetOnEventCallback": {
+                        "external": "azul_layout::widgets::action_sheet::ActionSheetOnEventCallback",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "Eq",
+                            "Hash",
+                            "Ord",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "derive": [
+                            "Clone",
+                            "Debug",
+                            "Hash",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord"
+                        ],
+                        "struct_fields": [
+                            {
+                                "cb": {
+                                    "type": "ActionSheetOnEventCallbackType"
+                                },
+                                "callable": {
+                                    "type": "OptionRefAny"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "PreviewOnEventCallback": {
+                        "external": "azul_layout::widgets::preview::PreviewOnEventCallback",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "Eq",
+                            "Hash",
+                            "Ord",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "derive": [
+                            "Clone",
+                            "Debug",
+                            "Hash",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord"
+                        ],
+                        "struct_fields": [
+                            {
+                                "cb": {
+                                    "type": "PreviewOnEventCallbackType"
+                                },
+                                "callable": {
+                                    "type": "OptionRefAny"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "SidebarOnEventCallback": {
+                        "external": "azul_layout::widgets::sidebar::SidebarOnEventCallback",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "Eq",
+                            "Hash",
+                            "Ord",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "derive": [
+                            "Clone",
+                            "Debug",
+                            "Hash",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord"
+                        ],
+                        "struct_fields": [
+                            {
+                                "cb": {
+                                    "type": "SidebarOnEventCallbackType"
+                                },
+                                "callable": {
+                                    "type": "OptionRefAny"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "LocationOnEventCallback": {
+                        "external": "azul_layout::widgets::location_bar::LocationOnEventCallback",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "Eq",
+                            "Hash",
+                            "Ord",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "derive": [
+                            "Clone",
+                            "Debug",
+                            "Hash",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord"
+                        ],
+                        "struct_fields": [
+                            {
+                                "cb": {
+                                    "type": "LocationOnEventCallbackType"
+                                },
+                                "callable": {
+                                    "type": "OptionRefAny"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
                     "AccessibilityCondition": {
                         "external": "azul_css::accessibility::AccessibilityCondition",
                         "derive": [
@@ -41047,134 +41175,6 @@
                                 },
                                 "action_timeout_ms": {
                                     "type": "OptionU32"
-                                }
-                            }
-                        ],
-                        "repr": "C"
-                    },
-                    "ActionSheetOnEventCallback": {
-                        "external": "azul_layout::widgets::action_sheet::ActionSheetOnEventCallback",
-                        "custom_impls": [
-                            "Clone",
-                            "Debug",
-                            "Eq",
-                            "Hash",
-                            "Ord",
-                            "PartialEq",
-                            "PartialOrd"
-                        ],
-                        "derive": [
-                            "Clone",
-                            "Debug",
-                            "Hash",
-                            "PartialEq",
-                            "Eq",
-                            "PartialOrd",
-                            "Ord"
-                        ],
-                        "struct_fields": [
-                            {
-                                "cb": {
-                                    "type": "ActionSheetOnEventCallbackType"
-                                },
-                                "callable": {
-                                    "type": "OptionRefAny"
-                                }
-                            }
-                        ],
-                        "repr": "C"
-                    },
-                    "PreviewOnEventCallback": {
-                        "external": "azul_layout::widgets::preview::PreviewOnEventCallback",
-                        "custom_impls": [
-                            "Clone",
-                            "Debug",
-                            "Eq",
-                            "Hash",
-                            "Ord",
-                            "PartialEq",
-                            "PartialOrd"
-                        ],
-                        "derive": [
-                            "Clone",
-                            "Debug",
-                            "Hash",
-                            "PartialEq",
-                            "Eq",
-                            "PartialOrd",
-                            "Ord"
-                        ],
-                        "struct_fields": [
-                            {
-                                "cb": {
-                                    "type": "PreviewOnEventCallbackType"
-                                },
-                                "callable": {
-                                    "type": "OptionRefAny"
-                                }
-                            }
-                        ],
-                        "repr": "C"
-                    },
-                    "SidebarOnEventCallback": {
-                        "external": "azul_layout::widgets::sidebar::SidebarOnEventCallback",
-                        "custom_impls": [
-                            "Clone",
-                            "Debug",
-                            "Eq",
-                            "Hash",
-                            "Ord",
-                            "PartialEq",
-                            "PartialOrd"
-                        ],
-                        "derive": [
-                            "Clone",
-                            "Debug",
-                            "Hash",
-                            "PartialEq",
-                            "Eq",
-                            "PartialOrd",
-                            "Ord"
-                        ],
-                        "struct_fields": [
-                            {
-                                "cb": {
-                                    "type": "SidebarOnEventCallbackType"
-                                },
-                                "callable": {
-                                    "type": "OptionRefAny"
-                                }
-                            }
-                        ],
-                        "repr": "C"
-                    },
-                    "LocationOnEventCallback": {
-                        "external": "azul_layout::widgets::location_bar::LocationOnEventCallback",
-                        "custom_impls": [
-                            "Clone",
-                            "Debug",
-                            "Eq",
-                            "Hash",
-                            "Ord",
-                            "PartialEq",
-                            "PartialOrd"
-                        ],
-                        "derive": [
-                            "Clone",
-                            "Debug",
-                            "Hash",
-                            "PartialEq",
-                            "Eq",
-                            "PartialOrd",
-                            "Ord"
-                        ],
-                        "struct_fields": [
-                            {
-                                "cb": {
-                                    "type": "LocationOnEventCallbackType"
-                                },
-                                "callable": {
-                                    "type": "OptionRefAny"
                                 }
                             }
                         ],
