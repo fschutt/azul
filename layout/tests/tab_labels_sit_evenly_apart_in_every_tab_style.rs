@@ -1,16 +1,14 @@
 //! Tab labels sit evenly apart in every tab style.
 //!
-//! A selected Aurora tab hangs an 18px S curve off each side of its box. The
-//! row is spaced so that every S lies in a gap of its own width, shared by
-//! the two tabs beside it (Firefox's tabs overlap the same way), with 8px
-//! between the S and each label:
+//! Flora's ribbon cuts its selected tab and its application button with an
+//! 18px S curve off each side of the box. The row is spaced so that every S
+//! lies in a gap of its own width, shared by the two tabs beside it (Firefox's
+//! tabs overlap the same way), with 8px between the S and each label:
 //!
-//! - Aurora, in both themes: every label 8px inside its tab, the tabs 18px
-//!   apart, the first tab 18px in (room for its left curve).
 //! - Rectangular hangs no curve, so it needs no room for one: 12px beside
 //!   each label, 2px between the tabs, the first tab at the strip's edge.
-//! - Flora's ribbon cuts its selected tab and its application button with
-//!   the same curves, so its row is spaced as Aurora is.
+//! - Flora's ribbon: every label 8px inside its tab, the tabs 18px apart, the
+//!   first tab 18px in (room for its left curve).
 //! - A label in tracked capitals gives its trailing tracking back: the text
 //!   adds the tracking after the last capital too (as Chrome does), which
 //!   would push the label half a tracking left of the tab's centre.
@@ -163,7 +161,7 @@ fn a_rectangular_row_starts_at_the_strip_s_edge_with_its_tabs_2px_apart() {
 }
 
 #[test]
-fn a_flora_ribbon_spaces_its_curved_tab_row_as_aurora() {
+fn a_flora_ribbon_spaces_its_curved_tab_row_for_its_curves() {
     let ribbon = Ribbon::new(RibbonTabVec::from_vec(vec![
         RibbonTab::new("HOME".into()),
         RibbonTab::new("SHARE".into()),

@@ -134,6 +134,8 @@ run autofix autofix
 
 doc_check() {
   local code=0
+  # the examples lint reads target/codegen: the bindings of THIS api.json, not the cache's older ones
+  cargo run -r -p azul-doc -- codegen all || return 1
   cargo run -r -p azul-doc -- check || code=1
   cargo run -r -p azul-doc -- check layout || code=1
   return "$code"

@@ -7447,7 +7447,7 @@ pub(crate) struct TabSpacing {
     pub(crate) lead: isize,
 }
 
-/// A row whose tabs hang S curves (Aurora, the ribbon's row): every S lies
+/// A row whose tabs hang S curves (the ribbon's row): every S lies
 /// in a gap of its own width, which the two tabs beside it share as
 /// Firefox's tabs overlap, and keeps 8px off the labels on both sides.
 pub(crate) static CURVED_TABS: TabSpacing = TabSpacing {
@@ -7741,7 +7741,7 @@ pub(crate) mod australis {
 
     /// The strip: air above the tabs, room before the first one for its
     /// curve and a curve's width between them (the ribbon's application
-    /// button and selected tab hang curves, so its row is spaced as Aurora),
+    /// button and selected tab hang curves, so its row is spaced for them),
     /// the strip's paper on its padding box, and the rule - the website's
     /// travelling metal, along the whole strip - through its transparent
     /// foot.

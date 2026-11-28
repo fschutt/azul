@@ -1,9 +1,8 @@
-//! A tab bar takes the style it is given: Aurora (Firefox's curved tabs),
-//! Rectangular (classic square tabs) or Pills (pill buttons on leather).
+//! A tab bar takes the style it is given: Rectangular (classic square
+//! tabs) or Pills (the theme's buttons floating on leather); `Auto` is the
+//! buttons in both themes.
 //!
-//! - Aurora cuts EVERY tab with its curves, the selected one and the rest,
-//!   so all tabs share one shape; only the selected one stands on the rule
-//!   with its run-outs.
+//! - Auto, named by no one, is the same buttons in Flora and in Flat.
 //! - Rectangular hangs no curves, in either theme.
 //! - Pills sit on a leather strip that reaches the top of the bar; the strip
 //!   closes on a 2px line along its foot, gold: a shimmer over aluminium.

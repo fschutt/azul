@@ -1839,7 +1839,7 @@ impl TabHeader {
         // carries both looks, each in its `@theme(<name>)` block. The tabs,
         // their classes, datasets, click and arrow keys are the same in every
         // theme.
-        // The look's curves (Aurora) and rule (Pills) are nodes, so they are
+        // The look's curves (the ribbon's row) and rule (the buttons) are nodes, so they are
         // in the tree when it is built for a theme and style that has them -
         // the pinned look, or the app theme the DOM is built for (a theme
         // switch rebuilds the DOM, as for every widget whose looks build
@@ -5893,7 +5893,7 @@ mod theme_tests {
                 "dark={dark}: the selected tab breaks the rule"
             );
         }
-        // Its sides are not curves any more: a square tab has none to hang (the Aurora row is gone).
+        // Its sides are not curves any more: a square tab has none to hang (only the ribbon's row has curves).
         assert_eq!(
             active.children.as_ref().len(),
             1,
@@ -6162,7 +6162,7 @@ mod structure_tests {
             (
                 "__azul-native-tabs-tab-not-active",
                 CssPropertyType::Position,
-                "flora's Aurora row hangs curves off every tab",
+                "flora's curved ribbon row hangs curves off every tab",
             ),
             (
                 "__azul-native-tabs-tab-active",
