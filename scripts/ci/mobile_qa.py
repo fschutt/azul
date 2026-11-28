@@ -504,6 +504,13 @@ def ios_permission_prompts(log_text, bundle=""):
     return found
 
 
+def ios_permission_prompts_of(simctl_result, bundle=""):
+    """`ios_permission_prompts` of what `IOS.simctl` returns: the THREE values (return code, stdout, stderr) of the command that read tccd's
+    log (the first version of this unpacked two and every cold-start step of an iOS run ended in a ValueError after its seven checks)."""
+    rc, out, _err = simctl_result
+    return ios_permission_prompts(out if rc == 0 else "", bundle)
+
+
 def pick_target(xml_text, label):
     """The centre (x, y) of the node of a `uiautomator dump` a person would TOUCH for `label`: of the nodes named `label` (text or
     content-desc) that have a box, the editable field (`EditText`) first, then a focusable or clickable one, then the first. A field and
@@ -2346,8 +2353,7 @@ def ios_scenarios(args):
         s.note(f"console: {len(out_txt.splitlines())} stdout lines, {len(err_txt.splitlines())} stderr lines")
         # a fresh install, nothing granted: tccd must not have put up a permission prompt for the app (its log says AUTHREQ_PROMPTING)
         dev.settle(2.0)
-        rc, tcc = dev.simctl("spawn", args.udid, "log", "show", "--last", "2m", "--predicate", 'process == "tccd"', "--style", "compact", timeout=120)
-        prompts = ios_permission_prompts(tcc if rc == 0 else "", args.bundle)
+        prompts = ios_permission_prompts_of(dev.simctl("spawn", args.udid, "log", "show", "--last", "2m", "--predicate", 'process == "tccd"', "--style", "compact", timeout=120), args.bundle)
         s.check("no permission prompt was put up for the app after a fresh install (tccd's log)", not prompts, prompts[0] if prompts else "", required=False)
 
     run.step("03-cold-start", "start the app from nothing: first frame, portrait picture, no panic, no crash report", s_cold)
