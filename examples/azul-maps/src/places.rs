@@ -3,8 +3,6 @@
 //! UI thread. A name matches without case or accents, in English, in German and as the place
 //! calls itself, so `munchen`, `Munich` and `München` all find the same city.
 
-use std::sync::OnceLock;
-
 /// The table as it ships with the app.
 const PLACES_TSV: &str = include_str!("../resources/places.tsv");
 
@@ -117,10 +115,11 @@ pub struct Gazetteer {
     pub places: Vec<Place>,
 }
 
-/// The table, parsed once by the first search (on the geocoder worker).
-pub fn gazetteer() -> &'static Gazetteer {
-    static TABLE: OnceLock<Gazetteer> = OnceLock::new();
-    TABLE.get_or_init(|| Gazetteer::parse(PLACES_TSV))
+/// The table, parsed from the text that ships with the app. The app parses it once, at its
+/// start, and keeps it (an `Arc` its searches share): there is no copy of it in a global.
+#[must_use]
+pub fn gazetteer() -> Gazetteer {
+    Gazetteer::parse(PLACES_TSV)
 }
 
 /// A name as searches compare it: lower case, accents and punctuation gone, single spaces.
