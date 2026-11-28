@@ -114,11 +114,14 @@ def parse_device_types(text):
 
 
 def parse_runtimes(text):
-    """`simctl list runtimes -j` -> the available iOS runtimes [{identifier, version}], newest first."""
+    """`simctl list runtimes -j` -> the available iOS runtimes [{identifier, version, supported}] newest first (`supported`: the
+    identifiers of the device types the runtime can run; empty when the listing does not say)."""
     out = []
     for r in json.loads(text).get("runtimes", []):
-        if r.get("isAvailable", True) and str(r.get("name", r.get("identifier", ""))).startswith("iOS"):
-            out.append({"identifier": r.get("identifier", ""), "version": str(r.get("version", "0"))})
+        identifier = r.get("identifier", "")
+        if r.get("isAvailable", True) and ".SimRuntime.iOS" in identifier:
+            supported = {d.get("identifier", "") for d in r.get("supportedDeviceTypes", []) if d.get("identifier")}
+            out.append({"identifier": identifier, "version": str(r.get("version", "0")), "supported": supported})
     out.sort(key=lambda r: [int(x) if x.isdigit() else 0 for x in r["version"].split(".")], reverse=True)
     return out
 
@@ -139,8 +142,12 @@ def resolve_device(wanted, devices, types, runtimes):
     if found is not None:
         return "use", found, ""
     kind = next((t for t in types if t["name"] == wanted), None)
-    if kind is not None and runtimes:
-        return "create", (f"AzSelfTest {wanted}", kind["identifier"], runtimes[0]["identifier"]), f"{wanted}: made from its device type"
+    runtime = None
+    if kind is not None:
+        # the newest runtime that can run this device type
+        runtime = next((r for r in runtimes if not r.get("supported") or kind["identifier"] in r["supported"]), None)
+    if kind is not None and runtime is not None:
+        return "create", (f"AzSelfTest {wanted}", kind["identifier"], runtime["identifier"]), f"{wanted}: made from its device type"
     stand_in = newest_plain_iphone(devices)
     if stand_in is None:
         return "none", None, f"no iOS Simulator named {wanted!r} and no plain iPhone to stand in"
@@ -467,10 +474,14 @@ def main(argv):
         if existing is None:
             code, created = sh(["xcrun", "simctl", "create", name, type_id, runtime_id], timeout=120)
             if code != 0:
-                print(f"could not make the Simulator {name!r}: {created}")
-                return 2
-            devices = parse_devices(sh(["xcrun", "simctl", "list", "devices", "available", "-j"], timeout=60)[1])
-            existing = pick_device(devices, created.strip().splitlines()[-1])
+                # the model cannot be made here: the newest plain iPhone stands in, and the report says so
+                stand_in = newest_plain_iphone(devices)
+                note = f"could not make {name!r} ({created[-160:]}): ran on {stand_in['name'] if stand_in else 'nothing'} instead"
+                value = stand_in
+                existing = stand_in
+            else:
+                devices = parse_devices(sh(["xcrun", "simctl", "list", "devices", "available", "-j"], timeout=60)[1])
+                existing = pick_device(devices, created.strip().splitlines()[-1])
         value = existing
     if value is None:
         print(note)
