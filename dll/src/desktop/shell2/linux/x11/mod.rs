@@ -9279,7 +9279,11 @@ impl X11Window {
             );
             // Full rebuild or restyle, decided from what the app's `layout()`
             // declared it reads — see `PlatformWindow::adopt_system_style`.
-            self.adopt_system_style(new_style);
+            if self.adopt_system_style(new_style) {
+                // The adoption raised the notice: the pass that tells the window's
+                // `SystemStyleChanged` listeners (the one above ran before it).
+                let _ = self.process_window_events(0);
+            }
             self.needs_redraw.raise();
         }
 
