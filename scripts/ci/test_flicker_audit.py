@@ -87,6 +87,36 @@ class FlagTests(unittest.TestCase):
     def test_a_black_start_is_not_between_two_normal_frames(self):
         self.assertEqual(f.flag_frames([BLACK, BLACK, PAGE, PAGE, PAGE]), [])
 
+    def test_a_long_black_period_is_one_flat_run_with_its_length(self):
+        """the cold start of build 4: 31 frames (1.03 s) of black between the system's starting window and the first picture were not
+        flagged, because only a flat frame whose two neighbours were normal counted"""
+        flagged = f.flag_frames([PAGE, PAGE] + [BLACK] * 31 + [PAGE, PAGE])
+        flat = [x for x in flagged if x["kind"] == "flat"]
+        self.assertEqual([(x["index"], x["frames"]) for x in flat], [(2, 31)])
+        self.assertIn("1.03 s", flat[0]["detail"])
+
+    def test_a_nearly_flat_fade_counts_as_part_of_the_run(self):
+        """the frames of a fade into black are 99.5-99.8 % one colour: still one flat period, not several single frames"""
+        almost = sig((0, 0, 0), (8, 8, 8))[:-q.COLS * 3] + bytes([40, 40, 40]) * q.COLS      # one bottom row of another colour
+        flagged = f.flag_frames([PAGE, almost, BLACK, BLACK, almost, PAGE])
+        self.assertEqual([(x["index"], x["frames"]) for x in flagged if x["kind"] == "flat"], [(1, 4)])
+
+    def test_a_black_run_over_the_limit_fails_and_a_shorter_one_is_only_told(self):
+        """the user's rule: no all-black frame between two normal frames longer than N ms (100 ms by default)"""
+        long_black = f.flag_frames([PAGE, PAGE] + [BLACK] * 4 + [PAGE, PAGE])            # 4 frames at 30 fps = 133 ms
+        self.assertEqual([(x["kind"], x["black"], x["fail"], x["ms"]) for x in long_black], [("flat", True, True, 133)])
+        short_black = f.flag_frames([PAGE, PAGE] + [BLACK] * 3 + [PAGE, PAGE])           # 100 ms: at the limit
+        self.assertEqual([(x["black"], x["fail"], x["ms"]) for x in short_black], [(True, False, 100)])
+        self.assertTrue(f.flag_frames([PAGE, PAGE, BLACK, PAGE, PAGE], max_black_ms=20)[0]["fail"], "the limit is a parameter")
+
+    def test_a_flat_run_of_another_colour_fails_whatever_its_length(self):
+        white = sig((255, 255, 255))
+        flagged = f.flag_frames([PAGE, PAGE, white, PAGE, PAGE])
+        self.assertEqual([(x["kind"], x["black"], x["fail"]) for x in flagged], [("flat", False, True)])
+
+    def test_a_flat_run_that_never_ends_is_not_between_two_normal_frames(self):
+        self.assertEqual([x for x in f.flag_frames([PAGE, PAGE, BLACK, BLACK, BLACK]) if x["kind"] == "flat"], [])
+
 
 class VideoFrameTests(unittest.TestCase):
     def test_a_raw_stream_is_cut_into_frames_and_signed(self):
