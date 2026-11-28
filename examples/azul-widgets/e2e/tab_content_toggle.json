@@ -1,0 +1,146 @@
+[
+  {
+    "name": "azul_widgets_the_chevron_folds_the_content_of_the_tabs_away_and_shows_it_again",
+    "description": "The one chevron of the window, at the left end of the twelve-pill strip: a click folds the content under the tabs away (WindowFlags::tab_content_hidden, per window) and the next one shows it again; the ops toggle_tab_content and get_tab_content do the same without the pointer. Frames: shown, folded. The same file runs on a desktop and on a phone.",
+    "steps": [
+      {
+        "op": "set_mode",
+        "mode": "light"
+      },
+      {
+        "op": "set_theme",
+        "theme": "flora"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "scroll_into_view",
+        "text": "A phone to try it on",
+        "block": "center",
+        "behavior": "instant"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "get_tab_content"
+      },
+      {
+        "op": "assert_response",
+        "contains": "\"hidden\":false"
+      },
+      {
+        "op": "get_node_layout",
+        "selector": "#touch-panel-text"
+      },
+      {
+        "op": "assert_response",
+        "not_contains": "\"size\":null"
+      },
+      {
+        "op": "take_screenshot"
+      },
+      {
+        "op": "click",
+        "selector": ".__azul-tab-content-toggle"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "tick_ms",
+        "ms": 400
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "get_tab_content"
+      },
+      {
+        "op": "assert_response",
+        "contains": "\"hidden\":true"
+      },
+      {
+        "op": "get_node_layout",
+        "selector": "#touch-panel-text"
+      },
+      {
+        "op": "assert_response",
+        "contains": "\"size\":null"
+      },
+      {
+        "op": "take_screenshot"
+      },
+      {
+        "op": "click",
+        "selector": ".__azul-tab-content-toggle"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "tick_ms",
+        "ms": 400
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "get_tab_content"
+      },
+      {
+        "op": "assert_response",
+        "contains": "\"hidden\":false"
+      },
+      {
+        "op": "get_node_layout",
+        "selector": "#touch-panel-text"
+      },
+      {
+        "op": "assert_response",
+        "not_contains": "\"size\":null"
+      },
+      {
+        "op": "toggle_tab_content"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "get_tab_content"
+      },
+      {
+        "op": "assert_response",
+        "contains": "\"hidden\":true"
+      },
+      {
+        "op": "toggle_tab_content",
+        "hidden": false
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "get_tab_content"
+      },
+      {
+        "op": "assert_response",
+        "contains": "\"hidden\":false"
+      }
+    ]
+  }
+]

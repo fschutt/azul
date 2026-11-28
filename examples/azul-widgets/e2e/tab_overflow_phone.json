@@ -55,7 +55,7 @@
       },
       {
         "op": "scroll_node_by",
-        "selector": ".__azul-native-tabs-touch-band",
+        "selector": ".__azul-native-tabs-touch-strip",
         "delta_x": 150.0,
         "delta_y": 0.0
       },
@@ -71,7 +71,7 @@
       },
       {
         "op": "get_scrollbar_info",
-        "selector": ".__azul-native-tabs-touch-band",
+        "selector": ".__azul-native-tabs-touch-strip",
         "orientation": "horizontal"
       },
       {
@@ -83,7 +83,7 @@
       },
       {
         "op": "scroll_node_by",
-        "selector": ".__azul-native-tabs-touch-band",
+        "selector": ".__azul-native-tabs-touch-strip",
         "delta_x": 150.0,
         "delta_y": 0.0
       },
@@ -99,7 +99,7 @@
       },
       {
         "op": "get_scrollbar_info",
-        "selector": ".__azul-native-tabs-touch-band",
+        "selector": ".__azul-native-tabs-touch-strip",
         "orientation": "horizontal"
       },
       {
@@ -111,7 +111,7 @@
       },
       {
         "op": "scroll_node_by",
-        "selector": ".__azul-native-tabs-touch-band",
+        "selector": ".__azul-native-tabs-touch-strip",
         "delta_x": 4000.0,
         "delta_y": 0.0
       },
@@ -127,7 +127,7 @@
       },
       {
         "op": "get_scrollbar_info",
-        "selector": ".__azul-native-tabs-touch-band",
+        "selector": ".__azul-native-tabs-touch-strip",
         "orientation": "horizontal"
       },
       {
@@ -198,7 +198,7 @@
       },
       {
         "op": "scroll_node_by",
-        "selector": ".__azul-native-tabs-touch-band",
+        "selector": ".__azul-native-tabs-touch-strip",
         "delta_x": 150.0,
         "delta_y": 0.0
       },
@@ -214,7 +214,7 @@
       },
       {
         "op": "get_scrollbar_info",
-        "selector": ".__azul-native-tabs-touch-band",
+        "selector": ".__azul-native-tabs-touch-strip",
         "orientation": "horizontal"
       },
       {
@@ -226,7 +226,7 @@
       },
       {
         "op": "scroll_node_by",
-        "selector": ".__azul-native-tabs-touch-band",
+        "selector": ".__azul-native-tabs-touch-strip",
         "delta_x": 150.0,
         "delta_y": 0.0
       },
@@ -242,7 +242,7 @@
       },
       {
         "op": "get_scrollbar_info",
-        "selector": ".__azul-native-tabs-touch-band",
+        "selector": ".__azul-native-tabs-touch-strip",
         "orientation": "horizontal"
       },
       {
@@ -254,7 +254,7 @@
       },
       {
         "op": "scroll_node_by",
-        "selector": ".__azul-native-tabs-touch-band",
+        "selector": ".__azul-native-tabs-touch-strip",
         "delta_x": 4000.0,
         "delta_y": 0.0
       },
@@ -270,7 +270,7 @@
       },
       {
         "op": "get_scrollbar_info",
-        "selector": ".__azul-native-tabs-touch-band",
+        "selector": ".__azul-native-tabs-touch-strip",
         "orientation": "horizontal"
       },
       {

@@ -20,6 +20,9 @@
 #                   the engine prints its `[startup]` table at the first present (the engine's clock, first_present, layout passes) into it.
 #   strips/flagged-frames.png   one row per flag: the frame before, first, middle, last of the run and the one after.
 # The numbers of an emulator on a shared runner are indicative: compare two builds in the same job (run it on both SHAs) and read the frames, not the milliseconds.
+# The system's own launch metric (am start -W TotalTime, the activity manager's `Displayed`) JUMPS by the first-layout time once WP-S's fix holds the window's first draw
+# until the engine's first present (it then means 'the first Azul picture', before 'the blank window at about 0.4 s'): not a regression. Compare the engine timeline's
+# `first_present` (cold-start-logcat.txt with AZ_FLICKER_STARTUP=1) and the black frames after the starting window (flicker.json).
 set -uxo pipefail
 apps="${*:-AzWidgets AzWriter}"
 target=x86_64-linux-android

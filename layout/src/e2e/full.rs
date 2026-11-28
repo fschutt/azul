@@ -3191,6 +3191,18 @@ pub enum DebugEvent {
     SetDisplayPreset {
         preset: String,
     },
+    /// Fold the window's tab content away or show it (`WindowFlags::tab_content_hidden`, what the tab
+    /// strip's chevron flips): `{"op":"toggle_tab_content"}` flips it, `{"op":"toggle_tab_content",
+    /// "hidden":true}` sets it. The layout is built again, and every `TabContent` and ribbon band with
+    /// `with_content_toggle` shows nothing while it is folded.
+    ToggleTabContent {
+        #[serde(default)]
+        hidden: Option<bool>,
+    },
+    /// Whether the window's tab content is folded away: `{"hidden":false}`.
+    ///
+    /// `curl -s -X POST localhost:8765/ -d '{"op":"get_tab_content"}'`
+    GetTabContent,
 
     // Queries
     GetState,
@@ -18194,6 +18206,24 @@ fn serve_debug_event(
             }
         }
 
+        DebugEvent::ToggleTabContent { hidden } => {
+            let mut new_state = callback_info.get_current_window_state().clone();
+            new_state.flags.tab_content_hidden = hidden.unwrap_or(!new_state.flags.tab_content_hidden);
+            // A window flag like any other: the layout is built again for it.
+            callback_info.modify_window_state(new_state);
+            needs_update = true;
+            send_ok(request, None, None);
+        }
+
+        DebugEvent::GetTabContent => {
+            let hidden = callback_info.get_current_window_state().flags.tab_content_hidden;
+            send_ok(
+                request,
+                None,
+                Some(ResponseData::Json(serde_json::json!({ "hidden": hidden }))),
+            );
+        }
+
         DebugEvent::MouseMove {
             x,
             y,
@@ -24793,14 +24823,25 @@ pub fn window_still_moving(layout_window: &azul_layout::window::LayoutWindow) ->
     if lw.scroll_manager.has_active_animations() {
         moving.push(String::from("a scroll easing"));
     }
-    if lw.gpu_state_manager.scrollbar_fade_active {
-        moving.push(String::from("a scrollbar fading"));
-    } else if lw.gpu_state_manager.scrollbar_fade_left() > 0 {
-        // The hold before the fade: opacity 1.0, nothing on the screen moves yet
-        // (`scrollbar_fade_active` is false), and the whole bar is about to. A
-        // window read as settled here was caught with its track half a second
-        // from falling (`wait_settled` 50 ms after a wheel, E2E-M3).
-        moving.push(String::from("a scrollbar waiting to fade out"));
+    // A bar is on its way out while the clock has not reached the end of its fade
+    // (`scrollbar_fade_left`: counted down by the window's own clock, so it is right with no
+    // frame drawn in between). `scrollbar_fade_active` says the bar is fading RIGHT NOW (opacity
+    // strictly between 1 and 0), but it is only as fresh as the last frame that looked: a
+    // backend that does not run the fade between its renders (the headless shell of an app
+    // under `AZ_E2E`) keeps the value of its last layout pass, and a flag left at `true` made
+    // every `wait_settled` of a page that had scrolled run into its deadline ("a scrollbar
+    // fading" after 3000 ms of engine time, on the host app and not on the phones, whose
+    // frames refresh it). A fade whose end is past is over, whatever the flag still says.
+    if lw.gpu_state_manager.scrollbar_fade_left() > 0 {
+        if lw.gpu_state_manager.scrollbar_fade_active {
+            moving.push(String::from("a scrollbar fading"));
+        } else {
+            // The hold before the fade: opacity 1.0, nothing on the screen moves yet
+            // (`scrollbar_fade_active` is false), and the whole bar is about to. A
+            // window read as settled here was caught with its track half a second
+            // from falling (`wait_settled` 50 ms after a wheel, E2E-M3).
+            moving.push(String::from("a scrollbar waiting to fade out"));
+        }
     }
     (!moving.is_empty()).then(|| moving.join(", "))
 }
@@ -25246,8 +25287,28 @@ mod debug_request_wake_tests {
                 .expect("a layout window");
         assert_eq!(window_still_moving(&lw), None, "a new window has settled");
         lw.gpu_state_manager.scrollbar_fade_active = true;
+        lw.gpu_state_manager
+            .scrollbar_fade_left_ms
+            .insert(azul_core::dom::DomId::ROOT_ID, 150);
         let moving = window_still_moving(&lw).expect("a fading bar is motion");
-        assert!(moving.contains("scrollbar"), "{moving}");
+        assert!(moving.contains("scrollbar fading"), "{moving}");
+    }
+
+    /// A backend that does not run the fade between its renders (the headless shell of an app
+    /// under `AZ_E2E`) leaves `scrollbar_fade_active` at what its last layout pass saw: a bar
+    /// that was mid-fade then. The fade has no end left (the window's clock is past it), so the
+    /// window is at rest - the flag alone is not motion.
+    #[test]
+    fn a_fade_flag_left_over_from_the_last_layout_is_not_a_scrollbar_still_fading() {
+        let mut lw =
+            azul_layout::window::LayoutWindow::new(rust_fontconfig::FcFontCache::default())
+                .expect("a layout window");
+        lw.gpu_state_manager.scrollbar_fade_active = true;
+        assert_eq!(
+            window_still_moving(&lw),
+            None,
+            "no fade end ahead: the stale flag is not motion"
+        );
     }
 
     #[test]

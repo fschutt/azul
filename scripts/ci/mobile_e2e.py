@@ -571,23 +571,60 @@ def e2e_session(args):
         dev.settle(1.0)
 
     def s_script_maps(s):
+        """AzMaps, real touches. The refactored app (WP-E2, no sidebar): the layers key `#__azmaps_layers` (a popover of four styles `#__azmaps_style-0..3`,
+        a pick prints AZMAPS_STYLE), the first chip under the search bar `#__azmaps_chip-0` (prints AZMAPS_CHIP), the search field `#__azmaps_search` (the
+        soft keyboard, the sheet must lift above it), a double tap that drops a pin and opens its place (AZMAPS_PLACE). The app before it: the sidebar key
+        `#__azmaps_sidebar-toggle` (AZMAPS_SIDEBAR). Whichever keys the server names are used; the picture sequence says which app it was."""
         dev.settle(15.0)
         views0 = q.marker_values(dev.adb("logcat", "-d", "-v", "threadtime", timeout=60), "AZMAPS_VIEW")
         before = device_shot(s, "maps-15s")
         mark = dev.now_mark()
-        at = None
-        for selector in ("#__azmaps_sidebar-toggle", "#sidebar-toggle"):         # the DOM id carries the app's prefix
-            at = tap_node(s, selector)
-            if at:
-                s.note(f"the sidebar toggle is {selector}")
-                break
-        s.check("the server names the sidebar toggle with a box", bool(at), str(at))
-        dev.settle(3.0)
-        sidebar = device_shot(s, "maps-sidebar-tapped")
-        marks = q.marker_values(dev.adb("logcat", "-d", "-v", "threadtime", timeout=60), "AZMAPS_SIDEBAR", since=mark)
-        s.note(f"AZMAPS_SIDEBAR after one tap on the toggle: {marks}; the picture differs {q.sig_diff(sidebar, before):.3f}")
-        s.check("one tap on the toggle changes the sidebar (AZMAPS_SIDEBAR, and the picture)", bool(marks) or q.sig_diff(sidebar, before) > q.SAME_BELOW,
-                f"printed {marks}")
+        last = before
+        layers = tap_node(s, "#__azmaps_layers")
+        if layers:
+            s.note("the layers key is #__azmaps_layers: the refactored AzMaps (no sidebar)")
+            dev.settle(2.0)
+            popover = device_shot(s, "maps-layers-popover")
+            s.check("the layers key opens something (the picture changes)", q.sig_diff(popover, before) > q.SAME_BELOW, f"the picture differs {q.sig_diff(popover, before):.3f}")
+            pick = tap_node(s, "#__azmaps_style-1")
+            dev.settle(3.0)
+            styled = device_shot(s, "maps-style-picked")
+            styles = q.marker_values(dev.adb("logcat", "-d", "-v", "threadtime", timeout=60), "AZMAPS_STYLE", since=mark)
+            s.note(f"AZMAPS_STYLE after a pick: {styles}; the picture differs {q.sig_diff(styled, popover):.3f}")
+            s.check("a style pick in the popover changes the map (AZMAPS_STYLE, and the picture)", bool(pick) and (bool(styles) or q.sig_diff(styled, popover) > q.SAME_BELOW),
+                    f"the pick found {pick}; printed {styles}")
+            mark_chip = dev.now_mark()
+            chip = tap_node(s, "#__azmaps_chip-0")
+            dev.settle(3.0)
+            chipped = device_shot(s, "maps-chip-tapped")
+            chips = q.marker_values(dev.adb("logcat", "-d", "-v", "threadtime", timeout=60), "AZMAPS_CHIP", since=mark_chip)
+            s.note(f"AZMAPS_CHIP after a tap on the first chip: {chips}; the picture differs {q.sig_diff(chipped, styled):.3f}")
+            s.check("a tap on the first chip searches (AZMAPS_CHIP, and the picture)", bool(chip) and (bool(chips) or q.sig_diff(chipped, styled) > q.SAME_BELOW),
+                    f"the chip found {chip}; printed {chips}", required=False)
+            field = tap_node(s, "#__azmaps_search")
+            dev.settle(3.0)
+            typed = device_shot(s, "maps-search-keyboard")
+            up = dev.ime_shown()
+            s.check("a tap into the search field raises the soft keyboard", bool(field) and up, f"the field found {field}; the window system says {'shown' if up else 'hidden'}", required=False)
+            if up:
+                dev.hide_ime()
+                dev.settle(1.0)
+            last = typed
+        else:
+            at = None
+            for selector in ("#__azmaps_sidebar-toggle", "#sidebar-toggle"):         # the DOM id carries the app's prefix
+                at = tap_node(s, selector)
+                if at:
+                    s.note(f"the sidebar toggle is {selector}")
+                    break
+            s.check("the server names the sidebar toggle with a box", bool(at), str(at))
+            dev.settle(3.0)
+            sidebar = device_shot(s, "maps-sidebar-tapped")
+            marks = q.marker_values(dev.adb("logcat", "-d", "-v", "threadtime", timeout=60), "AZMAPS_SIDEBAR", since=mark)
+            s.note(f"AZMAPS_SIDEBAR after one tap on the toggle: {marks}; the picture differs {q.sig_diff(sidebar, before):.3f}")
+            s.check("one tap on the toggle changes the sidebar (AZMAPS_SIDEBAR, and the picture)", bool(marks) or q.sig_diff(sidebar, before) > q.SAME_BELOW,
+                    f"printed {marks}")
+            last = sidebar
         w, h = dev.dims
         mark2 = dev.now_mark()
         dev.tap(int(w * 0.5), int(h * 0.62))
@@ -605,8 +642,12 @@ def e2e_session(args):
             z1 = float(views[-1].split()[2]) if views else None
         except (ValueError, IndexError):
             z0 = z1 = None
-        s.check("a double tap on the map zooms in", z0 is not None and z1 is not None and z1 > z0,
-                f"zoom {z0} -> {z1}; the picture differs {q.sig_diff(zoomed, sidebar):.3f}; pins printed {pins}, place {place}", required=False)
+        if layers:
+            s.check("a double tap on the map drops a pin and opens its place (AZMAPS_PLACE, and the picture)", bool(place) or q.sig_diff(zoomed, last) > q.SAME_BELOW,
+                    f"pins printed {pins}, place {place}; the picture differs {q.sig_diff(zoomed, last):.3f}", required=False)
+        else:
+            s.check("a double tap on the map zooms in", z0 is not None and z1 is not None and z1 > z0,
+                    f"zoom {z0} -> {z1}; the picture differs {q.sig_diff(zoomed, last):.3f}; pins printed {pins}, place {place}", required=False)
 
     def s_script_meet(s):
         dev.settle(6.0)
