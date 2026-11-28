@@ -11,10 +11,14 @@
 # 5. the OpenGL ES host tests (scripts/ci/gles_host.sh: WebRender over Mesa's OpenGL ES 3 against the CPU renderer, the lifecycle
 #    executor with real EGL, the pure tests), one process per GL test; they are off in step 3 (AZ_GLES_HOST_TESTS)
 # 6. the guide: `azul-doc check` and `azul-doc check layout`
+# AZ_GATE_SKIP="clippy srcgate doc" leaves out the steps named (a change that touches the dll alone needs none of them).
 #
 # Every step prints its own verdict line with the real exit code; the job exits 0 whatever they say, so that the runner keeps its build
 # cache (it saves it only for a job that succeeded). The last line is the verdict of all of them.
 set -uo pipefail
+
+# AZ_GATE_SKIP="clippy srcgate doc": steps a change does not touch (a change to the dll alone needs none of them)
+skip() { case " ${AZ_GATE_SKIP:-} " in *" $1 "*) echo "(skipped: $1)"; record "$1 (skipped)" 0; return 0;; esac; return 1; }
 
 overall=0
 summary=""
@@ -35,15 +39,17 @@ for target in x86_64-linux-android aarch64-linux-android; do
   fi
 done
 
-echo "=== 2. clippy (azul-core, azul-css, azul-layout; the feature set the tests compile) ==="
-cargo clippy -p azul-core -p azul-css -p azul-layout --all-targets \
-  --features azul-core/serde-json,azul-core/url,azul-layout/json,azul-layout/e2e-server,azul-layout/updater \
-  -- -D warnings >target/gate-clippy.log 2>&1
-status=$?
-if [ "$status" -ne 0 ]; then grep -n -E "^(error|warning)" -A12 target/gate-clippy.log | head -n 200; fi
-tail -n 5 target/gate-clippy.log
-echo "gate: clippy exit $status"
-record "clippy" "$status"
+if ! skip clippy; then
+  echo "=== 2. clippy (azul-core, azul-css, azul-layout; the feature set the tests compile) ==="
+  cargo clippy -p azul-core -p azul-css -p azul-layout --all-targets \
+    --features azul-core/serde-json,azul-core/url,azul-layout/json,azul-layout/e2e-server,azul-layout/updater \
+    -- -D warnings >target/gate-clippy.log 2>&1
+  status=$?
+  if [ "$status" -ne 0 ]; then grep -n -E "^(error|warning)" -A12 target/gate-clippy.log | head -n 200; fi
+  tail -n 5 target/gate-clippy.log
+  echo "gate: clippy exit $status"
+  record "clippy" "$status"
+fi
 
 echo "=== 3. the whole cargo test -p azul-dll --lib ==="
 cargo test -p azul-dll --lib >target/gate-dll-lib.log 2>&1
@@ -53,12 +59,14 @@ grep -E "^test .* FAILED" target/gate-dll-lib.log | head -n 60
 echo "gate: azul-dll lib tests exit $status"
 record "azul-dll lib tests (the whole)" "$status"
 
-echo "=== 4. cargo test -p azul-srcgate --no-fail-fast ==="
-cargo test -p azul-srcgate --no-fail-fast >target/gate-srcgate.log 2>&1
-status=$?
-grep -E "^test result|^error(\[E[0-9]+\])?:|could not compile|^test .* FAILED" target/gate-srcgate.log | tail -n 40
-echo "gate: srcgate exit $status"
-record "srcgate" "$status"
+if ! skip srcgate; then
+  echo "=== 4. cargo test -p azul-srcgate --no-fail-fast ==="
+  cargo test -p azul-srcgate --no-fail-fast >target/gate-srcgate.log 2>&1
+  status=$?
+  grep -E "^test result|^error(\[E[0-9]+\])?:|could not compile|^test .* FAILED" target/gate-srcgate.log | tail -n 40
+  echo "gate: srcgate exit $status"
+  record "srcgate" "$status"
+fi
 
 if grep -q "^test result: " target/gate-dll-lib.log; then
   echo "=== 5. the OpenGL ES host tests ==="
@@ -73,17 +81,19 @@ else
   record "gles host tests (not run)" 1
 fi
 
-echo "=== 6. the guide: azul-doc check (double-drop invariant, guide links) and azul-doc check layout ==="
-cargo run -r -p azul-doc -- check >target/gate-doc-check.log 2>&1
-status=$?
-tail -n 12 target/gate-doc-check.log
-echo "gate: azul-doc check exit $status"
-record "azul-doc check" "$status"
-cargo run -r -p azul-doc -- check layout >target/gate-doc-layout.log 2>&1
-status=$?
-tail -n 12 target/gate-doc-layout.log
-echo "gate: azul-doc check layout exit $status"
-record "azul-doc check layout" "$status"
+if ! skip doc; then
+  echo "=== 6. the guide: azul-doc check (double-drop invariant, guide links) and azul-doc check layout ==="
+  cargo run -r -p azul-doc -- check >target/gate-doc-check.log 2>&1
+  status=$?
+  tail -n 12 target/gate-doc-check.log
+  echo "gate: azul-doc check exit $status"
+  record "azul-doc check" "$status"
+  cargo run -r -p azul-doc -- check layout >target/gate-doc-layout.log 2>&1
+  status=$?
+  tail -n 12 target/gate-doc-layout.log
+  echo "gate: azul-doc check layout exit $status"
+  record "azul-doc check layout" "$status"
+fi
 
 echo "=== GPU GATE SUMMARY ==="
 echo "$summary"
