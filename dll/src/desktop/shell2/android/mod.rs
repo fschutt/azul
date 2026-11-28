@@ -115,6 +115,8 @@ pub struct AndroidWindow {
     frame_stats: crate::desktop::shell2::common::frame_stats::FrameStats,
     frame_clock: std::time::Instant,
     raster_since_post_us: u64,
+    /// What the app has been told of the activity's coming and going (`android_core::lifecycle::AppPhase`: the pairs hold).
+    app_phase: crate::desktop::shell2::android_core::lifecycle::AppPhase,
     /// The activity was told that this window posted its first picture (`AzulActivity.firstFramePresented`: the system's starting
     /// window may go, Android 12+). Once.
     first_frame_signalled: bool,
@@ -292,6 +294,7 @@ impl AndroidWindow {
             frame_clock: std::time::Instant::now(),
             raster_since_post_us: 0,
             first_frame_signalled: false,
+            app_phase: crate::desktop::shell2::android_core::lifecycle::AppPhase::default(),
             is_open: true,
             icon_provider,
             font_registry,
@@ -1191,6 +1194,26 @@ impl Drop for CloseBridgeOnExit {
     }
 }
 
+/// Tell the app what `android_core::lifecycle::AppPhase` says is to be told (the app's lifecycle handler:
+/// `CallbackInfo::set_lifecycle_handler`; an app without one hears nothing), and apply what the handler asked for.
+#[cfg(all(target_os = "android", feature = "android-activity"))]
+fn tell_app(window: &mut AndroidWindow, tell: Option<crate::desktop::shell2::android_core::lifecycle::Tell>) {
+    use azul_core::lifecycle::LifecycleEvent;
+    use crate::desktop::shell2::android_core::lifecycle::Tell;
+
+    let Some(tell) = tell else {
+        return;
+    };
+    let event = match tell {
+        Tell::Paused => LifecycleEvent::Paused,
+        Tell::Resumed => LifecycleEvent::Resumed,
+        Tell::LowMemory => LifecycleEvent::LowMemory,
+        Tell::WillTerminate => LifecycleEvent::WillTerminate,
+    };
+    let result = crate::desktop::lifecycle::raise(window, event);
+    follow_ui_result(window, result);
+}
+
 /// What the loop does with the result of a pass over a UI-thread event: the same ladder the input
 /// sites use. An incremental relayout is PERFORMED here, never escalated into a DOM rebuild that
 /// would throw it away (an IME commit landed in the engine's tree and was overwritten by the app's
@@ -1384,7 +1407,11 @@ fn apply_ui_events(window: &mut AndroidWindow, events: Vec<UiEvent>) {
             }
             UiEvent::DisplayFeatures(flat) => apply_display_features(window, &flat),
             UiEvent::Gesture(gesture) => apply_gesture(window, gesture),
-            UiEvent::TrimMemory(level) => trim_memory(window, level),
+            UiEvent::TrimMemory(level) => {
+                trim_memory(window, level);
+                let tell = window.app_phase.on_trim(level);
+                tell_app(window, tell);
+            }
         }
     }
     // The same gate as X11's handle_xi_raw_motion - only while the lock is held - then the shared manager
@@ -1938,6 +1965,9 @@ fn handle_poll_event(app: &AndroidApp, window: &mut AndroidWindow, event: PollEv
             }
             MainEvent::TerminateWindow { .. } => {
                 log_debug!(LogCategory::Window, "[Android] TerminateWindow");
+                // The surface goes: the app is off the screen, even when `Pause` did not come first.
+                let tell = window.app_phase.on_surface_lost();
+                tell_app(window, tell);
                 // The EGL surface goes BEFORE the ANativeWindow is released below (NDK: do not touch the window after this
                 // callback returns); the GPU path's context and renderer stay.
                 window.gpu_surface_destroyed();
@@ -2026,15 +2056,26 @@ fn handle_poll_event(app: &AndroidApp, window: &mut AndroidWindow, event: PollEv
                 // NDK `onLowMemory`: "Use this callback to release resources you do not need": the
                 // worst level (`onTrimMemory` reaches the shell as `UiEvent::TrimMemory`).
                 trim_memory(window, TRIM_MEMORY_UI_HIDDEN);
+                let tell = window.app_phase.on_low_memory();
+                tell_app(window, tell);
             }
             MainEvent::Destroy => {
+                // The last word to the app (a window that never heard `Paused` hears it first), then the window goes.
+                for tell in window.app_phase.on_destroy() {
+                    tell_app(window, tell);
+                }
                 window.close();
             }
             MainEvent::Pause => {
-                // No-op for now; future: pause timers, stop animations.
+                // The app left the screen: its lifecycle handler hears `Paused` NOW, before the system may end the process
+                // (the app writes what a person would lose here).
+                let tell = window.app_phase.on_pause();
+                tell_app(window, tell);
             }
             MainEvent::Resume { .. } => {
                 adopt_touch_sounds(window);
+                let tell = window.app_phase.on_resume();
+                tell_app(window, tell);
                 // Back in front (HOME and back, recents, another app's dialog that covered this one): the
                 // surface may have lost what it showed without a `RedrawNeeded` (a black window until
                 // something redrew it, QA run 45776829730). The frame the shell holds is posted once,

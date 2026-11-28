@@ -11761,6 +11761,16 @@ static UNOBSERVABLE_MANAGERS: &[(&str, &str)] = &[
          X10 has nothing to judge. Routing and delivery are pinned by layout/tests/tray_events.rs",
     ),
     (
+        "lifecycle",
+        "owns no window state: the tray's shape. One mutex mailbox of the APP (`AppServices::lifecycle`) \
+         that the platform's own callbacks (an Android activity method, an iOS application delegate \
+         method) queue paused / resumed / low-memory / will-terminate events in, the handler the app \
+         installed (one for the app, not one per window), and a 'current event' slot set only for the \
+         duration of one delivery. The app's life belongs to the app, not to a window, and nothing is \
+         node-keyed, so X10 has nothing to judge. Routing and delivery are pinned by \
+         layout/src/managers/lifecycle_test.rs",
+    ),
+    (
         "a11y",
         "HAS state (A11yManager.tree) and IS a LayoutWindow field, so this one is a real gap, not \
          an impossibility: proving a tree node still maps to a live DOM node needs an A11yNodeId \
@@ -12940,6 +12950,13 @@ fn not_fingerprintable() -> Vec<(&'static str, &'static str)> {
              app's, and its only reader (`drain_tray_events`) consumes what it returns, so \
              measuring it would swallow the click the app was about to receive, and the tray is \
              the app's, so a change could not be attributed to this window",
+        ),
+        (
+            "lifecycle",
+            "nothing on the WINDOW to hash, for `tray_event`'s reasons: the mailbox and the handler \
+             are the app's, and the delivery pass consumes what it returns, so measuring it would \
+             swallow the event the app was about to receive, and the app's life is not this window's, \
+             so a change could not be attributed to it",
         ),
         (
             "thread_owner",
