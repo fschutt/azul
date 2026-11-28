@@ -6,6 +6,7 @@
 #
 # Steps (SHEET_ONLY names them; none named = all of them):
 #   tests      the widget's tests by name, in azul-layout, with the CI's feature list
+#   phone_tests  the integration tests of the phone layouts of AzMaps (layout/tests/azul_maps_*): the floating layout and the banner
 #   clippy     the CI's clippy line of azul-layout, the test targets included
 #   autofix    api.json through azul-doc: `autofix add` for the new functions, patches until there are none, normalize; the result is
 #              api.json (upload it) and api.diff; then a SECOND round that must change nothing
@@ -43,6 +44,14 @@ tests() {
   return "${PIPESTATUS[0]}"
 }
 run tests tests
+
+# the integration tests of the phone layouts of AzMaps (they read the app's source: ui.rs, lib.rs, flow.rs, drive_ui.rs)
+phone_tests() {
+  AZ_REQUIRE_TEST_FONTS=1 cargo test -p azul-layout --features "$features" --no-fail-fast \
+    --test azul_maps_floating_layout_fits_a_phone --test azul_maps_drive_banner_fits_a_phone 2>&1 | tee phone-tests.txt
+  return "${PIPESTATUS[0]}"
+}
+run phone_tests phone_tests
 
 clippy() {
   cargo clippy -p azul-layout --all-targets --features "$features" -- -D warnings 2>&1 | tee clippy.txt
