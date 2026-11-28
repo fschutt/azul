@@ -31,7 +31,7 @@ use azul_appkit::l10n::label;
 use crate::{
     actions, follow, ids,
     model::{clamped_preview_size, Settings},
-    save_settings, sync_view, ui_frame, ui_panes, ui_view, with_state, DriveState,
+    save_settings, sync_view, ui_panes, ui_view, with_state, DriveState,
 };
 
 // ==== The widget ====
@@ -57,7 +57,6 @@ pub(crate) fn preview(s: &DriveState, app: &RefAny, dark: bool) -> Preview {
             s.settings.preview_width
         })
         .with_form(s.form)
-        .with_dock(ui_frame::HANDEDNESS.preview_dock(s.phone))
         .with_surface(SidebarSurface::Theme)
         .with_on_event(app.clone(), on_preview as PreviewOnEventCallbackType);
     if !details {

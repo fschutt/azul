@@ -6,11 +6,12 @@
 //!
 //! The windows that keep a title row are the Options and the About (the backstage): they have no
 //! ribbon, and the title row is what the window is moved by there.
+//!
+//! The window is made for the right hand and AzDrive decides no side of its own: the sidebar's
+//! edge and the preview's dock are the widget family's (`sidebar_edge`, `preview_edge`, read from
+//! one `Handedness` in `sidebar_layout`), so the mirror for a left-handed user is one change there.
 
-use azul::{
-    prelude::*,
-    widgets::{AppFrame, PreviewDock},
-};
+use azul::{prelude::*, widgets::AppFrame};
 use azul_appkit::ui::TitleInsets;
 
 use crate::{
@@ -27,29 +28,6 @@ pub(crate) struct Look {
     pub window: (f32, f32),
     pub dark: bool,
     pub insets: TitleInsets,
-}
-
-/// Which hand the window is made for. Right-handed only for now: the mirror comes later, and every
-/// left / right decision of the frame is read from here - which side the preview docks on, where
-/// the thumb reaches - so that the mirror is one change.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub(crate) enum Handedness {
-    #[default]
-    Right,
-}
-
-/// The hand the window is made for.
-pub(crate) const HANDEDNESS: Handedness = Handedness::Right;
-
-impl Handedness {
-    /// Where the preview docks: at the window's right on a desktop, at its foot on a phone.
-    #[must_use]
-    pub(crate) const fn preview_dock(self, phone: bool) -> PreviewDock {
-        match (self, phone) {
-            (Handedness::Right, false) => PreviewDock::Right,
-            (Handedness::Right, true) => PreviewDock::Bottom,
-        }
-    }
 }
 
 /// The widest a window is that is a phone's (px): the same line the widgets draw (`Auto`'s).
