@@ -123,6 +123,20 @@ fn append_style(node: &mut azul_core::dom::NodeData, style: &CssPropertyWithCond
     }
 }
 
+/// [`append_style`] for a style written as CSS text that uses `env()` (the keyboard's height, the
+/// home indicator's): the property parser behind [`parsed`] reads plain values only and DROPS a
+/// declaration whose value is an `env()` - the scrim stood behind the soft keyboard and the sheet
+/// under the home indicator, with nothing to say so - while the stylesheet parser turns it into a
+/// dynamic declaration the cascade resolves against the window's live insets. The rules go on after
+/// the node's own, in the order they are written (so a `@media` block that follows a base
+/// declaration still wins when it applies).
+fn append_sheet(node: &mut azul_core::dom::NodeData, style: &str) {
+    let sheet = azul_css::css::Css::parse_inline(style);
+    let mut rules = core::mem::take(&mut node.style.rules).into_library_owned_vec();
+    rules.extend(sheet.rules.into_library_owned_vec());
+    node.style.rules = rules.into();
+}
+
 /// The accessible title the `<transient-window>` node names its window by (its `title`, else its
 /// `aria-label`): what the OS would show in the title bar of a window of its own.
 fn title_of(node: &azul_core::dom::NodeData) -> String {
@@ -277,7 +291,7 @@ fn present_one(dom: &mut Dom, anchor: TransientAnchor, skin: &DialogSkin) {
 
     // The scrim: the theme's dim, and the layout that puts the card at the bottom or in the middle.
     append_style(node, &CssPropertyWithConditionsVec::from_vec(backdrop_of(skin)));
-    append_style(node, &parsed(COVER_STYLE));
+    append_sheet(node, COVER_STYLE);
 
     let titled = has_titlebar(&dom.root, anchor);
     let title = title_of(&dom.root);
@@ -350,7 +364,7 @@ fn present_one(dom: &mut Dom, anchor: TransientAnchor, skin: &DialogSkin) {
             alloc::vec![IdOrClass::Class(AzString::from_const_str(SHEET_CLASS))].into(),
         )
         .with_css_props(skin.panel.clone());
-    append_style(&mut card.root, &parsed(SHEET_STYLE));
+    append_sheet(&mut card.root, SHEET_STYLE);
     // A card whose content brings no dialog of its own is the dialog, named by its title.
     if !has_own_dialog {
         card = card.with_accessibility_info(AccessibilityInfo {

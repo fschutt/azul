@@ -69,7 +69,8 @@ fn menu(labels: &[&str]) -> Menu {
 fn show(lw: &mut LayoutWindow, ws: &FullWindowState, app: &Dom) {
     for _ in 0..4 {
         let mut dom = app.clone();
-        let _ = lw.present_transient_windows(&mut dom, ws);
+        // The window's own document: the menus that are open, then every popup (`present_root_overlays`).
+        let _ = lw.present_root_overlays(&mut dom, ws);
         let styled = StyledDom::create(&mut dom, azul_css::css::Css::empty());
         lw.layout_and_generate_display_list(
             styled,

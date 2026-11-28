@@ -6,6 +6,7 @@
 #
 # Steps (OVERLAY_ONLY names them; none named = all of them):
 #   tests      the tests of the work by name, in azul-core and azul-layout, with the CI's feature list
+#   teeth      the tests of the capture and override-dirt fixes must be red when the fix is taken out (a scratch copy)
 #   workspace  the CI's workspace test command of css, core, layout and webrender in full (the gate before a push)
 #   clippy     the CI's two clippy lines of the three crates, the test targets included (the second without the 36 findings
 #              of master's `unused_qualifications`, which are listed by file instead)
@@ -51,6 +52,59 @@ tests() {
   return "$code"
 }
 run tests tests
+
+# The tests of the fixes that came out of a review (the runner's capture and override-dirt tests) must be RED without the fix:
+# each fix is taken out of a scratch copy of the source (nothing is committed), the tests run, and the source is put back.
+teeth() {
+  local code=0
+  # 1. an override write that needs layout stages no css dirt
+  python3 - <<'PY'
+p = "layout/src/window.rs"
+s = open(p).read()
+old = "if override_only && needs_relayout {\n            self.stage_css_dirty("
+assert old in s, "the staging of the override dirt moved: update the teeth step"
+open(p, "w").write(s.replace(old, "if false && override_only && needs_relayout {\n            self.stage_css_dirty(", 1))
+PY
+  cargo test -p azul-css -p azul-core -p azul-layout --lib --features "$features" -- override_dirt 2>&1 | tee teeth-override.txt
+  if [ "${PIPESTATUS[0]}" -eq 0 ]; then
+    echo "TEETH override: the tests PASS without the fix - they prove nothing"
+    code=1
+  else
+    echo "TEETH override: red without the fix, as it must be"
+  fi
+  git checkout -- layout/src/window.rs
+  # 2. the explicit capture runs AFTER the press-target capture (the order the shells and the runner had)
+  python3 - <<'PY'
+p = "layout/src/input_capture.rs"
+s = open(p).read()
+a = """    if let Some(held) = *capture {
+        if apply_pointer_capture(events, held) {
+            *capture = None;
+        }
+    }
+    hover.apply_press_target_capture(events, in_release_path);
+"""
+b = """    hover.apply_press_target_capture(events, in_release_path);
+    if let Some(held) = *capture {
+        if apply_pointer_capture(events, held) {
+            *capture = None;
+        }
+    }
+"""
+assert a in s, "the capture order moved: update the teeth step"
+open(p, "w").write(s.replace(a, b, 1))
+PY
+  cargo test -p azul-css -p azul-core -p azul-layout --lib --features "$features" -- input_capture captured_release 2>&1 | tee teeth-capture.txt
+  if [ "${PIPESTATUS[0]}" -eq 0 ]; then
+    echo "TEETH capture: the tests PASS in the old order - they prove nothing"
+    code=1
+  else
+    echo "TEETH capture: red in the old order, as it must be"
+  fi
+  git checkout -- layout/src/input_capture.rs
+  return "$code"
+}
+run teeth teeth
 
 workspace() {
   sudo apt-get update -qq || true

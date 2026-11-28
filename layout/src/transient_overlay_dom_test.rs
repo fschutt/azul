@@ -98,21 +98,66 @@ fn every_layer_is_a_target_of_the_pointer() {
     }
 }
 
+/// The `env()` references a node's own style carries: the names of the window's insets its declarations are read from
+/// (`env:keyboard-inset-height`). They are dynamic declarations of the stylesheet parser; the property parser drops them.
+fn env_references(dom: &Dom) -> Vec<String> {
+    use azul_css::css::CssDeclaration;
+    dom.root
+        .get_style()
+        .rules
+        .as_ref()
+        .iter()
+        .flat_map(|rule| rule.declarations.as_ref().iter())
+        .filter_map(|declaration| match declaration {
+            CssDeclaration::Dynamic(dynamic) => Some(dynamic.dynamic_id.as_str().to_owned()),
+            _ => None,
+        })
+        .collect()
+}
+
 /// The sheet of a dialog stands on the soft keyboard: the scrim reads the keyboard's height as its bottom
 /// padding (`env(keyboard-inset-height)`), so a field of the dialog is never hidden by the keyboard it asked for.
 #[test]
 fn the_scrim_leaves_room_for_the_keyboard() {
     let mut page = page_with(popup(TransientAnchor::Dialog, Some("Sign in"), vec![named("panel")]));
     present_transient_windows(&mut page, WindowPresentation::OneSurface);
-    // An `env()` value may be kept as a conditional property: any inline declaration of the property counts.
     assert!(
-        popup_of(&page)
-            .root
-            .get_style()
-            .iter_inline_properties()
-            .any(|(property, _)| matches!(property, CssProperty::PaddingBottom(_))),
-        "the scrim has a bottom padding"
+        env_references(popup_of(&page)).iter().any(|id| id == "env:keyboard-inset-height"),
+        "the scrim's bottom padding is the keyboard's height: {:?}",
+        env_references(popup_of(&page))
     );
+}
+
+/// ... and the card keeps clear of the home indicator (`env(safe-area-inset-bottom)`), a sheet's bottom edge being the window's.
+#[test]
+fn the_sheet_keeps_clear_of_the_home_indicator() {
+    let mut page = page_with(popup(TransientAnchor::Dialog, Some("Sign in"), vec![named("panel")]));
+    present_transient_windows(&mut page, WindowPresentation::OneSurface);
+    let card = &popup_of(&page).children.as_ref()[0];
+    assert!(has_class(card, SHEET_CLASS));
+    assert!(
+        env_references(card).iter().any(|id| id == "env:safe-area-inset-bottom"),
+        "the card's bottom padding is the inset: {:?}",
+        env_references(card)
+    );
+}
+
+/// A sheet on a phone, a centred card from 600 px of width: the scrim and the card each carry the rule that flips at the
+/// breakpoint (a `@media (min-width: 600px)` block of their style, kept as a conditional rule).
+#[test]
+fn the_scrim_and_the_card_carry_the_rule_of_the_600_px_breakpoint() {
+    let mut page = page_with(popup(TransientAnchor::Dialog, Some("Sign in"), vec![named("panel")]));
+    present_transient_windows(&mut page, WindowPresentation::OneSurface);
+    let conditional = |dom: &Dom| {
+        dom.root
+            .get_style()
+            .rules
+            .as_ref()
+            .iter()
+            .any(|rule| !rule.conditions.as_ref().is_empty() && !rule.declarations.as_ref().is_empty())
+    };
+    assert!(conditional(popup_of(&page)), "the scrim centres the card from 600 px");
+    assert!(conditional(&popup_of(&page).children.as_ref()[0]), "the card is no full-width sheet from 600 px");
 }
 
 /// A popover is what its panel says: no chrome of the engine's.
