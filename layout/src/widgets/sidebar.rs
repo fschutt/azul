@@ -1156,8 +1156,10 @@ impl Sidebar {
     }
 
     /// Keeps the room the OS's window controls need: a band `height` px tall at the top (it moves
-    /// the window) and a column never narrower than `left` px (macOS's traffic lights: 78 and the
-    /// title bar's height). `left` 0: the controls are not at the left, nothing is kept.
+    /// the window), over which the controls (macOS's traffic lights: 78 px wide, the title bar's
+    /// height) sit and overhang the 18 px rail. `left` 0: the controls are not at the left,
+    /// nothing is kept. A phone has no window controls, whatever it is told (a camera housing's
+    /// safe area is not one): nothing is kept there.
     pub const fn set_window_controls(&mut self, left: f32, height: f32) {
         self.controls_left = left;
         self.controls_height = height;
@@ -1244,6 +1246,9 @@ impl Sidebar {
     /// sidebar is wider than they are: 0.
     #[must_use]
     pub fn header_left_pad(&self) -> f32 {
+        if self.form.is_phone() {
+            return 0.0;
+        }
         super::sidebar_layout::header_left_pad(self.controls_left, self.column().px)
     }
 
@@ -2397,8 +2402,8 @@ fn build(sb: Sidebar) -> Dom {
     let expanded = state == SidebarState::Expanded;
     let mut kids: Vec<Dom> = Vec::new();
 
-    // ---- the band the OS's window controls sit in ----
-    let band = controls_height(controls_left, controls_h);
+    // ---- the band the OS's window controls sit in (a phone has none) ----
+    let band = if phone { 0.0 } else { controls_height(controls_left, controls_h) };
     if band > 0.0 {
         kids.push(
             styled(

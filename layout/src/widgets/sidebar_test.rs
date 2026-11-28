@@ -1008,3 +1008,14 @@ fn the_slot_holds_what_the_app_gives_it_and_nothing_of_its_own() {
     assert!(SidebarStatusVec::from_const_slice(&[]).as_ref().is_empty());
     assert!(Sidebar::create().statuses.as_ref().is_empty() && Sidebar::create().quick_access.as_ref().is_empty());
 }
+
+#[test]
+fn a_phone_has_no_window_controls_whatever_it_is_told() {
+    // a camera housing's safe area looks like controls at the left to a strip that asks the system
+    let phone = mail().with_form(FormFactor::Phone).with_state(SidebarState::Rail).with_window_controls(44.0, 28.0);
+    assert!(first(&phone.clone().dom(), SIDEBAR_CONTROLS_CLASS).is_none(), "no band on a phone");
+    assert!(phone.header_left_pad().abs() < 0.001);
+    let desktop = mail().with_form(FormFactor::Desktop).with_state(SidebarState::Rail).with_window_controls(44.0, 28.0);
+    assert!(first(&desktop.clone().dom(), SIDEBAR_CONTROLS_CLASS).is_some());
+    assert!((desktop.header_left_pad() - 26.0).abs() < 0.001);
+}
