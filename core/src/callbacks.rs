@@ -1358,9 +1358,11 @@ pub fn build_window_width_less_than(px: f32) -> Option<bool> {
     Some(answer)
 }
 
-/// For a widget's `dom()`: is the tab content of the window the DOM is being built for folded away
-/// (`WindowFlags::tab_content_hidden`)? `false` outside a build. Not a size question: the chevron that
-/// flips the flag asks for a new `layout()` itself, so nothing is recorded for a resize.
+/// Is the tab content of the window the DOM is being built for folded away?
+///
+/// For a widget's `dom()`: `WindowFlags::tab_content_hidden`, `false` outside a build. Not a size
+/// question: the chevron that flips the flag asks for a new `layout()` itself, so nothing is recorded
+/// for a resize.
 #[must_use]
 pub fn build_tab_content_hidden() -> bool {
     #[cfg(feature = "std")]
@@ -1373,10 +1375,11 @@ pub fn build_tab_content_hidden() -> bool {
     }
 }
 
-/// For a tab strip's `dom()` that asks for the window's chevron (`with_content_toggle`): may this strip
-/// draw it? The FIRST strip of a build takes it and every later one is told no, so a window has exactly
-/// one chevron whatever its apps put on the page. Outside a build (no scope: a strip built on its own)
-/// the answer is always yes.
+/// May this tab strip draw the window's chevron?
+///
+/// For a strip's `dom()` that asks for it (`with_content_toggle`): the FIRST strip of a build takes it
+/// and every later one is told no, so a window has exactly one chevron whatever its apps put on the
+/// page. Outside a build (no scope: a strip built on its own) the answer is always yes.
 #[must_use]
 pub fn build_take_tab_content_toggle() -> bool {
     #[cfg(feature = "std")]
