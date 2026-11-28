@@ -99,21 +99,22 @@ class TableTests(unittest.TestCase):
     def test_a_row_per_test_and_a_cell_per_platform(self):
         table = m.merge(self.records(), self.SCN)
         text = m.render_markdown(table, self.SCN)
-        self.assertIn("| a.json | t1 | PASS | PASS | not run |", text)
-        self.assertIn("| a.json | t2 | PASS | FAIL: step 2: click -> FAILED: no node | not run |", text)
-        self.assertIn("| b.json | t3 | not run | N/A: asserts the DOM of a desktop C example", text)
+        self.assertIn("| a.json | t1 | PASS | not run | PASS | not run |", text)
+        self.assertIn("| a.json | t2 | PASS | not run | FAIL: step 2: click -> FAILED: no node | not run |", text)
+        self.assertIn("| b.json | t3 | not run | not run | N/A: asserts the DOM of a desktop C example", text)
+        self.assertIn("desktop (in-process runner)", text)
 
     def test_a_test_whose_platforms_disagree_is_listed_with_each_verdict(self):
         text = m.render_markdown(m.merge(self.records(), self.SCN), self.SCN)
-        self.assertIn("| a.json | t1 | PASS | PASS | not run | same |", text)
-        self.assertIn("| a.json | t2 | PASS | FAIL: step 2: click -> FAILED: no node | not run | DIFFERENT |", text)
+        self.assertIn("| a.json | t1 | PASS | not run | PASS | not run | same |", text)
+        self.assertIn("| a.json | t2 | PASS | not run | FAIL: step 2: click -> FAILED: no node | not run | DIFFERENT |", text)
         self.assertIn("## Where the verdicts differ", text)
         self.assertIn("- a.json :: t2: desktop PASS, android FAIL", text)
 
     def test_the_totals_count_every_verdict_per_platform(self):
         text = m.render_markdown(m.merge(self.records(), self.SCN), self.SCN)
         self.assertIn("## Totals", text)
-        self.assertIn("| android | 1 | 1 | 1 | 0 |", text.replace("FAIL", "FAIL"))  # FAIL 1, N/A 1, PASS 1, not run 0 (sorted verdict names)
+        self.assertIn("| android | 1 | 1 | 1 | 0 |", text)  # FAIL 1, N/A 1, PASS 1, not run 0 (sorted verdict names)
 
     def test_a_failure_only_a_phone_has_is_listed_for_a_verdict(self):
         table = m.merge(self.records(), self.SCN)
@@ -123,6 +124,16 @@ class TableTests(unittest.TestCase):
         records = self.records()
         records[0][1] = {"file": "a.json", "test": "t2", "platform": "desktop", "verdict": "FAIL", "detail": "x"}
         self.assertEqual(m.phone_only_failures(m.merge(records, self.SCN)), [])
+
+
+class RunnerColumnTests(unittest.TestCase):
+    def test_the_in_process_run_is_its_own_column_next_to_the_apps_run(self):
+        scns = [{"rel": "c.json", "file": "/nonexistent.json", "host": "AzWidgets", "self_mounted": True, "tests": [{"name": "t1"}]}]
+        records = [{"file": "c.json", "test": "t1", "platform": "runner", "verdict": "FAIL", "detail": "step 6: assert_layout -> FAILED: height"},
+                   {"file": "c.json", "test": "t1", "platform": "desktop", "verdict": "PASS", "detail": ""}]
+        text = m.render_markdown(m.merge([records], scns), scns)
+        self.assertIn("| c.json | t1 | PASS | FAIL: step 6: assert_layout -> FAILED: height | not run | not run | DIFFERENT |", text)
+        self.assertIn("- c.json :: t1: desktop PASS, runner FAIL", text)
 
 
 class RecordsTests(unittest.TestCase):
