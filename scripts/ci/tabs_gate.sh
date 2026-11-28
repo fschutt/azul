@@ -96,7 +96,14 @@ autofix_round() {
   return 0
 }
 autofix() {
-  cargo run -r -p azul-doc -- autofix add "${api_functions[@]}" || return 1
+  # all the functions in one run; if that fails (one spec the index cannot place), one by one, so the types and the rest still land
+  if ! cargo run -r -p azul-doc -- autofix add "${api_functions[@]}"; then
+    echo "autofix add of the whole list failed: one function at a time"
+    local f
+    for f in "${api_functions[@]}"; do
+      cargo run -r -p azul-doc -- autofix add "$f" || echo "ADD FAILED: $f"
+    done
+  fi
   cargo run -r -p azul-doc -- autofix apply || return 1
   local i
   for i in 1 2 3 4 5 6; do
