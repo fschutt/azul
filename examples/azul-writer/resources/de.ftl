@@ -63,6 +63,7 @@ azwriter-export-markdown = Als Markdown exportieren
 azwriter-empty = Kein Dokument ist geöffnet
 azwriter-empty-what = Beginne ein leeres Dokument, oder öffne eines über „Datei“.
 azwriter-document = Dokument
+azwriter-placeholder = Schreib los ...
 azwriter-status-words = { $count } WÖRTER
 azwriter-status-page = SEITE { $page } VON { $pages }
 azwriter-status-no-document = KEIN DOKUMENT
