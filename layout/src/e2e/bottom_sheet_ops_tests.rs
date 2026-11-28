@@ -127,6 +127,10 @@ fn near(a: f32, b: f32) -> bool {
     (a - b).abs() < 1.0
 }
 
+fn kinds(events: &[BottomSheetEvent]) -> Vec<BottomSheetEventKind> {
+    events.iter().map(|e| e.kind).collect()
+}
+
 fn tick(ms: u64) -> serde_json::Value {
     serde_json::json!({ "op": "tick_ms", "ms": ms })
 }
