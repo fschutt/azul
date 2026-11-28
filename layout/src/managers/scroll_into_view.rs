@@ -493,12 +493,34 @@ fn visible_above_the_keyboard(
     outer_offset: f32,
     covered_below: Option<f32>,
 ) -> LogicalRect {
-    let mut visible = ancestor.visible_rect;
-    let Some(covered) = covered_below.filter(|_| ancestor.dom_id == DomId::ROOT_ID) else {
+    visible_rect_above_the_keyboard(
+        ancestor.visible_rect,
+        ancestor.dom_id,
+        ancestor.scrollport_top,
+        ancestor.scrollport_height,
+        outer_offset,
+        covered_below,
+    )
+}
+
+/// [`visible_above_the_keyboard`] for a caller that has the pieces (the caret reveal measures its own
+/// container): `visible` is the container's visible rect (its scrollport shifted by its scroll offset),
+/// `scrollport_top` and `scrollport_height` the scrollport in its dom's static space.
+#[must_use]
+pub(crate) fn visible_rect_above_the_keyboard(
+    visible: LogicalRect,
+    dom_id: DomId,
+    scrollport_top: f32,
+    scrollport_height: f32,
+    outer_offset: f32,
+    covered_below: Option<f32>,
+) -> LogicalRect {
+    let mut visible = visible;
+    let Some(covered) = covered_below.filter(|_| dom_id == DomId::ROOT_ID) else {
         return visible;
     };
-    let top = ancestor.scrollport_top - outer_offset;
-    let bottom = top + ancestor.scrollport_height;
+    let top = scrollport_top - outer_offset;
+    let bottom = top + scrollport_height;
     if covered < bottom {
         // never less than a pixel: a keyboard higher than the container leaves it something to aim at
         let cut = bottom - covered.max(top);

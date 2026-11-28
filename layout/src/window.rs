@@ -25713,13 +25713,24 @@ impl LayoutWindow {
             padding_box
         };
 
-        // Calculate visible area (container rect adjusted by scroll offset)
+        // Calculate visible area (container rect adjusted by scroll offset), less what the on-screen keyboard
+        // covers: a caret that follows typing stays above it, as a field revealed by the focus does.
         let visible_area = LogicalRect::new(
             LogicalPosition::new(
                 container_rect.origin.x + scroll_state.current_offset.x,
                 container_rect.origin.y + scroll_state.current_offset.y,
             ),
             container_rect.size,
+        );
+        let visible_area = crate::managers::scroll_into_view::visible_rect_above_the_keyboard(
+            visible_area,
+            scroll_container.dom,
+            container_rect.origin.y,
+            container_rect.size.height,
+            self.scroll_manager
+                .ancestor_scroll_offset(scroll_container.dom, scrollable_node_internal)
+                .y,
+            self.scroll_manager.covered_below(),
         );
 
         // WHAT to reveal. A range is shown whole while it fits the
