@@ -103,9 +103,9 @@ fn the_fast_and_the_slow_chain_resolver_on_the_machines_fonts() {
     let platform = azul_css::system::Platform::current();
     let viewport = PhysicalSize::new(800.0, 600.0);
     println!(
-        "[E75] {} faces in the registry's cache, {} builder threads",
+        "[E75] {} faces in the registry's cache, {} cores",
         registry.shared_cache().list().len(),
-        registry.builder_thread_count()
+        std::thread::available_parallelism().map_or(0, std::num::NonZeroUsize::get)
     );
     println!("[E75] stack | text | slow first/median ms | fast first/median ms | chars | chars drawn by another file | first of them");
 
