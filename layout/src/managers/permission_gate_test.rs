@@ -205,3 +205,25 @@ fn the_pump_reads_the_platform_state_of_what_was_asked_or_is_subscribed_only() {
     // Two managers compare equal whatever they were asked.
     assert_eq!(PermissionManager::new(), PermissionManager::new());
 }
+
+#[test]
+fn a_gesture_of_long_ago_is_no_cause_of_a_request() {
+    let now = std::time::Instant::now();
+    let Some(long_ago) = now.checked_sub(GESTURE_WINDOW * 4) else {
+        return;
+    };
+    let mut mgr = PermissionManager::new();
+    mgr.note_gesture_at(long_ago);
+    assert_eq!(mgr.admit_at(Capability::Camera, now), Admission::Hold, "a stale gesture asks nobody");
+    // The stale gesture is gone; a fresh one admits again.
+    mgr.note_gesture_at(now);
+    assert_eq!(mgr.admit_at(Capability::Camera, now), Admission::Go);
+    // And it is used up.
+    assert_eq!(mgr.admit_at(Capability::Microphone, now), Admission::Hold);
+    // A gesture just inside the window still counts.
+    let Some(recent) = now.checked_sub(GESTURE_WINDOW / 2) else {
+        return;
+    };
+    mgr.note_gesture_at(recent);
+    assert_eq!(mgr.admit_at(Capability::Microphone, now), Admission::Go);
+}
