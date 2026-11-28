@@ -172,6 +172,7 @@ azcode-close-drawer = Close the side bar
 azcode-open-drawer = Open the side bar
 azcode-drawer = Explorer, search, source control and run
 azcode-find-close = Close find
+azcode-goto-close = Close go to line
 azcode-git-changes = { $count ->
     [one] 1 change
    *[other] { $count } changes

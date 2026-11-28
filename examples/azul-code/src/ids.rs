@@ -160,6 +160,8 @@ pub const SCRIM: AzString = AzString::from_const_str("__azcode_scrim");
 pub const KEY_ROW: AzString = AzString::from_const_str("__azcode_key-row");
 /// The drawer's "Open the sample workspace" link (the explorer's empty state on a phone).
 pub const DRAWER_SAMPLE: AzString = AzString::from_const_str("__azcode_drawer-sample");
+/// The phone's go-to bar's close button.
+pub const GOTO_CLOSE: AzString = AzString::from_const_str("__azcode_goto-close");
 /// The phone's bottom sheet (the panel).
 pub const SHEET: AzString = AzString::from_const_str("__azcode_sheet");
 /// The phone's status bar.

@@ -172,6 +172,7 @@ azcode-close-drawer = Seitenleiste schließen
 azcode-open-drawer = Seitenleiste öffnen
 azcode-drawer = Explorer, Suche, Quellcodeverwaltung und Ausführen
 azcode-find-close = Suche schließen
+azcode-goto-close = Gehe zu Zeile schließen
 azcode-git-changes = { $count ->
     [one] 1 Änderung
    *[other] { $count } Änderungen

@@ -431,7 +431,7 @@ fn editor(app: &RefAny, st: &AppState) -> Dom {
         children.push(find_bar(app, st));
     }
     if let Some(typed) = st.goto.as_ref() {
-        children.push(goto_bar(app, typed));
+        children.push(goto_bar(app, typed, false));
     }
     children.push(code_view(app, st, doc));
     column(children)
@@ -738,9 +738,9 @@ pub(crate) fn replace_input(app: &RefAny, st: &AppState) -> Dom {
         .with_id(ids::REPLACE_INPUT)
 }
 
-/// The go-to-line bar.
-pub(crate) fn goto_bar(app: &RefAny, typed: &str) -> Dom {
-    Dom::create_div()
+/// The go-to-line bar; on a phone (`compact`) with a close button (a phone has no Escape).
+pub(crate) fn goto_bar(app: &RefAny, typed: &str, compact: bool) -> Dom {
+    let mut bar = Dom::create_div()
         .with_css("display: flex; flex-direction: row; align-items: center; padding: 4px 6px;")
         .with_child(text("azcode-shortcut-go-to-line"))
         .with_child(
@@ -752,8 +752,19 @@ pub(crate) fn goto_bar(app: &RefAny, typed: &str) -> Dom {
                 .with_on_virtual_key_down(app.clone(), on_goto_key as TextInputOnVirtualKeyDownCallbackType)
                 .dom()
                 .with_id(ids::GOTO_INPUT),
-        )
-        .with_id(ids::GOTO_BAR)
+        );
+    if compact {
+        bar.add_child(icon_button_sized(ids::GOTO_CLOSE, "close", "azcode-goto-close", app.clone(), on_goto_close, phone::TOUCH));
+    }
+    bar.with_id(ids::GOTO_BAR)
+}
+
+/// The go-to bar's close button: the bar goes away, the editor gets the focus back.
+extern "C" fn on_goto_close(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    with_state(&mut data, &mut info, |st, info, _| {
+        st.goto = None;
+        commands::focus_soon(info, ids::EDITOR.as_str());
+    })
 }
 
 /// The status bar: the branch, the folder, the terminal, the caret (a click

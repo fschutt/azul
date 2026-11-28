@@ -74,7 +74,7 @@ fn editor_area(app: &RefAny, st: &AppState) -> Dom {
                 kids.push(find_bar(app, st));
             }
             if let Some(typed) = st.goto.as_ref() {
-                kids.push(ui::goto_bar(app, typed));
+                kids.push(ui::goto_bar(app, typed, true));
             }
             kids.push(ui::code_view(app, st, doc));
             column(kids)
