@@ -81,6 +81,11 @@ pub struct PieMarker {
     pub label: AzString,
     /// What a click on the marker runs (the app opens its popover there).
     pub on_click: OptionButtonOnClick,
+    /// The disc's size in px ([`PIE_SIZE`], 11, when it is not set; held to
+    /// [`PIE_SIZE_MIN`] .. [`PIE_SIZE_MAX`]). The hit area grows with it: 4 px wider
+    /// and 14 px taller than the disc, 15 x 25 for the default. APPENDED for ABI
+    /// stability.
+    pub size: f32,
 }
 
 /// The marker's hit area (a button).
@@ -92,10 +97,16 @@ pub const PIE_MARKER_WEDGE_CLASS: &str = "__azul-pie-marker-wedge";
 
 /// The disc's size, in px.
 pub const PIE_SIZE: f32 = 11.0;
+/// The smallest and the largest disc a marker is drawn with, px: a size outside is held to them.
+pub const PIE_SIZE_MIN: f32 = 8.0;
+pub const PIE_SIZE_MAX: f32 = 48.0;
 /// The hit area around it, in px.
 pub const PIE_HIT_WIDTH: isize = 15;
 /// The hit area's height, in px: a row of the navigation pane's foot.
 pub const PIE_HIT_HEIGHT: isize = 25;
+/// How much wider and taller than the disc the hit area is: 15 x 25 around the 11 px disc.
+const PIE_HIT_PAD_X: f32 = 4.0;
+const PIE_HIT_PAD_Y: f32 = 14.0;
 /// How long one breath of a busy pie takes, in ms.
 pub const PIE_BREATH_MS: u32 = 2400;
 /// Above this share of a drive full, its pie turns amber.
@@ -103,16 +114,41 @@ pub const SPACE_WARNING: f32 = 0.85;
 /// Above this share of a drive full, its pie turns red.
 pub const SPACE_DANGER: f32 = 0.97;
 
-/// The design's pie, drawn in a 12-unit box shown 11px wide: the disc is
+/// The design's pie, drawn in a 12-unit box shown `size` px wide: the disc is
 /// r 5.6 with a .8 ring on its edge, the wedge a 6-wide stroke on r 3 (so
 /// it reaches the box's edge, over the ring).
-const UNIT: f32 = PIE_SIZE / 12.0;
+const fn unit(size: f32) -> f32 {
+    size / 12.0
+}
 /// The disc's ground reaches the middle of its ring.
-const DISC_R: f32 = 5.6 * UNIT;
+const fn disc_radius(size: f32) -> f32 {
+    5.6 * unit(size)
+}
 /// The ring's inner and outer edge (its outer half lies at the box's edge).
-static RING: (f32, f32) = ((5.6 - 0.4) * UNIT, 6.0 * UNIT);
+const fn ring_radii(size: f32) -> (f32, f32) {
+    ((5.6 - 0.4) * unit(size), 6.0 * unit(size))
+}
 /// The wedge's radius.
-const WEDGE_R: f32 = 6.0 * UNIT;
+const fn wedge_radius(size: f32) -> f32 {
+    6.0 * unit(size)
+}
+/// A marker's size held to its limits; no number is the default.
+#[must_use]
+pub fn clamp_pie_size(size: f32) -> f32 {
+    if !size.is_finite() || size <= 0.0 {
+        return PIE_SIZE;
+    }
+    size.clamp(PIE_SIZE_MIN, PIE_SIZE_MAX)
+}
+/// The disc's radius at the default size, for the tests of the 11 px design.
+#[cfg(test)]
+const DISC_R: f32 = disc_radius(PIE_SIZE);
+/// The wedge's radius at the default size.
+#[cfg(test)]
+const WEDGE_R: f32 = wedge_radius(PIE_SIZE);
+/// The centre of the default disc.
+#[cfg(test)]
+const CENTRE: f32 = PIE_SIZE / 2.0;
 /// Straight runs a whole circle is drawn in: at 11px a fiftieth of a px
 /// off the arc.
 const CIRCLE_STEPS: usize = 72;
@@ -168,6 +204,7 @@ impl PieMarker {
             tone,
             label: AzString::from_const_str(""),
             on_click: OptionButtonOnClick::None,
+            size: PIE_SIZE,
         }
     }
 
@@ -190,6 +227,19 @@ impl PieMarker {
         self
     }
 
+    /// The disc's size in px, held to [`PIE_SIZE_MIN`] .. [`PIE_SIZE_MAX`]; the hit area
+    /// around it grows with it.
+    pub fn set_size(&mut self, size: f32) {
+        self.size = clamp_pie_size(size);
+    }
+
+    /// [`Self::set_size`] for the builder chain.
+    #[must_use]
+    pub fn with_size(mut self, size: f32) -> Self {
+        self.set_size(size);
+        self
+    }
+
     /// What a click on the marker runs.
     pub fn set_on_click<C: Into<ButtonOnClickCallback>>(&mut self, data: RefAny, on_click: C) {
         self.on_click = Some(ButtonOnClick {
@@ -209,72 +259,16 @@ impl PieMarker {
     /// The marker: the hit area holding the disc, its ring and its wedge.
     #[must_use]
     pub fn dom(self) -> Dom {
-        let fraction = if self.fraction.is_finite() {
-            self.fraction.clamp(0.0, 1.0)
-        } else {
-            0.0
-        };
-        let mut parts = alloc::vec![
-            layer(GROUND, &disc_shape(DISC_R)),
-            layer(RING_INK, &ring_shape(RING.0, RING.1)),
-        ];
-        if let Some(wedge) = wedge_shape(fraction) {
-            parts.push(layer(self.tone.colors(), &wedge).with_ids_and_classes(
-                IdOrClassVec::from_vec(alloc::vec![Class(AzString::from_const_str(
-                    PIE_MARKER_WEDGE_CLASS
-                ))]),
-            ));
-        }
-        let mut disc_style = alloc::vec![
-            decl::position(LayoutPosition::Relative),
-            decl::px_width(PIE_SIZE),
-            decl::px_height(PIE_SIZE),
-            decl::simple(CssProperty::const_flex_shrink(LayoutFlexShrink {
-                inner: FloatValue::const_new(0),
-            })),
-        ];
-        let busy = self.tone == PieTone::Busy;
-        if busy {
-            disc_style.push(CssPropertyWithConditions::with_single_condition(
-                CssProperty::AnimationIn(StyleAnimationVecValue::Exact(StyleAnimationVec::from_vec(
-                    alloc::vec![StyleAnimation {
-                        name: AzString::from_const_str(BREATH_TRACK),
-                        duration: CssDuration::from_millis(PIE_BREATH_MS),
-                        delay: CssDuration::from_millis(0),
-                        iterations: AnimationIterationCount::Infinite,
-                        timing: flora::FL_EASE,
-                        clip: true,
-                    }],
-                ))),
-                NO_REDUCED_MOTION,
-            ));
-        }
-        let mut disc = Dom::create_div()
-            .with_ids_and_classes(IdOrClassVec::from_vec(alloc::vec![Class(
-                AzString::from_const_str(PIE_MARKER_DISC_CLASS)
-            )]))
-            .with_css_props(CssPropertyWithConditionsVec::from_vec(disc_style))
-            // The user space the layers' clip paths are drawn in: one unit per px from the
-            // disc's corner. Without it a clip path is read in window coordinates, and every
-            // part landed beside its disc.
-            .with_svg_data(SvgNodeData::ViewBox {
-                min_x: 0.0,
-                min_y: 0.0,
-                width: PIE_SIZE,
-                height: PIE_SIZE,
-            })
-            .with_children(parts.into());
-        if busy {
-            disc = disc.with_component_css(breath());
-        }
+        let size = clamp_pie_size(self.size);
+        let disc = disc_dom(size, self.fraction, self.tone);
 
         let mut hit = alloc::vec![
             decl::simple(CssProperty::const_box_sizing(LayoutBoxSizing::BorderBox)),
             decl::simple(CssProperty::const_display(LayoutDisplay::Flex)),
             decl::simple(CssProperty::const_align_items(LayoutAlignItems::Center)),
             decl::simple(CssProperty::const_justify_content(LayoutJustifyContent::Center)),
-            decl::simple(CssProperty::const_width(LayoutWidth::const_px(PIE_HIT_WIDTH))),
-            decl::simple(CssProperty::const_height(LayoutHeight::const_px(PIE_HIT_HEIGHT))),
+            decl::px_width(size + PIE_HIT_PAD_X),
+            decl::px_height(size + PIE_HIT_PAD_Y),
             decl::simple(CssProperty::const_flex_shrink(LayoutFlexShrink {
                 inner: FloatValue::const_new(0),
             })),
@@ -319,9 +313,71 @@ impl PieMarker {
 static NO_REDUCED_MOTION: &[DynamicSelector] =
     &[DynamicSelector::PrefersReducedMotion(BoolCondition::False)];
 
+/// The disc of a pie: the ground, the ring and the wedge, `size` px wide, and nothing around it (no
+/// hit area, no button): what the marker puts in its hit area and what a row of the sidebar draws
+/// beside a label. A busy pie breathes.
+#[must_use]
+pub(crate) fn disc_dom(size: f32, fraction: f32, tone: PieTone) -> Dom {
+    let size = clamp_pie_size(size);
+    let fraction = if fraction.is_finite() { fraction.clamp(0.0, 1.0) } else { 0.0 };
+    let (ring_in, ring_out) = ring_radii(size);
+    let mut parts = alloc::vec![
+        layer(size, GROUND, &disc_shape(size, disc_radius(size))),
+        layer(size, RING_INK, &ring_shape(size, ring_in, ring_out)),
+    ];
+    if let Some(wedge) = wedge_shape(size, fraction) {
+        parts.push(layer(size, tone.colors(), &wedge).with_ids_and_classes(IdOrClassVec::from_vec(
+            alloc::vec![Class(AzString::from_const_str(PIE_MARKER_WEDGE_CLASS))],
+        )));
+    }
+    let mut disc_style = alloc::vec![
+        decl::position(LayoutPosition::Relative),
+        decl::px_width(size),
+        decl::px_height(size),
+        decl::simple(CssProperty::const_flex_shrink(LayoutFlexShrink {
+            inner: FloatValue::const_new(0),
+        })),
+    ];
+    let busy = tone == PieTone::Busy;
+    if busy {
+        disc_style.push(CssPropertyWithConditions::with_single_condition(
+            CssProperty::AnimationIn(StyleAnimationVecValue::Exact(StyleAnimationVec::from_vec(
+                alloc::vec![StyleAnimation {
+                    name: AzString::from_const_str(BREATH_TRACK),
+                    duration: CssDuration::from_millis(PIE_BREATH_MS),
+                    delay: CssDuration::from_millis(0),
+                    iterations: AnimationIterationCount::Infinite,
+                    timing: flora::FL_EASE,
+                    clip: true,
+                }],
+            ))),
+            NO_REDUCED_MOTION,
+        ));
+    }
+    let mut disc = Dom::create_div()
+        .with_ids_and_classes(IdOrClassVec::from_vec(alloc::vec![Class(AzString::from_const_str(
+            PIE_MARKER_DISC_CLASS
+        ))]))
+        .with_css_props(CssPropertyWithConditionsVec::from_vec(disc_style))
+        // The user space the layers' clip paths are drawn in: one unit per px from the
+        // disc's corner. Without it a clip path is read in window coordinates, and every
+        // part landed beside its disc.
+        .with_svg_data(SvgNodeData::ViewBox {
+            min_x: 0.0,
+            min_y: 0.0,
+            width: size,
+            height: size,
+        })
+        .with_children(parts.into());
+    if busy {
+        disc = disc.with_component_css(breath());
+    }
+    disc
+}
+
 /// One full-size layer of the disc: painted in `ink` (with its night
 /// twin), clipped to `shape`.
-fn layer(ink: (ColorU, ColorU), shape: &SvgMultiPolygon) -> Dom {
+fn layer(size: f32, ink: (ColorU, ColorU), shape: &SvgMultiPolygon) -> Dom {
     let fill = |c: ColorU| {
         CssProperty::const_background_content(StyleBackgroundContentVec::from_vec(alloc::vec![
             StyleBackgroundContent::Color(c)
@@ -331,8 +387,8 @@ fn layer(ink: (ColorU, ColorU), shape: &SvgMultiPolygon) -> Dom {
         decl::position(LayoutPosition::Absolute),
         decl::simple(CssProperty::const_left(LayoutLeft::const_px(0))),
         decl::simple(CssProperty::const_top(LayoutTop::const_px(0))),
-        decl::px_width(PIE_SIZE),
-        decl::px_height(PIE_SIZE),
+        decl::px_width(size),
+        decl::px_height(size),
     ];
     style.extend(CssPropertyWithConditions::themed(fill(ink.0), fill(ink.1)));
     Dom::create_div()
@@ -340,44 +396,45 @@ fn layer(ink: (ColorU, ColorU), shape: &SvgMultiPolygon) -> Dom {
         .with_svg_clip_path(shape.clone())
 }
 
-/// The centre of the disc, both axes.
-const CENTRE: f32 = PIE_SIZE / 2.0;
-
-/// A circle of radius `r` around the disc's centre.
-fn circle(r: f32) -> Vec<SvgPoint> {
+/// A circle of radius `r` around the centre of a disc `size` px wide.
+fn circle(size: f32, r: f32) -> Vec<SvgPoint> {
+    let centre = size / 2.0;
     #[allow(clippy::cast_precision_loss)] // 72 steps
     (0..CIRCLE_STEPS)
-        .map(|i| polar(CENTRE, r, 360.0 * i as f32 / CIRCLE_STEPS as f32))
+        .map(|i| polar(centre, r, 360.0 * i as f32 / CIRCLE_STEPS as f32))
         .collect()
 }
 
 /// The disc's ground.
-pub(crate) fn disc_shape(r: f32) -> SvgMultiPolygon {
-    SvgMultiPolygon::create(SvgPathVec::from_vec(alloc::vec![closed(&circle(r))]))
+pub(crate) fn disc_shape(size: f32, r: f32) -> SvgMultiPolygon {
+    SvgMultiPolygon::create(SvgPathVec::from_vec(alloc::vec![closed(&circle(size, r))]))
 }
 
 /// The ring between `inner` and `outer`: one outline that runs round the
 /// outer edge and back round the inner one, so it fills as a ring under
 /// either fill rule.
-pub(crate) fn ring_shape(inner: f32, outer: f32) -> SvgMultiPolygon {
-    let mut points = circle(outer);
-    points.push(polar(CENTRE, outer, 0.0));
-    points.push(polar(CENTRE, inner, 0.0));
-    let mut back = circle(inner);
+pub(crate) fn ring_shape(size: f32, inner: f32, outer: f32) -> SvgMultiPolygon {
+    let centre = size / 2.0;
+    let mut points = circle(size, outer);
+    points.push(polar(centre, outer, 0.0));
+    points.push(polar(centre, inner, 0.0));
+    let mut back = circle(size, inner);
     back.reverse();
     points.extend(back);
     SvgMultiPolygon::create(SvgPathVec::from_vec(alloc::vec![closed(&points)]))
 }
 
-/// The wedge of `fraction` (0 to 1): from the centre up to 12 o'clock and
+/// The wedge of `fraction` (0 to 1) of a disc `size` px wide: from the centre up to 12 o'clock and
 /// clockwise round by the fraction of a turn. `None` for an empty pie; a
 /// full one is the whole disc.
-pub(crate) fn wedge_shape(fraction: f32) -> Option<SvgMultiPolygon> {
+pub(crate) fn wedge_shape(size: f32, fraction: f32) -> Option<SvgMultiPolygon> {
     if fraction <= 0.0 {
         return None;
     }
+    let centre = size / 2.0;
+    let radius = wedge_radius(size);
     if fraction >= 1.0 {
-        return Some(disc_shape(WEDGE_R));
+        return Some(disc_shape(size, radius));
     }
     let sweep = 360.0 * fraction;
     #[allow(
@@ -388,13 +445,13 @@ pub(crate) fn wedge_shape(fraction: f32) -> Option<SvgMultiPolygon> {
     let steps = ((CIRCLE_STEPS as f32 * fraction).ceil() as usize).max(1);
     let mut points = Vec::with_capacity(steps + 2);
     points.push(SvgPoint {
-        x: CENTRE,
-        y: CENTRE,
+        x: centre,
+        y: centre,
     });
     for i in 0..=steps {
         #[allow(clippy::cast_precision_loss)]
         let deg = sweep * i as f32 / steps as f32;
-        points.push(polar(CENTRE, WEDGE_R, deg));
+        points.push(polar(centre, radius, deg));
     }
     Some(SvgMultiPolygon::create(SvgPathVec::from_vec(alloc::vec![closed(&points)])))
 }
@@ -453,7 +510,7 @@ mod tests {
 
     #[test]
     fn the_wedge_starts_at_12_o_clock_and_turns_clockwise_by_the_fraction() {
-        let wedge = wedge_shape(0.25).expect("a quarter");
+        let wedge = wedge_shape(PIE_SIZE, 0.25).expect("a quarter");
         let p = points(&wedge);
         assert!((p[0].x - CENTRE).abs() < 1e-4 && (p[0].y - CENTRE).abs() < 1e-4, "from the centre");
         assert!((p[1].x - CENTRE).abs() < 1e-3 && (p[1].y - (CENTRE - WEDGE_R)).abs() < 1e-3, "up to 12");
@@ -466,10 +523,10 @@ mod tests {
 
     #[test]
     fn an_empty_pie_has_no_wedge_and_a_full_one_is_the_whole_disc() {
-        assert!(wedge_shape(0.0).is_none());
+        assert!(wedge_shape(PIE_SIZE, 0.0).is_none());
         let empty = PieMarker::create(0.0, PieTone::Accent).dom();
         assert!(find(&empty, PIE_MARKER_WEDGE_CLASS).is_none());
-        let full = wedge_shape(1.0).expect("full");
+        let full = wedge_shape(PIE_SIZE, 1.0).expect("full");
         assert_eq!(points(&full).len(), CIRCLE_STEPS);
     }
 

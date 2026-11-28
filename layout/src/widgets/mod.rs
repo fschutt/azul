@@ -377,6 +377,40 @@ pub mod tabs;
 /// with a wedge, coloured by what the number means, breathing while busy,
 /// in a 15 x 25 hit area that is a button; see `pie_marker.rs`.
 pub mod pie_marker;
+/// The numbers of the sidebar family.
+///
+/// How wide the left sidebar is in each state (rail, expanded, 16 px handle), how a phone's
+/// drawer pushes the main view aside, the OS window controls' room, the Inspector's limits and
+/// where its pane settles, as plain functions with their tests; see `sidebar_layout.rs`.
+pub mod sidebar_layout;
+/// The standard Sidebar: the full-height left column every heavy app shares.
+///
+/// Sections with small titles, rows (icon, label, count, disclosure triangles, a selected row as a
+/// rounded highlight), status pies with a short popover above the toggle, an icon rail as its
+/// collapsed state, a 16 px handle, and on a phone a drawer that pushes the main view aside; see
+/// `sidebar.rs`.
+pub mod sidebar;
+/// The Inspector: one widget with two docks.
+///
+/// Docked at the right below the tab ribbon on a desktop (resized by dragging its left border),
+/// at the bottom on a phone as a height-adjustable pane with a grip; see `inspector.rs`.
+pub mod inspector;
+/// The phone's quick-action sheet.
+///
+/// An overlay list of icon + label rows under a grab handle, over a light scrim; see
+/// `action_sheet.rs`.
+pub mod action_sheet;
+/// The location block of the first tab.
+///
+/// The parent folders as one breadcrumb line, the current name big and bold on the next line with a
+/// pen to edit it; see `location_bar.rs`.
+pub mod location_bar;
+/// The frame every heavy app shares.
+///
+/// The full-height left sidebar, the tab ribbon over the full width, the body with the Inspector
+/// beside it (right on a desktop) or under it (bottom pane on a phone), the footer line; see
+/// `app_frame.rs`.
+pub mod app_frame;
 /// Tab overview widget.
 ///
 /// A window's location tabs as a list over a grey scrim, anchored under
