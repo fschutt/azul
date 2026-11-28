@@ -16,14 +16,7 @@
 
 use core::ptr;
 
-use azul_core::{
-    display_features::{
-        CornerRadii, CutoutShape, DisplayCutout, DisplayCutoutVec, DisplayFeatures, FingerprintKind, FingerprintSensor,
-        OptionFingerprintSensor, OptionFingerprintSpot, OptionSystemBar, SystemBar, SystemBarIcons, SystemBarMode, SystemBars,
-        SystemBarsOptions,
-    },
-    geom::{LogicalPosition, LogicalRect, LogicalSize},
-};
+use azul_core::display_features::{DisplayFeatures, SystemBarIcons, SystemBarMode, SystemBarsOptions};
 use objc::{
     class, msg_send,
     runtime::{Class, Object, Sel},
@@ -32,9 +25,8 @@ use objc::{
 
 use super::{declare_class, CGRect};
 use crate::desktop::shell2::common::{
-    ios_display::{
-        ios_display, system_ui_of, turn_of, IosCutout, IosDisplay, IosFingerprint, IosRect, IosSystemUi,
-    },
+    ios_display::{ios_display, system_ui_of, turn_of, IosSystemUi},
+    ios_display_features::features_of,
 };
 
 const IVAR_STATUS_HIDDEN: &str = "azStatusBarHidden";
@@ -189,58 +181,6 @@ unsafe fn is_pad() -> bool {
     }
     let idiom: i64 = msg_send![device, userInterfaceIdiom];
     idiom == 1
-}
-
-fn logical(rect: &IosRect) -> LogicalRect {
-    LogicalRect::new(
-        LogicalPosition { x: rect.x, y: rect.y },
-        LogicalSize { width: rect.width, height: rect.height },
-    )
-}
-
-/// The engine's `DisplayFeatures` of an iOS display: the cutout `approximate` (it is from a table), the corners, the
-/// status bar with the rect it has when shown and whether it is on screen, the home indicator and the fingerprint
-/// sensor (never with a place on the glass).
-#[must_use]
-pub(super) fn features_of(display: &IosDisplay, status_visible: bool, navigation_visible: bool) -> DisplayFeatures {
-    let cutouts = display.cutout.map_or_else(Vec::new, |(rect, kind)| {
-        vec![DisplayCutout {
-            rect: logical(&rect),
-            shape: match kind {
-                IosCutout::Island => CutoutShape::Pill,
-                // `None` never has a rect (`ios_display` answers no cutout for it)
-                IosCutout::Notch | IosCutout::None => CutoutShape::Notch,
-            },
-            approximate: true,
-        }]
-    });
-    let bar = |rect: Option<IosRect>, visible: bool| match rect {
-        Some(rect) => OptionSystemBar::Some(SystemBar { rect: logical(&rect), visible }),
-        None => OptionSystemBar::None,
-    };
-    DisplayFeatures {
-        cutouts: DisplayCutoutVec::from_vec(cutouts),
-        corner_radii: CornerRadii {
-            top_left: display.corner_radius,
-            top_right: display.corner_radius,
-            bottom_right: display.corner_radius,
-            bottom_left: display.corner_radius,
-        },
-        bars: SystemBars {
-            status: bar(display.status_bar, status_visible),
-            navigation: bar(display.home_indicator, navigation_visible),
-        },
-        fingerprint: match display.fingerprint {
-            IosFingerprint::None => OptionFingerprintSensor::None,
-            IosFingerprint::Front => {
-                OptionFingerprintSensor::Some(FingerprintSensor { kind: FingerprintKind::Front, spot: OptionFingerprintSpot::None })
-            }
-            IosFingerprint::Unknown => OptionFingerprintSensor::Some(FingerprintSensor {
-                kind: FingerprintKind::Unknown,
-                spot: OptionFingerprintSpot::None,
-            }),
-        },
-    }
 }
 
 /// The display features of the window whose render view is `view`, `width` x `height` points with `insets` (top,
