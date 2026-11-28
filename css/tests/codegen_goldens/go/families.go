@@ -67,8 +67,12 @@ func StyleText() azul.AzCssPropertyWithConditionsVec {
 		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_Direction(azul.AzStyleDirectionValue_Exact(azul.StyleDirection_Rtl))),
 		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_userSelect(azul.StyleUserSelect_None)),
 		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_textDecoration(azul.StyleTextDecoration_Underline)),
+		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_initial(azul.CssPropertyType_TextDecorationStyle)),
+		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_initial(azul.CssPropertyType_TextDecorationColor)),
+		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_initial(azul.CssPropertyType_TextDecorationThickness)),
 		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_TextDecorationColor(azul.AzStyleTextDecorationColorValue_Exact(azul.AzStyleTextDecorationColor_Color(azul.AzColorU{R: 204, G: 51, B: 0, A: 255})))),
 		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_TextDecorationThickness(azul.AzStyleTextDecorationThicknessValue_Exact(azul.AzStyleTextDecorationThickness_Length(azul.AzPixelValue_px(2.0))))),
+		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_TextDecorationStyle(azul.AzStyleTextDecorationStyleValue_Exact(azul.StyleTextDecorationStyle_Wavy))),
 		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_TextUnderlineOffset(azul.AzStyleTextUnderlineOffsetValue_Exact(azul.AzStyleTextUnderlineOffset_Length(azul.AzPixelValue_px(3.0))))),
 		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_TextUnderlinePosition(azul.AzStyleTextUnderlinePositionValue_Exact(azul.StyleTextUnderlinePosition_UnderLeft))),
 		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_HyphenationLanguage(azul.AzStyleHyphenationLanguageValue_Exact(azul.AzStyleHyphenationLanguage{Inner: azul.Str("en-US").Raw()}))),
@@ -80,7 +84,7 @@ func StyleText() azul.AzCssPropertyWithConditionsVec {
 		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_selectionColor(azul.AzSelectionColor{Inner: azul.AzColorU{R: 255, G: 255, B: 255, A: 255}})),
 		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_SelectionRadius(azul.AzSelectionRadiusValue_Exact(azul.AzSelectionRadius{Inner: azul.AzPixelValue_px(3.0)}))),
 		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_font(azul.AzStyleFontFamilyVec_copyFromPtr(&[]azul.AzStyleFontFamily{azul.AzStyleFontFamily_System(azul.Str("caption").Raw())}[0], 1))),
-	}[0], 67)
+	}[0], 71)
 }
 
 // CSS: .shorthands

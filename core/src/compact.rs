@@ -28,8 +28,8 @@ use azul_css::{
         },
         property::CssProperty,
         style::text::{
-            StyleTextDecorationColor, StyleTextDecorationThickness, StyleTextUnderlineOffset,
-            StyleTextUnderlinePosition,
+            StyleTextDecorationColor, StyleTextDecorationStyle, StyleTextDecorationThickness,
+            StyleTextUnderlineOffset, StyleTextUnderlinePosition,
         },
     },
 };
@@ -2849,6 +2849,13 @@ fn update_dom_declared_flags(prop: &CssProperty, flags: &mut u64) {
                 .is_some_and(|thickness| *thickness != StyleTextDecorationThickness::Auto)
             {
                 *flags |= DOM_HAS_TEXT_DECORATION_THICKNESS;
+            }
+        }
+        CssProperty::TextDecorationStyle(v) => {
+            if v.get_property()
+                .is_some_and(|style| *style != StyleTextDecorationStyle::Solid)
+            {
+                *flags |= DOM_HAS_TEXT_DECORATION_STYLE;
             }
         }
         CssProperty::TextUnderlineOffset(v) => {

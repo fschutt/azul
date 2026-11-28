@@ -354,7 +354,7 @@ def e2e_session(args):
             dl = srv.op("get_display_list", timeout=90)
             items = find_key(dl, "items") or []
             (run.logs_dir / f"display-list-head-{orient}.json").write_text(json.dumps(items[:60]), encoding="utf-8")
-            rects = [i for i in items if i.get("item_type") == "rect" and i.get("width")]
+            rects = [i for i in items if (i.get("type") or i.get("item_type")) == "rect" and i.get("width")]
             if rects:
                 r = rects[0]
                 s.note(f"{orient}: the display list's first rect is ({r.get('x')}, {r.get('y')}) {r.get('width')} x {r.get('height')} dp in a window {width:.0f} dp wide; "

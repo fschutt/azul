@@ -69,8 +69,12 @@ static AzCssPropertyWithConditionsVec style_text(void) {
             AzCssPropertyWithConditions_simple(AzCssProperty_direction((AzStyleDirectionValue){ .Exact = { .tag = AzStyleDirectionValue_Tag_Exact, .payload = AzStyleDirection_Rtl } })),
             AzCssPropertyWithConditions_simple(AzCssProperty_userSelect(AzStyleUserSelect_None)),
             AzCssPropertyWithConditions_simple(AzCssProperty_textDecoration(AzStyleTextDecoration_Underline)),
+            AzCssPropertyWithConditions_simple(AzCssProperty_initial(AzCssPropertyType_TextDecorationStyle)),
+            AzCssPropertyWithConditions_simple(AzCssProperty_initial(AzCssPropertyType_TextDecorationColor)),
+            AzCssPropertyWithConditions_simple(AzCssProperty_initial(AzCssPropertyType_TextDecorationThickness)),
             AzCssPropertyWithConditions_simple(AzCssProperty_textDecorationColor((AzStyleTextDecorationColorValue){ .Exact = { .tag = AzStyleTextDecorationColorValue_Tag_Exact, .payload = AzStyleTextDecorationColor_color((AzColorU){ .r = 204, .g = 51, .b = 0, .a = 255 }) } })),
             AzCssPropertyWithConditions_simple(AzCssProperty_textDecorationThickness((AzStyleTextDecorationThicknessValue){ .Exact = { .tag = AzStyleTextDecorationThicknessValue_Tag_Exact, .payload = AzStyleTextDecorationThickness_length(AzPixelValue_px(2.0f)) } })),
+            AzCssPropertyWithConditions_simple(AzCssProperty_textDecorationStyle((AzStyleTextDecorationStyleValue){ .Exact = { .tag = AzStyleTextDecorationStyleValue_Tag_Exact, .payload = AzStyleTextDecorationStyle_Wavy } })),
             AzCssPropertyWithConditions_simple(AzCssProperty_textUnderlineOffset((AzStyleTextUnderlineOffsetValue){ .Exact = { .tag = AzStyleTextUnderlineOffsetValue_Tag_Exact, .payload = AzStyleTextUnderlineOffset_length(AzPixelValue_px(3.0f)) } })),
             AzCssPropertyWithConditions_simple(AzCssProperty_textUnderlinePosition((AzStyleTextUnderlinePositionValue){ .Exact = { .tag = AzStyleTextUnderlinePositionValue_Tag_Exact, .payload = AzStyleTextUnderlinePosition_UnderLeft } })),
             AzCssPropertyWithConditions_simple(AzCssProperty_hyphenationLanguage((AzStyleHyphenationLanguageValue){ .Exact = { .tag = AzStyleHyphenationLanguageValue_Tag_Exact, .payload = (AzStyleHyphenationLanguage){ .inner = AzString_copyFromBytes((const uint8_t*)"en-US", 0, 5) } } })),
@@ -83,7 +87,7 @@ static AzCssPropertyWithConditionsVec style_text(void) {
             AzCssPropertyWithConditions_simple(AzCssProperty_selectionRadius((AzSelectionRadiusValue){ .Exact = { .tag = AzSelectionRadiusValue_Tag_Exact, .payload = (AzSelectionRadius){ .inner = AzPixelValue_px(3.0f) } } })),
             AzCssPropertyWithConditions_simple(AzCssProperty_font(AzStyleFontFamilyVec_copyFromPtr((AzStyleFontFamily[]){ AzStyleFontFamily_system(AzString_copyFromBytes((const uint8_t*)"caption", 0, 7)) }, 1))),
         },
-        67
+        71
     );
 }
 

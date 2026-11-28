@@ -189,6 +189,20 @@ def audit(layout_answer, a11y_answer, state_answer, bars, orientation, scroll_an
     by_id = {n.get("id"): n for n in a11y}
     layout_by_id = {n.get("node_id"): n for n in nodes}
 
+    def box_of(a):
+        """The node's box in dp (l, t, r, b): the BORDER box of its layout node when that contains the accessibility box, else the accessibility
+        box. The accessibility export is the CONTENT box (position + padding + border inwards: a 48 x 48 dp key is 22 x 34 there), a person's
+        finger lands on the border box. None when the node has no box."""
+        b = a.get("bounds")
+        content = tuple(v / scale for v in b) if b else None
+        lay = layout_by_id.get(a.get("node_id"))
+        r = lay.get("rect") if lay else None
+        if r and r.get("width", 0) > 0 and r.get("height", 0) > 0:
+            border = _rect_dp(r)
+            if content is None or _inside(content, border, slack=2.0):
+                return border
+        return content
+
     # -- the window's edges (every DOM node of the layout)
     right, left = [], []
     for n in nodes:
@@ -212,19 +226,18 @@ def audit(layout_answer, a11y_answer, state_answer, bars, orientation, scroll_an
     bands = (bars or {}).get("bands") or []
     under = {"tappable": [], "text": [], "boxes": 0}
     for a in a11y:
-        b = a.get("bounds")
-        if not b or a.get("hidden") or a.get("dom_id") not in (0, None):
+        if a.get("hidden") or a.get("dom_id") not in (0, None):
             continue
-        box = tuple(v / scale for v in b)
-        if box[2] - box[0] <= 0 or box[3] - box[1] <= 0:
+        box = box_of(a)
+        if not box or box[2] - box[0] <= 0 or box[3] - box[1] <= 0:
             continue
         role = a.get("role")
         tappable = bool(a.get("clickable")) or role in INTERACTIVE_ROLES
         texty = bool(a.get("name")) and role in TEXT_ROLES
         for band in bands:
-            bl, bt, br, bb = band["rect"]
-            dx = (min(b[2], br) - max(b[0], bl)) / scale          # the overlap in dp, both boxes in device pixels
-            dy = (min(b[3], bb) - max(b[1], bt)) / scale
+            bl, bt, br, bb = (v / scale for v in band["rect"])          # the bars are in device pixels, the boxes in dp
+            dx = min(box[2], br) - max(box[0], bl)
+            dy = min(box[3], bb) - max(box[1], bt)
             if dx >= MIN_UNDER_BAR_DP and dy >= MIN_UNDER_BAR_DP:
                 depth = dy if (br - bl) >= (bb - bt) else dx          # a bar along the top or bottom is entered from the side of its height
                 entry = _entry(layout_by_id.get(a.get("node_id")), a, box, f"{depth:.0f} dp under the {band['name']} bar")
@@ -248,21 +261,20 @@ def audit(layout_answer, a11y_answer, state_answer, bars, orientation, scroll_an
             continue
         if not (a.get("clickable") or role in INTERACTIVE_ROLES):
             continue
-        b = a.get("bounds")
-        if not b:
+        box = box_of(a)
+        if not box:
             unknown += 1
             continue
         tappable_count += 1
-        box = tuple(v / scale for v in b)
         w, h = box[2] - box[0], box[3] - box[1]
-        if w <= 0 or h <= 0 or min(w, h) >= MIN_TARGET_DP:
+        if w <= 0 or h <= 0 or min(w, h) >= MIN_TARGET_DP - 0.5:      # half a dp of layout rounding
             continue
         # a larger tappable ancestor takes the finger anyway
         parent, big_parent = by_id.get(a.get("parent")), False
         while parent is not None:
-            pb = parent.get("bounds")
-            if pb and (parent.get("clickable") or parent.get("role") in INTERACTIVE_ROLES):
-                if min((pb[2] - pb[0]) / scale, (pb[3] - pb[1]) / scale) >= MIN_TARGET_DP:
+            pbox = box_of(parent)
+            if pbox and (parent.get("clickable") or parent.get("role") in INTERACTIVE_ROLES):
+                if min(pbox[2] - pbox[0], pbox[3] - pbox[1]) >= MIN_TARGET_DP:
                     big_parent = True
                     break
             parent = by_id.get(parent.get("parent"))

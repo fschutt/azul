@@ -122,7 +122,8 @@ use azul_css::{
             StyleWhiteSpaceValue, StyleWordBreakValue, StyleWordSpacingValue, StyleZoomValue, StyleBackgroundClipVecValue,
             StyleFontFeatureSettingsValue, StyleFontKerningValue, StyleFontOpticalSizingValue,
             StyleFontVariantPositionValue, StyleTextRenderingValue, StyleTextWrapValue,
-            StyleTextDecorationColorValue, StyleTextDecorationThicknessValue,
+            StyleTextDecorationColorValue, StyleTextDecorationStyleValue,
+            StyleTextDecorationThicknessValue,
             StyleTextUnderlineOffsetValue, StyleTextUnderlinePositionValue,
             StyleFontStretchValue, StyleFontSynthesisValue, StyleFontVariantCapsValue,
             StyleFontVariantEastAsianValue, StyleFontVariantLigaturesValue,
@@ -5218,6 +5219,12 @@ impl CssPropertyCache {
         StyleTextDecorationThicknessValue,
         TextDecorationThickness,
         as_text_decoration_thickness
+    );
+    impl_get_prop!(
+        get_text_decoration_style,
+        StyleTextDecorationStyleValue,
+        TextDecorationStyle,
+        as_text_decoration_style
     );
     impl_get_prop!(
         get_text_underline_offset,
