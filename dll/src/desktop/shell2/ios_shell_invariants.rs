@@ -925,7 +925,7 @@ fn the_ios_permission_backend_requests_one_capability_at_a_time_and_reads_quietl
 fn the_ios_window_feeds_the_engines_gesture_config_from_uikits_numbers() {
     let new = body(IOS_MOD_RS, "pub fn new(");
     for needed in [
-        "gesture_drag_manager.config",
+        "set_gesture_config(",
         "UIKIT_GESTURES.pan_threshold_points",
         "UIKIT_GESTURES.long_press_ms",
         "UIKIT_GESTURES.long_press_movement_points",
@@ -971,6 +971,30 @@ fn every_place_the_ios_shell_asks_the_system_for_a_permission_says_so_in_the_log
             assert!(found > 0, "{file}: no call with `{ask}` found - was it renamed? (this pin has to follow it)");
         }
     }
+}
+
+/// The engine is told what the system does with a touch, in three places and nowhere else: the numbers of gesture detection
+/// are UIKit's (`set_gesture_config` at window creation, the names it had to replace logged), the zones where the system takes
+/// its own swipes come out of the display class in the same `layout_subviews` pass that reports the display features
+/// (`set_system_gesture_insets`, approximate), and `touchesCancelled:` lets every recogniser of the engine go
+/// (`cancel_touch_gestures`), not only the shell's own tap state.
+#[test]
+fn the_engine_hears_uikits_gesture_numbers_the_system_gesture_zones_and_the_cancel_of_a_touch() {
+    let new = body(IOS_MOD_RS, "pub fn new(");
+    at(new, "set_gesture_config(", "IOSWindow::new");
+    at(new, "touch_slop: UIKIT_GESTURES.pan_threshold_points", "IOSWindow::new");
+    at(new, "long_press_timeout_ms: UIKIT_GESTURES.long_press_ms", "IOSWindow::new");
+    assert!(
+        !code_of(new).contains("gesture_drag_manager.config ="),
+        "IOSWindow::new: the numbers go through set_gesture_config (it makes them usable), not into the manager's field"
+    );
+    let layout = body(IOS_MOD_RS, "extern \"C\" fn layout_subviews(");
+    at(layout, "gesture_zones(&display)", "layout_subviews");
+    at(layout, "set_system_gesture_insets(", "layout_subviews");
+    in_order(layout, "set_system_gesture_insets(", "report_display_features(features)", "layout_subviews");
+    let touch = body(IOS_MOD_RS, "fn handle_touch(");
+    at(touch, "TouchPhase::Cancelled", "handle_touch");
+    in_order(touch, "mouse_plan(", "cancel_touch_gestures()", "handle_touch");
 }
 
 /// The system's chrome and the display features reach UIKit and the engine through ONE place each: the window's root view
