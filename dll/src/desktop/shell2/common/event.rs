@@ -12304,6 +12304,14 @@ pub trait PlatformWindow {
                 super::capability_pump::pump(lw);
             }
             self.sync_capability_pump_timer();
+            // The app's lifecycle events a system callback (or the debug server) queued: the app's handler runs now,
+            // on the loop thread, like a menu click (`desktop::lifecycle`).
+            if self
+                .get_layout_window()
+                .is_some_and(|lw| lw.app_services.lifecycle.has_queued_lifecycle_events())
+            {
+                crate::desktop::lifecycle::deliver(self);
+            }
             self.process_transient_dismissal();
             // AFTER the dismissal: an Escape that closed the popup here has
             // no popup left to be forwarded to (and was consumed there).
