@@ -363,5 +363,130 @@
     "config": {
       "continue_on_failure": true
     }
+  },
+  {
+    "name": "azdrive_on_a_phone_a_long_press_on_a_row_opens_the_sheet_of_its_item",
+    "description": "Built for a phone: a long press on a row of the list selects it and opens its quick-action sheet over the window (Preview, Open, Rename, Move to, Copy, Properties and, in red, Move to trash); Escape closes it.",
+    "only_on": [
+      "linux",
+      "windows",
+      "macos"
+    ],
+    "steps": [
+      {
+        "op": "resize",
+        "width": 411,
+        "height": 800
+      },
+      {
+        "op": "set_mode",
+        "mode": "light"
+      },
+      {
+        "op": "set_theme",
+        "theme": "flora"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_settled"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "assert_not_exists",
+        "selector": ".__azul-native-action-sheet"
+      },
+      {
+        "op": "mouse_move",
+        "x": 200,
+        "y": 330
+      },
+      {
+        "op": "long_press",
+        "x": 200,
+        "y": 330,
+        "duration_ms": 600
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_settled"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "assert_exists",
+        "selector": ".__azul-native-action-sheet"
+      },
+      {
+        "op": "find_node_by_text",
+        "text": "Move to trash",
+        "dom_id": 0
+      },
+      {
+        "op": "assert_response",
+        "contains": "\"found\":true"
+      },
+      {
+        "op": "print",
+        "text": "SHOT A long press on a row opened the sheet of its item: Preview, Open, Rename, Move to, Copy, Properties and, in red, Move to trash"
+      },
+      {
+        "op": "take_screenshot"
+      },
+      {
+        "op": "key_down",
+        "key": "Escape"
+      },
+      {
+        "op": "key_up",
+        "key": "Escape"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_settled"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "assert_not_exists",
+        "selector": ".__azul-native-action-sheet"
+      }
+    ],
+    "config": {
+      "continue_on_failure": true
+    }
   }
 ]
