@@ -46,24 +46,60 @@ fn empty_state(app: &RefAny) -> Dom {
         .with_id(ids::EMPTY)
 }
 
-/// One sheet of paper around `page` (an editing host), `zoom` the scale.
-fn sheet(page: Dom, width: f32, min_height: f32, margin: f32) -> Dom {
-    Dom::create_div()
+/// One sheet of paper around `page` (an editing host), `zoom` the scale. `under` (a blank sheet's placeholder) is the
+/// sheet's first child, so the page that follows is painted over it and takes the touch.
+fn sheet(page: Dom, width: f32, min_height: f32, margin: f32, under: Option<Dom>) -> Dom {
+    let mut paper = Dom::create_div()
         .with_class(ids::SHEET)
         .with_css(format!(
-            "display: block; flex-shrink: 0; box-sizing: border-box; width: {width}px; \
+            "display: block; position: relative; flex-shrink: 0; box-sizing: border-box; width: {width}px; \
              min-height: {min_height}px; padding: {margin}px; margin-bottom: 16px; \
              background: system:background; color: system:text; {} \
-             border: 1px solid system:separator;",
+             border: 1px solid system:separator; box-shadow: 0px 1px 4px rgba(0, 0, 0, 0.25);",
             paginate::PAPER_TEXT_CSS
-        ))
-        .with_child(page)
+        ));
+    if let Some(under) = under {
+        paper.add_child(under);
+    }
+    paper.with_child(page)
 }
 
-/// Page `index`'s editing host; the first one takes the keyboard when it mounts, so a
-/// document opens with the caret in its text.
-fn first_takes_the_keyboard(index: usize, page: &Dom) -> Dom {
-    if index == 0 {
+/// The room inside a phone's sheet on each side, px: a phone's margin, not the print layout's inch.
+const PHONE_PAGE_MARGIN: f32 = 20.0;
+
+/// The least height of a phone's sheet, px: an empty page is a page, not one line of text.
+const PHONE_SHEET_MIN_HEIGHT: f32 = 480.0;
+
+/// Whether the document is blank: no word and at most the one empty block a new document is made of. Only then the
+/// sheet says where to write.
+#[must_use]
+pub fn shows_placeholder(words: usize, blocks: usize) -> bool {
+    words == 0 && blocks <= 1
+}
+
+/// What a blank sheet says: a caret where the text begins and "Start writing..." after it, under the editor (the
+/// editor is transparent and takes the tap: the keyboard comes with the first touch, not before). The caret is the
+/// editor's own once the editor has the focus.
+fn placeholder(margin: f32) -> Dom {
+    Dom::create_div()
+        .with_id(ids::PLACEHOLDER)
+        .with_css(format!(
+            "position: absolute; left: {margin}px; top: {margin}px; display: flex; flex-direction: row; \
+             align-items: center; color: system:tertiary-text; {}",
+            paginate::PAPER_TEXT_CSS
+        ))
+        .with_child(
+            Dom::create_div()
+                .with_css("width: 2px; height: 20px; margin-right: 3px; background: system:accent;"),
+        )
+        .with_child(Dom::create_span_with_text(s("azwriter-placeholder")))
+}
+
+/// Page `index`'s editing host; on a desktop the first one takes the keyboard when it mounts, so a
+/// document opens with the caret in its text. On a phone it does not (`takes` false): the soft keyboard
+/// covers half the screen and comes with the first touch on the page, not at launch.
+fn first_takes_the_keyboard(index: usize, page: &Dom, takes: bool) -> Dom {
+    if index == 0 && takes {
         page.clone().with_attribute(AttributeType::Autofocus)
     } else {
         page.clone()
@@ -73,6 +109,15 @@ fn first_takes_the_keyboard(index: usize, page: &Dom) -> Dom {
 /// The canvas's room beside a sheet, both sides together, px.
 const CANVAS_SIDES: f32 = 48.0;
 
+/// The same on a phone: the sheet fills the screen and a hair of canvas on each side shows its edge.
+const PHONE_CANVAS_SIDES: f32 = 16.0;
+
+/// Whether a window `window_width` wide is a phone's (`ribbon::PHONE_WIDTH`).
+#[must_use]
+fn is_phone_width(window_width: f32) -> bool {
+    window_width < crate::ribbon::PHONE_WIDTH
+}
+
 /// The narrowest sheet of the web layout: a phone is 320 dp wide at the least, and the sheet leaves the canvas its
 /// [`CANVAS_SIDES`] (the sheet was never narrower than 320, and ran out of a 320 dp window).
 const MIN_WEB_SHEET: f32 = 240.0;
@@ -81,7 +126,8 @@ const MIN_WEB_SHEET: f32 = 240.0;
 /// room beside it, at most 1200 px at 100 %.
 #[must_use]
 pub fn web_sheet_width(window_width: f32, zoom: f32) -> f32 {
-    (window_width - CANVAS_SIDES).clamp(MIN_WEB_SHEET, 1200.0 * zoom)
+    let sides = if is_phone_width(window_width) { PHONE_CANVAS_SIDES } else { CANVAS_SIDES };
+    (window_width - sides).clamp(MIN_WEB_SHEET, 1200.0 * zoom)
 }
 
 /// Whether the document is shown as the web layout's one sheet: the web layout was asked for, or
@@ -122,22 +168,31 @@ pub fn document_area(app: &RefAny, st: &AppState, window_width: f32) -> Dom {
             let pages = editor.page_doms_at(paginate::Pages::page_starts(&starts), 0, count);
             for (i, page) in pages.as_slice().iter().enumerate() {
                 canvas.add_child(sheet(
-                    first_takes_the_keyboard(i, page),
+                    first_takes_the_keyboard(i, page, true),
                     (paginate::A4_W * zoom).round(),
                     (paginate::A4_H * zoom).round(),
                     margin,
+                    None,
                 ));
             }
         }
         View::Web => {
             let pages = editor.page_doms(vec![0u32], 0, 1);
             let width = web_sheet_width(window_width, zoom);
+            let phone = is_phone_width(window_width);
+            let inside = if phone { PHONE_PAGE_MARGIN } else { (margin / 2.0).round() };
+            let blank = shows_placeholder(doc.word_count(), doc.doc().block_count());
             for (i, page) in pages.as_slice().iter().enumerate() {
+                // A phone's sheet fills the screen (a page of its own, with its margins and edge); its keyboard
+                // comes with the first touch.
+                let page = first_takes_the_keyboard(i, page, !crate::ribbon::draws_under_the_bars());
+                let under = (i == 0 && blank).then(|| placeholder(inside));
                 canvas.add_child(sheet(
-                    first_takes_the_keyboard(i, page),
+                    page,
                     width.round(),
-                    0.0,
-                    (margin / 2.0).round(),
+                    if phone { PHONE_SHEET_MIN_HEIGHT } else { 0.0 },
+                    inside,
+                    under,
                 ));
             }
         }
