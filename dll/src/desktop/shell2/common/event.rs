@@ -3873,6 +3873,45 @@ impl CommonWindowState {
         self.move_mode_background(&held);
     }
 
+    /// A second window of the app is pushed over `below` on a shell with one surface: what the system
+    /// told the window on screen about the surface - the bars, the cutout and the keyboard - is the
+    /// surface's, and the new window has it from its first layout. (Its size, density, mode and display
+    /// are the options' the shell fills in before it makes the window: `views.rs` of the shell.)
+    pub fn adopt_surface_of(&mut self, below: &Self) {
+        if let (Some(layout_window), Some(below_window)) =
+            (self.layout_window.as_mut(), below.layout_window.as_ref())
+        {
+            layout_window.safe_area_insets = below_window.safe_area_insets.clone();
+            layout_window.display_features = below_window.display_features.clone();
+        }
+    }
+
+    /// The window that was under a view is on screen again, `closed` being the view that was on top: the
+    /// system told THAT window what happened to the surface meanwhile (a turn of the phone, another
+    /// density, the bars, the night mode, the language), and this window takes it over - the size and
+    /// density, the bars and the cutout, the mode it shows and the style it follows. Returns whether the
+    /// mode or the style moved: the window is then restyled, not only built again.
+    ///
+    /// The caller owns the event baseline (snapshot before, pass after): the new size is an event of
+    /// this window.
+    pub fn take_over_surface_of(&mut self, closed: &Self) -> bool {
+        let (size, mode) = {
+            let state = closed.current_window_state();
+            (state.size, state.mode)
+        };
+        let style_moved = *self.system_style != *closed.system_style;
+        self.update_window_state(WindowStateSource::Os, |state| state.size = size);
+        let mode_moved = self.current_window_state().mode != mode;
+        if mode_moved {
+            self.write_shown_mode(mode);
+        }
+        if style_moved {
+            self.system_style = Arc::clone(&closed.system_style);
+        }
+        self.adopt_surface_of(closed);
+        mode_moved || style_moved
+    }
+
     /// THE helper that moves a MODE-DERIVED `background_color` with the
     /// mode: when the window's background is one `derived_from` derives for a
     /// mode ([`super::mode_background`] - the app's per-mode background, or

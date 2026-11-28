@@ -14,16 +14,23 @@ use std::{
     },
 };
 
-use azul::desktop::shell2::{common::event::PlatformWindow, headless::HeadlessWindow};
+use azul::desktop::shell2::{
+    common::event::{PlatformWindow, WindowStateSource},
+    headless::HeadlessWindow,
+};
 use azul_core::{
     callbacks::{LayoutCallback, LayoutCallbackInfo, Update},
-    display_features::DisplayPreset,
+    display_features::{DisplayFeatures, DisplayPreset},
     dom::{Dom, DomId, DomNodeId, EventFilter, HoverEventFilter, IdOrClass},
     geom::{LogicalPosition, LogicalSize},
     icon::{IconProviderHandle, SharedIconProvider},
     refany::RefAny,
     resources::AppConfig,
-    window::CursorPosition,
+    window::{CursorPosition, DarkLightMode},
+};
+use azul_css::{
+    props::basic::pixel::{OptionPixelValue, PixelValue},
+    system::SafeAreaInsets,
 };
 use azul_layout::{
     callbacks::{Callback, CallbackInfo},
@@ -208,4 +215,83 @@ fn closing_the_view_leaves_the_window_under_it() {
     window.pump_children();
     assert!(window.children.is_empty(), "the view is gone");
     assert!(window.is_open(), "and the window under it is not");
+}
+
+fn bar_of(px: f32) -> SafeAreaInsets {
+    SafeAreaInsets {
+        top: OptionPixelValue::Some(PixelValue::px(px)),
+        ..SafeAreaInsets::default()
+    }
+}
+
+fn opposite(mode: DarkLightMode) -> DarkLightMode {
+    match mode {
+        DarkLightMode::Dark => DarkLightMode::Light,
+        DarkLightMode::Light => DarkLightMode::Dark,
+    }
+}
+
+/// A view pushed over a window has the bars and the cutout the window under it was told about, from
+/// its first layout: they are the surface's.
+#[test]
+fn a_pushed_view_has_the_bars_of_the_surface_from_the_start() {
+    let mut under = inbox(DisplayPreset::Pixel8);
+    let mut view = inbox(DisplayPreset::Pixel8);
+    {
+        let lw = under.common.layout_window.as_mut().unwrap();
+        lw.safe_area_insets = bar_of(48.0);
+        lw.display_features = DisplayFeatures::simulate(DisplayPreset::Pixel8, LogicalSize::new(412.0, 915.0));
+    }
+    assert_eq!(
+        view.common.layout_window.as_ref().unwrap().safe_area_insets,
+        SafeAreaInsets::default(),
+        "before: the view knows nothing of the surface"
+    );
+
+    view.common.adopt_surface_of(&under.common);
+
+    let under_lw = under.common.layout_window.as_ref().unwrap();
+    let view_lw = view.common.layout_window.as_ref().unwrap();
+    assert_eq!(view_lw.safe_area_insets, under_lw.safe_area_insets);
+    assert_eq!(view_lw.safe_area_insets.top, OptionPixelValue::Some(PixelValue::px(48.0)));
+    assert_eq!(view_lw.display_features, under_lw.display_features);
+}
+
+/// When the view closes, the window under it takes over what the system told the view meanwhile: a
+/// turn of the phone, the bars, the night - it was the view the system spoke to, not the window
+/// that waited.
+#[test]
+fn the_window_that_comes_back_takes_over_what_the_surface_did_meanwhile() {
+    let mut under = inbox(DisplayPreset::Pixel8);
+    let mut view = inbox(DisplayPreset::Pixel8);
+    let night = opposite(under.common.current_window_state().mode);
+    view.common
+        .update_window_state(WindowStateSource::Os, |state| {
+            state.size.dimensions = LogicalSize::new(915.0, 412.0);
+        });
+    view.common.write_shown_mode(night);
+    view.common.layout_window.as_mut().unwrap().safe_area_insets = bar_of(24.0);
+
+    under.snapshot_window_state_baseline("test.view.pop");
+    let moved = under.common.take_over_surface_of(&view.common);
+
+    let state = under.common.current_window_state();
+    assert_eq!(state.size.dimensions, LogicalSize::new(915.0, 412.0), "the phone turned");
+    assert_eq!(state.mode, night, "and it is night");
+    assert!(moved, "the mode moved: the window is restyled, not only built again");
+    assert_eq!(
+        under.common.layout_window.as_ref().unwrap().safe_area_insets.top,
+        OptionPixelValue::Some(PixelValue::px(24.0)),
+        "the bars are the new ones"
+    );
+}
+
+/// A view closed over a surface that did not change is a pop like any other: nothing to restyle.
+#[test]
+fn a_surface_that_did_not_change_moves_nothing() {
+    let mut under = inbox(DisplayPreset::Pixel8);
+    let view = inbox(DisplayPreset::Pixel8);
+    under.snapshot_window_state_baseline("test.view.pop");
+    assert!(!under.common.take_over_surface_of(&view.common));
+    assert_eq!(under.common.current_window_state().size.dimensions, LogicalSize::new(412.0, 915.0));
 }

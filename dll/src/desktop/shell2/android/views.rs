@@ -11,8 +11,6 @@
 //! for a window of its own) pop the top window; what it left running (a send that is still on its
 //! thread) goes on in the window below.
 
-use std::sync::Arc;
-
 use azul_core::callbacks::RelayoutReason;
 use azul_layout::window_state::WindowCreateOptions;
 
@@ -20,10 +18,7 @@ use super::{make_common, AndroidWindow, RenderBackend};
 use crate::{
     desktop::shell2::{
         android_core::{a11y_refresh::ScrollRefresh, slop::TapSlop},
-        common::{
-            debug_server,
-            event::{CommonWindowState, PlatformWindow, WindowStateSource},
-        },
+        common::{debug_server, event::PlatformWindow},
     },
     log_debug, log_error, log_info,
 };
@@ -114,14 +109,8 @@ impl AndroidWindow {
         self.views_below.push(below);
         // What the system told the window it is on - the bars, the cutout, the keyboard - is the
         // surface's: the view has it from its first layout.
-        if let (Some(view_lw), Some(below_lw)) = (
-            self.common.layout_window.as_mut(),
-            self.views_below
-                .last()
-                .and_then(|below| below.layout_window.as_ref()),
-        ) {
-            view_lw.safe_area_insets = below_lw.safe_area_insets.clone();
-            view_lw.display_features = below_lw.display_features.clone();
+        if let Some(below) = self.views_below.last() {
+            self.common.adopt_surface_of(below);
         }
         log_debug!(
             super::LogCategory::Window,
@@ -148,7 +137,9 @@ impl AndroidWindow {
         let mut closed = core::mem::replace(&mut self.common, parent);
         // What happened to the surface while the view was on top (a turn of the phone, another density,
         // the bars, the night mode, the language) reached THAT window only: the one that is back takes it over.
-        let theme_moved = self.take_over_the_surface_of(&closed);
+        // Contract shape (snapshot, mutate, pass): the resize is an event of the window that comes back.
+        self.snapshot_window_state_baseline("android.view.pop");
+        let theme_moved = self.common.take_over_surface_of(&closed);
         let poll_was_needed = PlatformWindow::thread_poll_needed(self);
         let (inherited, keyring_ops) = closed.layout_window.as_mut().map_or_else(
             || (Vec::new(), 0),
@@ -184,36 +175,6 @@ impl AndroidWindow {
         self.apply_bars_of_the_window_on_top();
         // The size it has now is a resize for the window that comes back, if the surface turned meanwhile.
         let _ = self.process_window_events(0);
-    }
-
-    /// The window that is on screen again takes over what the system told the one that was on top: the
-    /// size and density of the surface, the bars and the cutout, the mode it shows and the style it follows.
-    /// Returns whether the mode or the style moved (the window is then restyled, not only rebuilt).
-    fn take_over_the_surface_of(&mut self, closed: &CommonWindowState) -> bool {
-        let (size, mode) = {
-            let state = closed.current_window_state();
-            (state.size, state.mode)
-        };
-        let style_moved = *self.common.system_style != *closed.system_style;
-        // Contract shape (snapshot, mutate, pass): the resize is an event of the window that comes back.
-        self.snapshot_window_state_baseline("android.view.pop");
-        self.common
-            .update_window_state(WindowStateSource::Os, |state| state.size = size);
-        let mode_moved = self.common.current_window_state().mode != mode;
-        if mode_moved {
-            self.common.write_shown_mode(mode);
-        }
-        if style_moved {
-            self.common.system_style = Arc::clone(&closed.system_style);
-        }
-        if let (Some(lw), Some(closed_lw)) = (
-            self.common.layout_window.as_mut(),
-            closed.layout_window.as_ref(),
-        ) {
-            lw.safe_area_insets = closed_lw.safe_area_insets.clone();
-            lw.display_features = closed_lw.display_features.clone();
-        }
-        mode_moved || style_moved
     }
 
     /// What the window on top asks of the system bars (`WindowFlags::system_bars`).
