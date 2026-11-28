@@ -11,12 +11,14 @@ fn read(rel: &str) -> String {
     fs::read_to_string(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()))
 }
 
+/// Java source without its comments (line comments and `/* */` blocks: the doc comment names the hidden API it does not use).
 fn java_code(rel: &str) -> String {
-    read(rel)
-        .lines()
-        .map(|l| l.split("//").next().unwrap_or(""))
-        .collect::<Vec<_>>()
-        .join("\n")
+    let mut text = read(rel);
+    while let Some(start) = text.find("/*") {
+        let end = text[start..].find("*/").map(|e| start + e + 2).expect("an unterminated block comment");
+        text.replace_range(start..end, "");
+    }
+    text.lines().map(|l| l.split("//").next().unwrap_or("")).collect::<Vec<_>>().join("\n")
 }
 
 fn body<'a>(src: &'a str, signature: &str) -> &'a str {
