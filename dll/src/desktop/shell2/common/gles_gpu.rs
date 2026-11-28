@@ -84,6 +84,12 @@ fn set_window_format(window: *mut c_void, format: EglInt) -> i32 {
 /// The first presents of a renderer that are described in the log.
 const DESCRIBED_PRESENTS: u32 = 3;
 
+/// EXPERIMENT (not for master): `AZ_GPU_SELFTEST=1` runs the driver self-test before WebRender is made.
+fn selftest_requested() -> bool {
+    azul_css::env::EnvSource::var(&crate::env::ProcessEnv::new(), "AZ_GPU_SELFTEST")
+        .is_some_and(|value| !value.is_empty() && value != "0")
+}
+
 /// Where the path finds its libraries and what it makes its surfaces of.
 #[derive(Debug, Clone)]
 pub struct GlesGpuConfig {
@@ -700,6 +706,11 @@ impl GlesGpu {
             return Err(GpuFallback::new(GpuStage::Functions, "no function table"));
         };
         let reports_damage = session.info().caps.buffer_age;
+        if selftest_requested() {
+            for line in gles_trace::selftest(&gl, self.size_px) {
+                log_info!(LogCategory::Rendering, "[render] selftest: {}", line);
+            }
+        }
         log_info!(LogCategory::Rendering, "[render] {}", gles_trace::extensions_line(&gl));
         // The first surface is shown before WebRender is made (its programs compile in the first frame, seconds on a cold start).
         self.prime_surface(ctx);
