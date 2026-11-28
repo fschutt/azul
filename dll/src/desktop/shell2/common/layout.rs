@@ -251,7 +251,15 @@ pub fn should_request_fonts(build_complete: bool, cache_empty: bool) -> bool {
 /// faces draw ([`azul_layout::solver3::getters::memory_faces_draw_all_text`]) needs nothing the scan is looking for, and
 /// goes on: the scan continues in the background, the window's font cache is refreshed by the first pass after it ends
 /// (the branch of `regenerate_layout` that finds the build complete), and a later DOM that names a system family or holds
-/// a character no face in memory draws takes the wait as before. Anything else waits exactly as before.
+/// a character no face in memory draws takes the wait as before. Anything else waits exactly as before. A registry that
+/// holds a manifest (a hit) or has finished its scan has nothing to wait for, and nothing is decided or marked.
+///
+/// Two things are not the old order, and both only on a miss: the layout callback runs BEFORE this wait, so what it reads
+/// of the system's fonts (`LayoutCallbackInfo::get_font_cache`, `get_system_fonts`) is the live cache as far as the scan
+/// has come (the old wait made the common families sure, and nothing else; a builder's additions were always visible
+/// meanwhile); and the chains of a DOM the faces in memory draw are resolved without the registry's probe while the
+/// scout has not listed the fonts (`resolve_font_chains_fast`), which waits for the listing itself for any stack the
+/// faces do not draw: a child DOM, text that comes later in the pass.
 fn wait_for_system_fonts_if_needed(
     layout_window: &mut LayoutWindow,
     registry: &FcFontRegistry,
@@ -261,6 +269,10 @@ fn wait_for_system_fonts_if_needed(
     current_window_state: &FullWindowState,
     startup: &crate::desktop::startup_timeline::StartupTimeline,
 ) {
+    // A manifest was loaded or the scan is over: the wait would return at once, and there is nothing to decide.
+    if registry.is_cache_loaded() || registry.is_build_complete() {
+        return;
+    }
     let viewport = azul_css::props::basic::PhysicalSize::new(
         current_window_state.size.dimensions.width,
         current_window_state.size.dimensions.height,

@@ -6,11 +6,12 @@
 //! every font stack of the DOM's text and draw every character of it. Each way the rule could say yes wrongly is a test
 //! here (a character no face draws, a stack that opens with a system family, a stack with no memory family at all, a
 //! second stack, a DOM without text), next to the cases it must say yes to (the text covered by one face, by two faces
-//! of one stack together, names after the memory families that are never reached, line breaks that are no glyph).
+//! of one stack together, names after the memory families that do not change the answer, line breaks that are no
+//! glyph, a face of the fallback tier - the tier azul's own and the app's faces are registered in).
 
 use azul_core::{dom::Dom, styled_dom::StyledDom};
 use azul_css::props::basic::PhysicalSize;
-use azul_layout::solver3::getters::memory_faces_draw_all_text;
+use azul_layout::{solver3::getters::memory_faces_draw_all_text, text3::cache::MemoryFontTier};
 use rust_fontconfig::{FcFontCache, UnicodeRange};
 
 use crate::variable_fonts::{page, red_hat_mono_path, Manager};
@@ -30,6 +31,17 @@ fn manager_with(faces: &[(&str, Vec<UnicodeRange>)]) -> Manager {
     let mut manager = Manager::new(FcFontCache::default()).expect("font manager");
     for (family, coverage) in faces {
         let _ = manager.register_named_font(family, &file, coverage.clone());
+    }
+    manager
+}
+
+/// A manager with each `(family, coverage)` registered from memory in the FALLBACK tier, the tier of azul's own faces and
+/// the app's (`AppConfig::add_font`): an installed copy of the family would win over it.
+fn manager_with_fallback_faces(faces: &[(&str, Vec<UnicodeRange>)]) -> Manager {
+    let file = std::fs::read(red_hat_mono_path()).expect("the face is checked in");
+    let mut manager = Manager::new(FcFontCache::default()).expect("font manager");
+    for (family, coverage) in faces {
+        let _ = manager.register_named_font_in_tier(family, &file, coverage.clone(), MemoryFontTier::Fallback);
     }
     manager
 }
@@ -80,7 +92,7 @@ fn a_stack_that_opens_with_a_system_family_waits_whatever_follows() {
 }
 
 #[test]
-fn names_after_the_registered_families_are_never_reached() {
+fn names_after_the_registered_families_do_not_change_the_answer() {
     let manager = manager_with(&[("Mem", latin())]);
     // The design's own stack: its faces, then the serifs a desktop has.
     let styled = page(
@@ -90,6 +102,16 @@ fn names_after_the_registered_families_are_never_reached() {
         "Hello",
     );
     assert!(draws_all(&manager, &styled));
+}
+
+#[test]
+fn a_face_of_the_fallback_tier_counts_like_one_of_the_primary_tier() {
+    // azul's bundled faces and the app's own are registered in the fallback tier.
+    let manager = manager_with_fallback_faces(&[("Mem", latin())]);
+    assert!(draws_all(&manager, &page("Mem", "", "", "Hello, world 123")));
+    assert!(!draws_all(&manager, &page("Mem", "", "", "Hello 漢")));
+    let stack = page("Mem", "", "font-family: \"Mem\", Georgia, \"Times New Roman\", serif", "Hello");
+    assert!(draws_all(&manager, &stack), "the names after the face are the system's and are not asked");
 }
 
 #[test]

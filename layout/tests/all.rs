@@ -128,6 +128,8 @@ mod a_classic_thumb_stops_above_its_bottom_button;
 mod a_context_menu_opens_from_a_secondary_press;
 #[path = "a_dom_drawn_by_faces_in_memory_needs_no_system_font.rs"]
 mod a_dom_drawn_by_faces_in_memory_needs_no_system_font;
+#[path = "a_stack_drawn_by_faces_in_memory_is_resolved_without_the_scan.rs"]
+mod a_stack_drawn_by_faces_in_memory_is_resolved_without_the_scan;
 #[path = "a_drag_selection_owns_the_scroll_of_its_field.rs"]
 mod a_drag_selection_owns_the_scroll_of_its_field;
 #[path = "a_hundred_and_twenty_nested_blocks_lay_out_on_a_two_megabyte_thread.rs"]
