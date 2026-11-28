@@ -408,6 +408,11 @@ pub struct RawGnome {
     pub portal_contrast: Option<u32>,
     /// `org.freedesktop.appearance reduced-motion` of the settings portal (1 reduce).
     pub portal_reduced_motion: Option<u32>,
+    /// `org.gnome.desktop.a11y.interface reduced-motion` (GNOME 50+): `Some(true)` for `'reduce'`.
+    pub reduced_motion_key: Option<bool>,
+    /// `org.gnome.desktop.a11y.interface show-status-shapes` (GNOME 46+, "On/Off Shapes"): shapes
+    /// on toggles and status icons in addition to colour.
+    pub show_status_shapes: Option<bool>,
 }
 
 impl RawGnome {
@@ -419,7 +424,15 @@ impl RawGnome {
             drop(preferences.set_text_scale(factor));
         }
         let portal_motion = self.portal_reduced_motion.map(|value| value == 1);
-        preferences.reduced_motion = state_of(either(self.enable_animations.map(|on| !on), portal_motion));
+        // three sources of one option, by era: `enable-animations` (every GNOME), the portal key
+        // (GNOME 50+, Plasma 6.6+), the schema key (GNOME 50+); any of them saying "reduce" is it
+        preferences.reduced_motion = state_of(either(
+            either(self.enable_animations.map(|on| !on), portal_motion),
+            self.reduced_motion_key,
+        ));
+        // one setting is both of them: shapes on switches and status icons
+        preferences.differentiate_without_color = state_of(self.show_status_shapes);
+        preferences.on_off_labels = state_of(self.show_status_shapes);
         let portal_contrast = self.portal_contrast.map(|value| value == 1);
         preferences.contrast = contrast_of(either(self.high_contrast, portal_contrast));
         if let Some(size) = self.cursor_size.filter(|size| *size > 0) {

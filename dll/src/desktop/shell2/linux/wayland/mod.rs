@@ -923,6 +923,10 @@ pub struct WaylandWindow {
     /// frames those paths just asked for. Retire by epoch instead.
     needs_redraw: super::super::common::event::LatchedRequest,
 
+    /// The desktop's accessibility settings (the text size, the contrast, the motion ...), watched from a thread
+    /// this window owns; `check_timers_and_threads` takes what it found.
+    preference_watcher: super::system_style::PreferenceWatcher,
+
     // Native timer support via timerfd (Linux-specific)
     // Maps TimerId -> (timerfd file descriptor)
     pub timer_fds: std::collections::BTreeMap<usize, i32>,
@@ -2468,6 +2472,9 @@ impl WaylandWindow {
             frame_callback_pending: false,
             frame_callback_armed_at: None,
             needs_redraw: super::super::common::event::LatchedRequest::default(),
+            preference_watcher: super::system_style::PreferenceWatcher::start(
+                &resources.app_shared.settings().platform,
+            ),
             gpu_damage_rects: Vec::new(),
             gpu_last_render_presented: true,
             timer_fds: std::collections::BTreeMap::new(),
@@ -9920,6 +9927,16 @@ impl WaylandWindow {
             self.adopt_system_style(new_style);
             self.needs_redraw.raise();
             self.generate_frame_if_needed();
+        }
+
+        // The desktop's accessibility settings (the text size, the contrast, the motion ...): what the watcher
+        // thread found since the last turn. The adoption restyles, and the pass tells the window's listeners.
+        if let Some(reported) = self.preference_watcher.newest() {
+            self.snapshot_window_state_baseline("linux.wayland.preferences");
+            if self.adopt_reported_preferences_and_tell(reported).is_some() {
+                self.needs_redraw.raise();
+                self.generate_frame_if_needed();
+            }
         }
     }
 

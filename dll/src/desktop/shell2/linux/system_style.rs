@@ -107,7 +107,13 @@ fn query_xdg_portal(env: &PlatformEnv) -> Option<(u32, Option<(f64, f64, f64)>)>
     }
 }
 
-fn query_xdg_portal_inner(env: &PlatformEnv) -> Result<(u32, Option<(f64, f64, f64)>), String> {
+/// A connection to the session bus that has said `Hello`: the stream and the reader that frames what comes back.
+///
+/// The steps are the ones the one-shot probes need before their first call: the session bus address, EXTERNAL
+/// authentication, `BEGIN` after the server's `OK`, `Hello` and its reply.
+fn portal_connect(
+    env: &PlatformEnv,
+) -> Result<(std::os::unix::net::UnixStream, DBusReader), String> {
     use std::{os::unix::net::UnixStream, time::Duration};
 
     let bus_addr = env
@@ -166,27 +172,63 @@ fn query_xdg_portal_inner(env: &PlatformEnv) -> Result<(u32, Option<(f64, f64, f
     sasl.await_reply(&mut stream, 1)
         .map_err(|e| alloc::format!("Hello: {e}"))?;
 
-    // ── Settings.Read("org.freedesktop.appearance", ...) ────────────────
+    Ok((stream, sasl))
+}
+
+/// `Settings.Read(namespace, key)` of the settings portal: the body of the reply (`v` wrapping the setting's own `v`).
+fn portal_read(
+    reader: &mut DBusReader,
+    stream: &mut std::os::unix::net::UnixStream,
+    namespace: &str,
+    key: &str,
+    serial: u32,
+) -> Result<Vec<u8>, String> {
+    let msg = build_dbus_method_call(
+        "org.freedesktop.portal.Desktop",
+        "/org/freedesktop/portal/desktop",
+        "org.freedesktop.portal.Settings",
+        "Read",
+        &[DValue::String(namespace), DValue::String(key)],
+        serial,
+    );
+    send_all_nosignal(stream, &msg).map_err(|e| alloc::format!("send Read({key}): {e}"))?;
+    reader
+        .await_reply(stream, serial)
+        .map_err(|e| alloc::format!("Read({key}): {e}"))
+}
+
+/// What the settings portal says of the contrast and the motion the user wants (`org.freedesktop.appearance`,
+/// `contrast` and `reduced-motion`: 0 no preference, 1 more / reduce). `None` for a key the portal does not have (GNOME
+/// before 46 and 50, Plasma before 6.6, a portal of wlroots) or no portal at all - never a guess.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) struct PortalPreferences {
+    pub contrast: Option<u32>,
+    pub reduced_motion: Option<u32>,
+}
+
+/// One connection, two `Read`s; every failure is `None` of that key.
+pub(crate) fn query_portal_preferences(env: &PlatformEnv) -> PortalPreferences {
+    let Ok((mut stream, mut reader)) = portal_connect(env) else {
+        return PortalPreferences::default();
+    };
+    let mut ask = |key: &str, serial: u32| {
+        portal_read(&mut reader, &mut stream, "org.freedesktop.appearance", key, serial)
+            .ok()
+            .and_then(|body| parse_nested_variant_u32(&body))
+    };
+    PortalPreferences {
+        contrast: ask("contrast", 2),
+        reduced_motion: ask("reduced-motion", 3),
+    }
+}
+
+fn query_xdg_portal_inner(env: &PlatformEnv) -> Result<(u32, Option<(f64, f64, f64)>), String> {
+    let (mut stream, mut sasl) = portal_connect(env)?;
     let read_setting = |reader: &mut DBusReader,
-                        stream: &mut UnixStream,
+                        stream: &mut std::os::unix::net::UnixStream,
                         key: &str,
-                        serial: u32|
-     -> Result<Vec<u8>, String> {
-        let msg = build_dbus_method_call(
-            "org.freedesktop.portal.Desktop",
-            "/org/freedesktop/portal/desktop",
-            "org.freedesktop.portal.Settings",
-            "Read",
-            &[
-                DValue::String("org.freedesktop.appearance"),
-                DValue::String(key),
-            ],
-            serial,
-        );
-        send_all_nosignal(stream, &msg).map_err(|e| alloc::format!("send Read({key}): {e}"))?;
-        reader
-            .await_reply(stream, serial)
-            .map_err(|e| alloc::format!("Read({key}): {e}"))
+                        serial: u32| {
+        portal_read(reader, stream, "org.freedesktop.appearance", key, serial)
     };
 
     let body = read_setting(&mut sasl, &mut stream, "color-scheme", 2)?;
@@ -2297,7 +2339,7 @@ pub(crate) fn linux_version_of(release: &str) -> OsVersion {
 /// text" is 1.25), the animations, the high contrast, the pointer size, the screen reader and the
 /// magnifier. A key the schema does not have (a KDE session, GNOME before the move of
 /// `high-contrast` into `org.gnome.desktop.a11y.interface`) is `None`: unknown, not off.
-fn read_gnome_raw(gs: &Gsettings) -> azul_css::accessibility_raw::RawGnome {
+fn read_gnome_raw(gs: &Gsettings, portal: PortalPreferences) -> azul_css::accessibility_raw::RawGnome {
     let flag = |schema: &str, key: &str| gs.get(schema, key).map(|value| value.trim() == "true");
     let number = |schema: &str, key: &str| -> Option<f32> {
         gs.get(schema, key).and_then(|value| value.trim().parse::<f32>().ok())
@@ -2318,8 +2360,13 @@ fn read_gnome_raw(gs: &Gsettings) -> azul_css::accessibility_raw::RawGnome {
             .map(|size| size.max(0.0) as u32),
         screen_reader: flag("org.gnome.desktop.a11y.applications", "screen-reader-enabled"),
         screen_magnifier: flag("org.gnome.desktop.a11y.applications", "screen-magnifier-enabled"),
-        portal_contrast: None,
-        portal_reduced_motion: None,
+        portal_contrast: portal.contrast,
+        portal_reduced_motion: portal.reduced_motion,
+        // GNOME 50's own key ('no-preference' | 'reduce'), and GNOME 46's "On/Off Shapes"
+        reduced_motion_key: gs
+            .get("org.gnome.desktop.a11y.interface", "reduced-motion")
+            .map(|value| value.trim() == "reduce"),
+        show_status_shapes: flag("org.gnome.desktop.a11y.interface", "show-status-shapes"),
     }
 }
 
@@ -2584,7 +2631,7 @@ pub(crate) fn discover(
     // unknown.
     let reported = style
         .preferences
-        .overlaid(&read_gnome_raw(&gs).into_preferences());
+        .overlaid(&read_gnome_raw(&gs, query_portal_preferences(env)).into_preferences());
     style.set_preferences(reported);
 
     // The user's stylesheets (`~/.azul/css/<theme>/`, and the legacy
@@ -3472,6 +3519,203 @@ pub fn dump_discovered_style(env: &PlatformEnv) -> String {
     );
     let _ = writeln!(o, "caret_blink_ms      {}", s.input.caret_blink_rate_ms);
     o
+}
+
+// ── The accessibility settings, read again and watched ───────────────────
+
+/// The desktop's own answer to the accessibility questions, read now: GNOME's settings (and the settings portal's
+/// `contrast` and `reduced-motion`) and, in a KDE session, the Plasma animation speed. Every option a desktop does not
+/// have stays unknown. This is the read the discovery makes at the start ([`discover`]) without the rest of the style.
+pub(crate) fn read_preferences(env: &PlatformEnv) -> azul_css::accessibility::AccessibilityPreferences {
+    let desktop_env = azul_css::system::detect_linux_desktop_env(env);
+    let mut preferences = if matches!(linux_settings_source(&desktop_env), LinuxSettingsSource::KdeConfig) {
+        read_kde_preferences(env)
+    } else {
+        azul_css::accessibility::AccessibilityPreferences::default()
+    };
+    let gs = Gsettings::new();
+    preferences = preferences.overlaid(&read_gnome_raw(&gs, query_portal_preferences(env)).into_preferences());
+    preferences
+}
+
+/// Plasma's share of [`read_preferences`]: the animation speed (0 is instant: reduced motion) and the font DPI, from
+/// the config files themselves (nothing is spawned).
+fn read_kde_preferences(env: &PlatformEnv) -> azul_css::accessibility::AccessibilityPreferences {
+    let sources = kde_color_sources(env);
+    let read = |group: &str, key: &str| sources.iter().find_map(|source| source.get(group, key)).map(String::from);
+    let Some(factor) = read("KDE", "AnimationDurationFactor").and_then(|value| value.trim().parse::<f32>().ok()) else {
+        return azul_css::accessibility::AccessibilityPreferences::default();
+    };
+    azul_css::accessibility_raw::RawKde {
+        animation_duration_factor: Some(factor),
+        force_font_dpi: read("General", "forceFontDPI").and_then(|dpi| dpi.trim().parse::<f32>().ok()),
+    }
+    .into_preferences()
+}
+
+/// What announces a change of the settings, as D-Bus match rules of the session bus: the settings portal's
+/// `SettingChanged` (every namespace: GNOME's schemas, the appearance keys, Plasma's `kdeglobals` groups), dconf's
+/// `Notify` under the GNOME desktop schemas (the keys the portal does not export), KConfig's `ConfigChanged` and the
+/// older `KGlobalSettings` signal of KDE.
+const PREFERENCE_MATCH_RULES: [&str; 4] = [
+    "type='signal',interface='org.freedesktop.portal.Settings',member='SettingChanged'",
+    "type='signal',interface='ca.desrt.dconf.Writer',arg0path='/org/gnome/desktop/'",
+    "type='signal',interface='org.kde.kconfig.notify',member='ConfigChanged'",
+    "type='signal',interface='org.kde.KGlobalSettings',member='notifyChange'",
+];
+
+/// How long the bus stays quiet before an announcement is read: a Settings window writes several keys at once.
+const PREFERENCE_SETTLE: core::time::Duration = core::time::Duration::from_millis(250);
+/// The read nobody announced: a key no signal covers (a Plasma setting written without `--notify`).
+const PREFERENCE_BACKSTOP: core::time::Duration = core::time::Duration::from_secs(120);
+
+/// The desktop's accessibility settings, watched from a thread of the window's own and handed over through a channel.
+/// No global state: the watcher belongs to the window that made it, and its thread ends with the window (a send to a
+/// receiver that is gone fails, and the thread returns).
+///
+/// The window takes what changed in its next loop turn ([`Self::newest`]); an idle window wakes on its next event,
+/// which is when the user comes back from the Settings window they changed it in.
+pub(crate) struct PreferenceWatcher {
+    receiver: std::sync::mpsc::Receiver<azul_css::accessibility::AccessibilityPreferences>,
+}
+
+impl PreferenceWatcher {
+    /// Starts watching. A thread that cannot be made leaves a watcher that never says anything (the settings are then
+    /// read at the start only).
+    #[must_use]
+    pub(crate) fn start(env: &PlatformEnv) -> Self {
+        let (sender, receiver) = std::sync::mpsc::channel();
+        let env = env.clone();
+        if let Err(error) = std::thread::Builder::new()
+            .name("azul-preferences".into())
+            .spawn(move || watch_preferences(&env, &sender))
+        {
+            crate::plog_debug!("accessibility settings: no watcher thread: {}", error);
+        }
+        Self { receiver }
+    }
+
+    /// The newest settings the watcher found that were not the ones before, if any arrived.
+    #[must_use]
+    pub(crate) fn newest(&self) -> Option<azul_css::accessibility::AccessibilityPreferences> {
+        self.receiver.try_iter().last()
+    }
+}
+
+/// How [`wait_for_announcements`] ended.
+enum Wait {
+    /// There is no session bus to connect to.
+    NoBus,
+    /// The bus closed the connection (it is restarting, or the session ends).
+    Closed,
+    /// The window is gone: nobody wants the settings any more.
+    Stopped,
+}
+
+/// The thread: read, wait for an announcement or the backstop, read again, send what differs.
+fn watch_preferences(
+    env: &PlatformEnv,
+    sender: &std::sync::mpsc::Sender<azul_css::accessibility::AccessibilityPreferences>,
+) {
+    let mut sent = read_preferences(env);
+    let mut on_change = || {
+        let now = read_preferences(env);
+        if now == sent {
+            return true;
+        }
+        sent = now;
+        // `false`: the window is gone, nobody wants it
+        sender.send(now).is_ok()
+    };
+    loop {
+        match wait_for_announcements(env, &mut on_change) {
+            Wait::Stopped => return,
+            Wait::NoBus => {
+                // no session bus (or it went away): the backstop alone, until it is back
+                std::thread::sleep(PREFERENCE_BACKSTOP);
+                if !on_change() {
+                    return;
+                }
+            }
+            Wait::Closed => std::thread::sleep(core::time::Duration::from_secs(5)),
+        }
+    }
+}
+
+/// Subscribes to [`PREFERENCE_MATCH_RULES`] and calls `on_change` once per burst of announcements (after
+/// [`PREFERENCE_SETTLE`] of quiet) and once per [`PREFERENCE_BACKSTOP`] of silence; `on_change` answers whether to go on.
+fn wait_for_announcements(env: &PlatformEnv, on_change: &mut dyn FnMut() -> bool) -> Wait {
+    use std::io::Read;
+
+    let Ok((mut stream, reader)) = portal_connect(env) else {
+        return Wait::NoBus;
+    };
+    for (index, rule) in PREFERENCE_MATCH_RULES.iter().enumerate() {
+        let serial = u32::try_from(index).unwrap_or(0) + 2;
+        let call = build_dbus_method_call(
+            "org.freedesktop.DBus",
+            "/org/freedesktop/DBus",
+            "org.freedesktop.DBus",
+            "AddMatch",
+            &[DValue::String(rule)],
+            serial,
+        );
+        if send_all_nosignal(&stream, &call).is_err() {
+            return Wait::Closed;
+        }
+    }
+    // Every byte the bus has sent that has not yet been split into a message: a read can stop in the middle of one, and
+    // what followed the reply of `Hello` is already in the reader.
+    let mut pending: alloc::vec::Vec<u8> = reader.buf;
+    let mut chunk = [0_u8; 4096];
+    let mut announced = false;
+    loop {
+        let timeout = if announced { PREFERENCE_SETTLE } else { PREFERENCE_BACKSTOP };
+        if stream.set_read_timeout(Some(timeout)).is_err() {
+            return Wait::Closed;
+        }
+        match stream.read(&mut chunk) {
+            Ok(0) => return Wait::Closed,
+            Ok(count) => {
+                pending.extend_from_slice(&chunk[..count]);
+                match take_signals(&mut pending) {
+                    Some(saw_signal) => announced |= saw_signal,
+                    None => return Wait::Closed,
+                }
+            }
+            Err(error)
+                if matches!(error.kind(), std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut) =>
+            {
+                // quiet after an announcement, or a whole backstop interval of silence: read the settings
+                announced = false;
+                if !on_change() {
+                    return Wait::Stopped;
+                }
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {}
+            Err(_) => return Wait::Closed,
+        }
+    }
+}
+
+/// Splits the whole messages off `pending` and says whether one was a SIGNAL (message type 4): the only messages the
+/// match rules bring (the replies of `AddMatch` are method returns). `None` when the stream is not D-Bus any more.
+fn take_signals(pending: &mut alloc::vec::Vec<u8>) -> Option<bool> {
+    let mut saw_signal = false;
+    loop {
+        let length = match dbus_message_len(pending) {
+            Some(length) => length,
+            // a fixed header that is all here and does not describe a message: nothing resynchronises a byte stream
+            None if pending.len() >= 16 => return None,
+            None => return Some(saw_signal),
+        };
+        if pending.len() < length {
+            return Some(saw_signal);
+        }
+        // byte 1 of the fixed header is the message type
+        saw_signal |= pending.get(1) == Some(&4);
+        pending.drain(..length);
+    }
 }
 
 #[cfg(test)]

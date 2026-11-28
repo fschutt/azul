@@ -355,6 +355,36 @@ fn gnome_text_scaling_animations_contrast_and_pointer() {
 }
 
 #[test]
+fn gnome_reduced_motion_has_three_eras_and_status_shapes_are_two_options() {
+    // GNOME 50's own key, while the animations switch of the older Settings is still on
+    let reduce = RawGnome {
+        enable_animations: Some(true),
+        reduced_motion_key: Some(true),
+        ..RawGnome::default()
+    }
+    .into_preferences();
+    assert_eq!(reduce.reduced_motion, State::On);
+    // 'no-preference' with animations on: off, known
+    let calm = RawGnome {
+        enable_animations: Some(true),
+        reduced_motion_key: Some(false),
+        ..RawGnome::default()
+    }
+    .into_preferences();
+    assert_eq!(calm.reduced_motion, State::Off);
+    // nothing answered: unknown, not off
+    assert_eq!(RawGnome::default().into_preferences().reduced_motion, State::Unknown);
+
+    // "On/Off Shapes" is the one setting behind two options
+    let shapes = RawGnome { show_status_shapes: Some(true), ..RawGnome::default() }.into_preferences();
+    assert_eq!(shapes.differentiate_without_color, State::On);
+    assert_eq!(shapes.on_off_labels, State::On);
+    let plain = RawGnome { show_status_shapes: Some(false), ..RawGnome::default() }.into_preferences();
+    assert_eq!(plain.differentiate_without_color, State::Off);
+    assert_eq!(RawGnome::default().into_preferences().on_off_labels, State::Unknown);
+}
+
+#[test]
 fn kde_animation_factor_and_font_dpi() {
     let p = RawKde {
         animation_duration_factor: Some(0.0),

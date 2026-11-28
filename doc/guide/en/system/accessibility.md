@@ -377,7 +377,7 @@ reports: `AZ_A11Y_TEXT_SCALE=1.5`, `AZ_A11Y_BOLD_TEXT=1`, `AZ_A11Y_CONTRAST=more
 | iOS | `UIApplication.preferredContentSizeCategory`, the `UIAccessibility*` flag functions, `AXShowBordersEnabled`, `MADimFlashingLightsEnabled` | read four times a second in the display tick |
 | macOS | `NSWorkspace` display and accessibility flags | the workspace poll |
 | Windows | `SystemParametersInfo`, the registry (`TextScaleFactor`, transparency, pointer size, colour filters) | `WM_SETTINGCHANGE`, and a read once a second |
-| Linux | GNOME `org.gnome.desktop.interface` and `a11y` schemas, KDE `kdeglobals`, the settings portal | the portal watcher |
+| Linux | GNOME `org.gnome.desktop.interface` and `a11y` schemas (text scaling factor, high contrast, `reduced-motion`, `show-status-shapes`, cursor size, screen reader), the settings portal's `contrast` and `reduced-motion`, KDE `kdeglobals` (animation speed) | a thread of each window listens for the portal's, dconf's and KConfig's announcements and reads again; a read every two minutes catches the rest |
 
 ## Enabling the feature
 

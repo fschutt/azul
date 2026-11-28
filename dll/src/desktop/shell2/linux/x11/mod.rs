@@ -3071,6 +3071,10 @@ pub struct X11Window {
     /// that would eat the very frame the fade just asked for.
     needs_redraw: crate::desktop::shell2::common::event::LatchedRequest,
 
+    /// The desktop's accessibility settings (the text size, the contrast, the motion ...), watched from a thread
+    /// this window owns; `check_timers_and_threads` takes what it found.
+    preference_watcher: super::system_style::PreferenceWatcher,
+
     /// Set when this window was created with `size_to_content` (e.g. menus).
     /// The window is created UNMAPPED; the first `poll_event` lays the DOM out
     /// at a tiny viewport so the content overflows to its natural extent,
@@ -4461,6 +4465,9 @@ impl X11Window {
             gpu_damage_rects: Vec::new(),
             net_supported_cache: None,
             needs_redraw: crate::desktop::shell2::common::event::LatchedRequest::raised(),
+            preference_watcher: super::system_style::PreferenceWatcher::start(
+                &resources.app_shared.settings().platform,
+            ),
             size_to_content_pending: options.size_to_content,
             webviews: None,
             #[cfg(feature = "a11y")]
@@ -9274,6 +9281,15 @@ impl X11Window {
             // declared it reads — see `PlatformWindow::adopt_system_style`.
             self.adopt_system_style(new_style);
             self.needs_redraw.raise();
+        }
+
+        // The desktop's accessibility settings (the text size, the contrast, the motion ...): what the watcher
+        // thread found since the last turn. The adoption restyles, and the pass tells the window's listeners.
+        if let Some(reported) = self.preference_watcher.newest() {
+            self.snapshot_window_state_baseline("linux.x11.preferences");
+            if self.adopt_reported_preferences_and_tell(reported).is_some() {
+                self.needs_redraw.raise();
+            }
         }
     }
 

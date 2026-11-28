@@ -185,6 +185,53 @@ for mode in "${mode_list[@]}"; do
       python3 "$here/e2e_matrix.py" android --repo . --out "$d/matrix" --shots "$d/matrix/shots" ${AZ_QA_MATRIX_ONLY:+--only "$AZ_QA_MATRIX_ONLY"} ${mapks[@]+"${mapks[@]}"} 2>&1 | tee "$d/e2e-matrix.log"
     fi
   fi
+  if [ "$session" = a11y ] && [ "$mode" = "${mode_list[0]}" ]; then
+    # WP-A11Y: the system's accessibility settings flipped FOR REAL (adb settings), and what the engine does with them. (1) the scenario file of the
+    # AzWidgets "Display settings" section (a11y_display_settings_system: no override, the app reads the phone's own settings) once per set of settings,
+    # each in its own folder <a11y-set>/ with the engine's frames (shots/); (2) a LIVE sequence on the running app: the same settings switched one after
+    # the other while the app stays in front, the device's own picture after each (a11y-live/NN-<name>.png): the change must reach a running window,
+    # without a restart. Android has no switch for "differentiate without colour": that one is shown by the override scenario (a11y_display_settings).
+    mapks=()
+    for mapk in "$apk" ${AZ_QA_MATRIX_APKS:-}; do mapks+=(--apk "$mapk"); done
+    a11y_reset() {
+      adb shell settings put system font_scale 1.0 >/dev/null 2>&1
+      adb shell settings delete secure font_weight_adjustment >/dev/null 2>&1
+      adb shell settings put secure high_text_contrast_enabled 0 >/dev/null 2>&1
+      adb shell settings delete secure contrast_level >/dev/null 2>&1
+      for k in animator_duration_scale transition_animation_scale window_animation_scale; do adb shell settings put global "$k" 1.0 >/dev/null 2>&1; done
+      adb shell settings delete global disable_window_blurs >/dev/null 2>&1
+      adb shell cmd uimode night no >/dev/null 2>&1
+    }
+    a11y_apply() {   # a11y_apply <set>: the commands of one set (the sets are the names below)
+      case "$1" in
+        default) ;;
+        font-1.3) adb shell settings put system font_scale 1.3 ;;
+        font-2.0) adb shell settings put system font_scale 2.0 ;;
+        bold) adb shell settings put secure font_weight_adjustment 300 ;;
+        contrast) adb shell settings put secure high_text_contrast_enabled 1; adb shell settings put secure contrast_level 1.0 ;;
+        contrast-dark) adb shell settings put secure high_text_contrast_enabled 1; adb shell settings put secure contrast_level 1.0; adb shell cmd uimode night yes ;;
+        reduce-motion) for k in animator_duration_scale transition_animation_scale window_animation_scale; do adb shell settings put global "$k" 0; done ;;
+        reduce-transparency) adb shell settings put global disable_window_blurs 1 ;;
+      esac
+    }
+    a11y_sets="${AZ_QA_A11Y_SETS:-default font-1.3 font-2.0 bold contrast contrast-dark reduce-motion reduce-transparency}"
+    for set in $a11y_sets; do
+      a11y_reset; a11y_apply "$set"; sleep 4
+      python3 "$here/e2e_matrix.py" android --repo . --out "$d/a11y-$set" --shots "$d/a11y-$set/shots" --only a11y_display_settings_system ${mapks[@]+"${mapks[@]}"} 2>&1 | tee -a "$d/e2e-matrix.log"
+    done
+    a11y_reset
+    # the live sequence: the app is started once and stays in front
+    mkdir -p "$d/a11y-live"
+    adb shell am force-stop "$pkg" >/dev/null 2>&1
+    if [ -n "${act:-}" ]; then adb shell am start -n "$pkg/$act" >/dev/null 2>&1; else adb shell monkey -p "$pkg" -c android.intent.category.LAUNCHER 1 >/dev/null 2>&1; fi
+    sleep 30
+    n=0
+    for set in default font-1.3 font-2.0 default bold default contrast default contrast-dark default reduce-transparency default; do
+      a11y_reset; a11y_apply "$set"; sleep 5
+      n=$((n + 1)); adb exec-out screencap -p >"$d/a11y-live/$(printf '%02d' "$n")-$set.png" 2>/dev/null || true
+    done
+    a11y_reset
+  fi
   if [ "$session" = fontwait ] && [ "$mode" = "${mode_list[0]}" ]; then
     python3 "$here/font_wait_series.py" android --out "$d/fontwait" --package "$pkg" --activity "$act" --starts "${AZ_QA_FONTWAIT_STARTS:-10}" \
       --plan "${AZ_QA_FONTWAIT_PLAN:?AZ_QA_FONTWAIT_PLAN}" --label "$label" 2>&1 | tee "$d/fontwait.log"
