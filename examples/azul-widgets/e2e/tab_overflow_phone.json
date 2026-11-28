@@ -34,11 +34,7 @@
         "op": "wait_frame"
       },
       {
-        "op": "tick_ms",
-        "ms": 600
-      },
-      {
-        "op": "wait_frame"
+        "op": "wait_settled"
       },
       {
         "op": "get_display_features"
@@ -71,11 +67,7 @@
         "ms": 400
       },
       {
-        "op": "tick_ms",
-        "ms": 600
-      },
-      {
-        "op": "wait_frame"
+        "op": "wait_settled"
       },
       {
         "op": "get_scrollbar_info",
@@ -103,11 +95,7 @@
         "ms": 400
       },
       {
-        "op": "tick_ms",
-        "ms": 600
-      },
-      {
-        "op": "wait_frame"
+        "op": "wait_settled"
       },
       {
         "op": "get_scrollbar_info",
@@ -135,11 +123,7 @@
         "ms": 400
       },
       {
-        "op": "tick_ms",
-        "ms": 600
-      },
-      {
-        "op": "wait_frame"
+        "op": "wait_settled"
       },
       {
         "op": "get_scrollbar_info",
@@ -164,11 +148,7 @@
         "op": "wait_frame"
       },
       {
-        "op": "tick_ms",
-        "ms": 600
-      },
-      {
-        "op": "wait_frame"
+        "op": "wait_settled"
       },
       {
         "op": "take_screenshot"
@@ -184,11 +164,7 @@
         "op": "wait_frame"
       },
       {
-        "op": "tick_ms",
-        "ms": 600
-      },
-      {
-        "op": "wait_frame"
+        "op": "wait_settled"
       },
       {
         "op": "click",
@@ -201,11 +177,7 @@
         "op": "wait_frame"
       },
       {
-        "op": "tick_ms",
-        "ms": 600
-      },
-      {
-        "op": "wait_frame"
+        "op": "wait_settled"
       },
       {
         "op": "get_display_features"
@@ -238,11 +210,7 @@
         "ms": 400
       },
       {
-        "op": "tick_ms",
-        "ms": 600
-      },
-      {
-        "op": "wait_frame"
+        "op": "wait_settled"
       },
       {
         "op": "get_scrollbar_info",
@@ -270,11 +238,7 @@
         "ms": 400
       },
       {
-        "op": "tick_ms",
-        "ms": 600
-      },
-      {
-        "op": "wait_frame"
+        "op": "wait_settled"
       },
       {
         "op": "get_scrollbar_info",
@@ -302,11 +266,7 @@
         "ms": 400
       },
       {
-        "op": "tick_ms",
-        "ms": 600
-      },
-      {
-        "op": "wait_frame"
+        "op": "wait_settled"
       },
       {
         "op": "get_scrollbar_info",
@@ -331,11 +291,7 @@
         "op": "wait_frame"
       },
       {
-        "op": "tick_ms",
-        "ms": 600
-      },
-      {
-        "op": "wait_frame"
+        "op": "wait_settled"
       }
     ]
   }

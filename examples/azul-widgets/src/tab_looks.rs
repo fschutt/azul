@@ -191,6 +191,7 @@ fn touch_panel(data: &RefAny, demo: &TabLooksDemo, theme: UiTheme) -> Dom {
     let label = TOUCH_TABS[demo.touch_active.min(TOUCH_TABS.len() - 1)];
     TabContent::create(
         Dom::create_p_with_text(format!("{label} panel"))
+            .with_id("touch-panel-text")
             .with_css("margin: 0px; color: system:text; min-height: 120px;"),
     )
     .with_content_toggle(true)
