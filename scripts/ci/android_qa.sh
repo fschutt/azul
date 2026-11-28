@@ -308,7 +308,7 @@ for mode in "${mode_list[@]}"; do
       an="$(basename "$aapk" .apk)"
       [ -n "$apkg" ] || { echo "no package in the badging of $aapk"; continue; }
       ascript=""
-      case "$an" in AzPaint-*) ascript=paint ;; AzWriter-*) ascript=writer ;; AzMaps-*) ascript=maps ;; AzMeet-*) ascript=meet ;; esac
+      case "$an" in AzPaint-*) ascript=paint ;; AzWriter-*) ascript=writer ;; AzMaps-*) ascript=maps ;; AzMeet-*) ascript=meet ;; AzCode-*) ascript=code ;; esac
       echo "---- phone-fit audit of $an ($apkg)${ascript:+, script $ascript}"
       mkdir -p "$d/audit"
       # one port per app, and the app of the session before is stopped: a debug server of the app before that still held the port

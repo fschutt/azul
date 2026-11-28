@@ -1462,6 +1462,41 @@ class IosPermissionPromptsTests(unittest.TestCase):
         self.assertIn("ios_permission_prompts_of(dev.simctl(", source)
         self.assertNotIn("rc, tcc = dev.simctl", source)
 
+class CodeScriptTests(unittest.TestCase):
+    """The audit script of AzCode (mobile_e2e.py s_script_code, from the AzCode fork, taken over by QA 2026-11-28): real taps, a real swipe, the input method, the key row, the drawer, the
+    Problems sheet; it reads the app's AZCODE_* stdout lines"""
+
+    TEXT = (Path(__file__).resolve().parent / "mobile_e2e.py").read_text(encoding="utf-8")
+    SHELL = (Path(__file__).resolve().parent / "android_qa.sh").read_text(encoding="utf-8")
+
+    def test_the_script_is_registered_and_selectable(self):
+        self.assertIn('"code": s_script_code', self.TEXT)
+        self.assertIn('choices=["", "paint", "writer", "maps", "meet", "code"]', self.TEXT)
+
+    def test_the_audit_names_the_script_after_the_apk(self):
+        self.assertIn("AzCode-*) ascript=code", self.SHELL)
+
+    def test_the_script_reads_the_markers_the_app_prints_and_presses_the_keys_by_their_ids(self):
+        body = self.TEXT[self.TEXT.index("def s_script_code(s):"):self.TEXT.index('scripts = {"paint"')]
+        for marker in ("AZCODE_OPENED", "AZCODE_CARET", "AZCODE_SCROLLED", "AZCODE_EDITED", "AZCODE_KEY", "AZCODE_DRAWER", "AZCODE_PANEL_TAB"):
+            self.assertIn(f'"{marker}"', body, marker)
+        for selector in ("#__azcode_editor", "#__azcode_key-row", "#__azcode_key-2", "#__azcode_drawer-button", "#__azcode_status-problems"):
+            self.assertIn(selector, body, selector)
+
+    def test_the_swipe_and_the_typing_use_the_device_not_the_server(self):
+        body = self.TEXT[self.TEXT.index("def s_script_code(s):"):self.TEXT.index('scripts = {"paint"')]
+        self.assertIn("dev.swipe(", body)
+        self.assertIn('dev.sh("input text hello")', body)
+
+    def test_every_script_of_the_choices_has_a_function(self):
+        import re
+        choices = re.search(r'choices=\[("", (?:"[a-z]+"(?:, )?)+)\]', self.TEXT).group(1)
+        names = [c.strip('"') for c in choices.split(", ") if c.strip('"')]
+        table = self.TEXT[self.TEXT.index('scripts = {"paint"'):].split("\n", 1)[0]
+        for name in names:
+            self.assertIn(f'"{name}": s_script_{name}', table, name)
+
+
 class LocaleStepTests(unittest.TestCase):
     """The language step of the audit ends with a cold start back in English: the engine does not read the language while it runs, so without it every step after the
     step (the AzMaps script of run 46136628553) ran in German"""
