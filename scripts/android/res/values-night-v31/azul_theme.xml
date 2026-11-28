@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Android 12+, NIGHT: see res/values-v31/azul_theme.xml. -->
+<resources>
+    <style name="AzulTheme" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/azul_window_background</item>
+        <item name="android:colorBackground">@color/azul_window_background</item>
+        <item name="android:windowSplashScreenBackground">@color/azul_window_background</item>
+    </style>
+</resources>

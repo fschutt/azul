@@ -151,3 +151,24 @@ fn a_haptic_primitive_the_hardware_cannot_play_falls_back() {
     assert!(after.contains("Ok(false)=>returnOk(false)"), "unsupported: not played, the caller falls back");
     assert!(after.contains("Err(_)=>"), "a missing method does not end in an exception");
 }
+
+/// Home and back gives the window a NEW surface, which showed black until the layout and the render of the next pass were
+/// done (about 130 ms, QA's flicker audit, ledger E47). The CPU frame that was on the screen is posted on it at once, in
+/// the surface-created handler, before the layout is requested, when it is the size of the surface (the rule is
+/// `android_core::present::retained_frame_fits`, tested on every host) and only for a window that draws on the CPU (the
+/// GPU path owns its surface and presents its own frame as soon as it has one).
+///
+/// Mutation: the early `render_frame` removed from `InitWindow` (the state of 6ce827b284).
+#[test]
+fn the_retained_frame_goes_on_a_new_surface_before_the_layout() {
+    let shell = rust_code("dll/src/desktop/shell2/android/mod.rs");
+    let arm = shell.find("MainEvent::InitWindow{..}=>{").expect("the surface-created arm") + "MainEvent::InitWindow{..}".len();
+    let init = body(&shell[arm..], "=>");
+    let gpu = init.find("window.gpu_surface_created();").expect("the GPU path takes the surface first");
+    let gate = init
+        .find("window.draws_on_cpu()&&crate::desktop::shell2::android_core::present::retained_frame_fits(retained,surface_px)")
+        .expect("the retained frame is posted only to a CPU window and only at the surface's size");
+    let post = init[gate..].find("render_frame(window)").expect("it is posted") + gate;
+    let layout = init.find("window.common.request_regeneration(reason)").expect("the layout is requested");
+    assert!(gpu < gate && gate < post && post < layout, "the frame is posted before the layout is requested");
+}

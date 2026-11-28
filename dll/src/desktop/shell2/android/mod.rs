@@ -1739,12 +1739,34 @@ fn handle_poll_event(app: &AndroidApp, window: &mut AndroidWindow, event: PollEv
                             logical_h,
                         );
                         apply_surface_size(window, (logical_w, logical_h));
+                        let surface_px = (
+                            u32::try_from(nw.width()).unwrap_or(0),
+                            u32::try_from(nw.height()).unwrap_or(0),
+                        );
                         window.native_window = Some(nw);
                         // A surface that is new to the shell: its buffers hold nothing of ours.
                         window.present.surface_changed();
                         // The GPU path takes the surface now, before any CPU frame is drawn on it (an ANativeWindow has one
                         // producer): on a failure the window is a CPU window from here on, with one diagnostic line.
                         window.gpu_surface_created();
+                        // The CPU frame that was on the screen goes on the new surface AT ONCE, when it is the size of the
+                        // surface (home and back): the layout and the render below take about 130 ms, and the new surface
+                        // showed black until then (ledger E47). A rotation or any other size shows nothing early.
+                        #[cfg(feature = "cpurender")]
+                        {
+                            let retained = window
+                                .cpu_backend
+                                .last_frame
+                                .as_ref()
+                                .map(|pixmap| (pixmap.width(), pixmap.height()));
+                            if window.draws_on_cpu()
+                                && crate::desktop::shell2::android_core::present::retained_frame_fits(retained, surface_px)
+                            {
+                                let _ = render_frame(window);
+                            }
+                        }
+                        #[cfg(not(feature = "cpurender"))]
+                        let _ = surface_px;
                         // On the launch InitWindow this preserves the queued
                         // `Initial`; on a re-attach (rotation recreates the
                         // surface with new dimensions and does NOT deliver
