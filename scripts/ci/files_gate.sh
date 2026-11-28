@@ -49,7 +49,7 @@ tests() {
   local code=0
   # the tests of this work by name: the module names carry them
   cargo test -p azul-css -p azul-core -p azul-layout --lib --features "$features" --no-fail-fast -- \
-    dialogs_mobile share_ open_files open_intent open_inbox documents_ request_registry places_store mime_ 2>&1 | tee files-tests.txt
+    dialogs_mobile share_ open_files open_intent open_inbox documents_ request_registry places_store mime_ files_ops 2>&1 | tee files-tests.txt
   code=${PIPESTATUS[0]}
   # where the share, open-with and documents types go in api.json (the tests of the module map of azul-doc)
   cargo test -p azul-doc --bins -- module_map 2>&1 | tee -a files-tests.txt

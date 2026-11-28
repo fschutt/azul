@@ -129,6 +129,11 @@ mod key_names_tests;
 #[cfg(test)]
 mod app_commands_tests;
 
+// The share sheet and the open requests: `share` is checked against the limits and recorded, `assert_shared`
+// reads it back, `simulate_open` queues what the system would ask the app to open.
+#[cfg(test)]
+mod files_ops_tests;
+
 // The system-sound ops: a callback asks for sounds, the window's SoundManager records them, `assert_sound`
 // and `assert_no_sound` read the recording (run through the real dispatcher on a headless window).
 #[cfg(test)]
