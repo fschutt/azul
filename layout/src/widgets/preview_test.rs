@@ -51,6 +51,7 @@ fn state(dock: PreviewDock, size: f32) -> DragState {
     DragState {
         on_event: OptionPreviewOnEvent::None,
         edge: Edge::Right,
+        reach: 2.0,
         dock,
         size,
         dragging: false,
@@ -499,4 +500,14 @@ fn a_dock_at_the_left_edge_would_grab_and_grow_the_other_way_round() {
     st.start_size = 320.0;
     assert!(near(st.size_at(420.0, 1000.0, 600.0), 420.0), "dragged inward (right) the pane grows");
     assert!(near(st.size_at(220.0, 1000.0, 600.0), 220.0));
+}
+
+#[test]
+fn a_finger_grabs_the_bottom_grip_from_further_above_than_a_pointer() {
+    assert!(grip_reach_above(true) > grip_reach_above(false));
+    let mut st = state(PreviewDock::Bottom, 200.0);
+    // a 800 px tall container: the pane starts at 600
+    assert!(!st.grabs(100.0, 590.0, 400.0, 800.0), "a pointer 10 px above the pane: no");
+    st.reach = grip_reach_above(true);
+    assert!(st.grabs(100.0, 590.0, 400.0, 800.0), "a finger 10 px above it: yes");
 }

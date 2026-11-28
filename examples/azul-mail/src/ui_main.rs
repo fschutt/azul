@@ -1866,6 +1866,8 @@ extern "C" fn on_list_event(mut data: RefAny, mut info: CallbackInfo, event: Sum
                 }
                 s.first_row = start.saturating_sub(LIST_WINDOW / 4);
             }
+            // a press and hold: the phone's sheet (the AzMail frame work) opens from it
+            SummaryListEventKind::LongPress => return Update::DoNothing,
         }
         Update::RefreshDom
     })

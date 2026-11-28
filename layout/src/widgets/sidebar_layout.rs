@@ -227,6 +227,21 @@ pub const RAIL_ICON_PX: f32 = 13.0;
 pub const RAIL_SLOP: f32 = 18.0;
 /// How far a drag that starts on the rail must go inward before it opens the drawer, px.
 pub const EDGE_SWIPE_PX: f32 = 24.0;
+/// Whether the platform is touch-first (Android, iOS): its rows, slots and buttons are finger-sized
+/// whatever the form factor says (a tablet at 600 dp and more is the desktop's layout with fingers on it).
+pub const TOUCH_PLATFORM: bool = cfg!(any(target_os = "android", target_os = "ios"));
+
+/// How far above a bottom pane's grip bar a press still grabs it, px: 2 for a pointer, a finger
+/// gets more room (the bar is 28 px tall, below a finger's pad).
+#[must_use]
+pub const fn grip_reach_above(touch: bool) -> f32 {
+    if touch {
+        14.0
+    } else {
+        2.0
+    }
+}
+
 /// The most quick-access buttons the rail shows: the rest is dropped with a diagnostic.
 pub const MAX_QUICK_ACTIONS: usize = 12;
 /// The handle's width, on both.
@@ -241,13 +256,14 @@ pub const DRAWER_PERCENT: f32 = 76.0;
 /// The widest a phone's drawer is, logical px: a phone held wide or a large window with the phone
 /// layout does not get a sheet as wide as itself.
 pub const DRAWER_MAX_WIDTH: f32 = 360.0;
-/// A row of the expanded sidebar: 28 px with a pointer, 44 px under a finger.
+/// A row of the expanded sidebar: 28 px with a pointer, 48 px under a finger (the larger of
+/// Android's 48 dp and iOS's 44 pt touch targets, see `themes::decl::touch_target_floor`).
 pub const ROW_HEIGHT_DESKTOP: f32 = 28.0;
-pub const ROW_HEIGHT_PHONE: f32 = 44.0;
-/// The height of a button's slot in the rail: 30 px with a pointer, 44 px under a finger (the
+pub const ROW_HEIGHT_PHONE: f32 = 48.0;
+/// The height of a button's slot in the rail: 30 px with a pointer, 48 px under a finger (the
 /// slot is [`RAIL_WIDTH`] + [`RAIL_SLOP`] wide, the drawn button [`RAIL_WIDTH`]).
 pub const RAIL_BUTTON_DESKTOP: f32 = 30.0;
-pub const RAIL_BUTTON_PHONE: f32 = 44.0;
+pub const RAIL_BUTTON_PHONE: f32 = 48.0;
 /// How far a nested row steps in, per level, in px.
 pub const INDENT_PER_DEPTH: f32 = 16.0;
 /// The deepest nesting the sidebar draws: a tree deeper than this is drawn at this depth (and a

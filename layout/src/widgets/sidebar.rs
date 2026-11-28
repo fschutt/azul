@@ -96,6 +96,7 @@ use super::{
     roving,
     sidebar_layout::{
         column_width, controls_height, sidebar_edge, swipe_opens_at, Edge, SidebarColumnWidth, BUILT_FOR,
+        TOUCH_PLATFORM,
         INDENT_PER_DEPTH, MAX_DEPTH, MAX_QUICK_ACTIONS, MAX_ROWS, MAX_STATUSES,
         RAIL_BUTTON_DESKTOP, RAIL_BUTTON_PHONE, RAIL_ICON_PX, RAIL_SLOP, RAIL_STATUS_PX,
         RAIL_WIDTH, ROW_HEIGHT_DESKTOP, ROW_HEIGHT_PHONE, STATUS_PIE_PX,
@@ -2290,9 +2291,6 @@ fn limited(mut sections: Vec<SidebarSection>, mut statuses: Vec<SidebarStatus>) 
     }
     (sections, statuses)
 }
-
-/// Whether the platform is touch-first: its rows and slots are finger-sized whatever the form.
-const TOUCH_PLATFORM: bool = cfg!(any(target_os = "android", target_os = "ios"));
 
 /// The sidebar's DOM.
 #[allow(clippy::too_many_lines)] // one build: the handle, the rail, the expanded column

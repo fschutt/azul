@@ -42,7 +42,7 @@ use azul_css::{
 };
 
 use super::{
-    sidebar_layout::FormFactor,
+    sidebar_layout::{FormFactor, TOUCH_PLATFORM},
     text_input::{
         OnTextInputReturn, TextInput, TextInputOnFocusLostCallbackType,
         TextInputOnTextInputCallbackType, TextInputOnVirtualKeyDownCallbackType, TextInputState,
@@ -646,7 +646,7 @@ fn build(bar: LocationBar) -> Dom {
                      color: system:secondary-text; :hover {{ background: rgba(127, 127, 127, 0.18); }} \
                      :active {{ background: rgba(127, 127, 127, 0.28); }} \
                      :focus-visible {{ box-shadow: inset 0px 0px 0px 2px #4a8be8; }}",
-                    s = if phone { 40 } else { 30 }
+                    s = if phone || TOUCH_PLATFORM { 48 } else { 30 }
                 ),
             )
             .with_ids_and_classes(classes(&[LOCATION_PEN_CLASS]))
@@ -667,7 +667,7 @@ fn build(bar: LocationBar) -> Dom {
                      color: system:secondary-text; :hover {{ background: rgba(127, 127, 127, 0.18); }} \
                      :active {{ background: rgba(127, 127, 127, 0.28); }} \
                      :focus-visible {{ box-shadow: inset 0px 0px 0px 2px #4a8be8; }}",
-                    s = if phone { 40 } else { 30 }
+                    s = if phone || TOUCH_PLATFORM { 48 } else { 30 }
                 ),
             )
             .with_ids_and_classes(classes(&[LOCATION_MORE_CLASS]))
