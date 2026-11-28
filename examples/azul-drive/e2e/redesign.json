@@ -254,6 +254,176 @@
     }
   },
   {
+    "name": "azdrive_a_click_on_a_row_selects_it_and_the_preview_follows",
+    "description": "A click on a row of the folder selects it and the Preview at the right shows the file itself; a click on the next row moves both. The rows are in a document of their own whose DOM id changes with every layout, so they are clicked where they stand (the list's first row at 172 px, 25 px a row).",
+    "only_on": [
+      "linux",
+      "windows",
+      "macos"
+    ],
+    "steps": [
+      {
+        "op": "resize",
+        "width": 1100,
+        "height": 760
+      },
+      {
+        "op": "set_mode",
+        "mode": "light"
+      },
+      {
+        "op": "set_theme",
+        "theme": "flora"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_settled"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "assert_exists",
+        "selector": ".__azul-native-sidebar-expanded"
+      },
+      {
+        "op": "click",
+        "text": "Documents"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_settled"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "click",
+        "x": 330,
+        "y": 197
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_settled"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "find_node_by_text",
+        "text": "AzDrive sample notes",
+        "dom_id": 0
+      },
+      {
+        "op": "assert_response",
+        "contains": "\"found\":true"
+      },
+      {
+        "op": "print",
+        "text": "SHOT A click on notes.txt selected it: the Preview shows the file itself"
+      },
+      {
+        "op": "take_screenshot"
+      },
+      {
+        "op": "click",
+        "x": 330,
+        "y": 222
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_settled"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "find_node_by_text",
+        "text": "Quarterly report",
+        "dom_id": 0
+      },
+      {
+        "op": "assert_response",
+        "contains": "\"found\":true"
+      },
+      {
+        "op": "find_node_by_text",
+        "text": "AzDrive sample notes",
+        "dom_id": 0
+      },
+      {
+        "op": "assert_response",
+        "contains": "\"found\":false"
+      },
+      {
+        "op": "print",
+        "text": "SHOT A click on report.md moved the selection and the Preview with it"
+      },
+      {
+        "op": "take_screenshot"
+      }
+    ],
+    "config": {
+      "continue_on_failure": true
+    }
+  },
+  {
     "name": "azdrive_the_pen_edits_the_location_and_the_list_narrows",
     "description": "The pen turns the folder's name into a live field: every key narrows the folder's rows to the names that hold the text (the command line counts them), Escape gives the edit up (the name and the whole folder are back), Enter goes to the folder the text names.",
     "only_on": [
@@ -343,55 +513,26 @@
       },
       {
         "op": "key_down",
-        "key": "End"
+        "key": "a",
+        "modifiers": {
+          "shift": false,
+          "ctrl": true,
+          "alt": false,
+          "meta": false
+        }
       },
       {
         "op": "key_up",
-        "key": "End"
+        "key": "a",
+        "modifiers": {
+          "shift": false,
+          "ctrl": false,
+          "alt": false,
+          "meta": false
+        }
       },
       {
         "op": "wait_frame"
-      },
-      {
-        "op": "key_down",
-        "key": "backspace"
-      },
-      {
-        "op": "key_up",
-        "key": "backspace"
-      },
-      {
-        "op": "wait_frame"
-      },
-      {
-        "op": "key_down",
-        "key": "backspace"
-      },
-      {
-        "op": "key_up",
-        "key": "backspace"
-      },
-      {
-        "op": "wait_frame"
-      },
-      {
-        "op": "key_down",
-        "key": "backspace"
-      },
-      {
-        "op": "key_up",
-        "key": "backspace"
-      },
-      {
-        "op": "wait_frame"
-      },
-      {
-        "op": "key_down",
-        "key": "backspace"
-      },
-      {
-        "op": "key_up",
-        "key": "backspace"
       },
       {
         "op": "wait_frame"
@@ -468,55 +609,26 @@
       },
       {
         "op": "key_down",
-        "key": "End"
+        "key": "a",
+        "modifiers": {
+          "shift": false,
+          "ctrl": true,
+          "alt": false,
+          "meta": false
+        }
       },
       {
         "op": "key_up",
-        "key": "End"
+        "key": "a",
+        "modifiers": {
+          "shift": false,
+          "ctrl": false,
+          "alt": false,
+          "meta": false
+        }
       },
       {
         "op": "wait_frame"
-      },
-      {
-        "op": "key_down",
-        "key": "backspace"
-      },
-      {
-        "op": "key_up",
-        "key": "backspace"
-      },
-      {
-        "op": "wait_frame"
-      },
-      {
-        "op": "key_down",
-        "key": "backspace"
-      },
-      {
-        "op": "key_up",
-        "key": "backspace"
-      },
-      {
-        "op": "wait_frame"
-      },
-      {
-        "op": "key_down",
-        "key": "backspace"
-      },
-      {
-        "op": "key_up",
-        "key": "backspace"
-      },
-      {
-        "op": "wait_frame"
-      },
-      {
-        "op": "key_down",
-        "key": "backspace"
-      },
-      {
-        "op": "key_up",
-        "key": "backspace"
       },
       {
         "op": "wait_frame"
@@ -834,110 +946,26 @@
       },
       {
         "op": "key_down",
-        "key": "End"
+        "key": "a",
+        "modifiers": {
+          "shift": false,
+          "ctrl": true,
+          "alt": false,
+          "meta": false
+        }
       },
       {
         "op": "key_up",
-        "key": "End"
+        "key": "a",
+        "modifiers": {
+          "shift": false,
+          "ctrl": false,
+          "alt": false,
+          "meta": false
+        }
       },
       {
         "op": "wait_frame"
-      },
-      {
-        "op": "key_down",
-        "key": "backspace"
-      },
-      {
-        "op": "key_up",
-        "key": "backspace"
-      },
-      {
-        "op": "wait_frame"
-      },
-      {
-        "op": "key_down",
-        "key": "backspace"
-      },
-      {
-        "op": "key_up",
-        "key": "backspace"
-      },
-      {
-        "op": "wait_frame"
-      },
-      {
-        "op": "key_down",
-        "key": "backspace"
-      },
-      {
-        "op": "key_up",
-        "key": "backspace"
-      },
-      {
-        "op": "wait_frame"
-      },
-      {
-        "op": "key_down",
-        "key": "backspace"
-      },
-      {
-        "op": "key_up",
-        "key": "backspace"
-      },
-      {
-        "op": "wait_frame"
-      },
-      {
-        "op": "key_down",
-        "key": "backspace"
-      },
-      {
-        "op": "key_up",
-        "key": "backspace"
-      },
-      {
-        "op": "wait_frame"
-      },
-      {
-        "op": "key_down",
-        "key": "backspace"
-      },
-      {
-        "op": "key_up",
-        "key": "backspace"
-      },
-      {
-        "op": "wait_frame"
-      },
-      {
-        "op": "key_down",
-        "key": "backspace"
-      },
-      {
-        "op": "key_up",
-        "key": "backspace"
-      },
-      {
-        "op": "wait_frame"
-      },
-      {
-        "op": "key_down",
-        "key": "backspace"
-      },
-      {
-        "op": "key_up",
-        "key": "backspace"
-      },
-      {
-        "op": "wait_frame"
-      },
-      {
-        "op": "key_down",
-        "key": "backspace"
-      },
-      {
-        "op": "key_up",
-        "key": "backspace"
       },
       {
         "op": "wait_frame"
@@ -1034,110 +1062,26 @@
       },
       {
         "op": "key_down",
-        "key": "End"
+        "key": "a",
+        "modifiers": {
+          "shift": false,
+          "ctrl": true,
+          "alt": false,
+          "meta": false
+        }
       },
       {
         "op": "key_up",
-        "key": "End"
+        "key": "a",
+        "modifiers": {
+          "shift": false,
+          "ctrl": false,
+          "alt": false,
+          "meta": false
+        }
       },
       {
         "op": "wait_frame"
-      },
-      {
-        "op": "key_down",
-        "key": "backspace"
-      },
-      {
-        "op": "key_up",
-        "key": "backspace"
-      },
-      {
-        "op": "wait_frame"
-      },
-      {
-        "op": "key_down",
-        "key": "backspace"
-      },
-      {
-        "op": "key_up",
-        "key": "backspace"
-      },
-      {
-        "op": "wait_frame"
-      },
-      {
-        "op": "key_down",
-        "key": "backspace"
-      },
-      {
-        "op": "key_up",
-        "key": "backspace"
-      },
-      {
-        "op": "wait_frame"
-      },
-      {
-        "op": "key_down",
-        "key": "backspace"
-      },
-      {
-        "op": "key_up",
-        "key": "backspace"
-      },
-      {
-        "op": "wait_frame"
-      },
-      {
-        "op": "key_down",
-        "key": "backspace"
-      },
-      {
-        "op": "key_up",
-        "key": "backspace"
-      },
-      {
-        "op": "wait_frame"
-      },
-      {
-        "op": "key_down",
-        "key": "backspace"
-      },
-      {
-        "op": "key_up",
-        "key": "backspace"
-      },
-      {
-        "op": "wait_frame"
-      },
-      {
-        "op": "key_down",
-        "key": "backspace"
-      },
-      {
-        "op": "key_up",
-        "key": "backspace"
-      },
-      {
-        "op": "wait_frame"
-      },
-      {
-        "op": "key_down",
-        "key": "backspace"
-      },
-      {
-        "op": "key_up",
-        "key": "backspace"
-      },
-      {
-        "op": "wait_frame"
-      },
-      {
-        "op": "key_down",
-        "key": "backspace"
-      },
-      {
-        "op": "key_up",
-        "key": "backspace"
       },
       {
         "op": "wait_frame"
@@ -1296,110 +1240,26 @@
       },
       {
         "op": "key_down",
-        "key": "End"
+        "key": "a",
+        "modifiers": {
+          "shift": false,
+          "ctrl": true,
+          "alt": false,
+          "meta": false
+        }
       },
       {
         "op": "key_up",
-        "key": "End"
+        "key": "a",
+        "modifiers": {
+          "shift": false,
+          "ctrl": false,
+          "alt": false,
+          "meta": false
+        }
       },
       {
         "op": "wait_frame"
-      },
-      {
-        "op": "key_down",
-        "key": "backspace"
-      },
-      {
-        "op": "key_up",
-        "key": "backspace"
-      },
-      {
-        "op": "wait_frame"
-      },
-      {
-        "op": "key_down",
-        "key": "backspace"
-      },
-      {
-        "op": "key_up",
-        "key": "backspace"
-      },
-      {
-        "op": "wait_frame"
-      },
-      {
-        "op": "key_down",
-        "key": "backspace"
-      },
-      {
-        "op": "key_up",
-        "key": "backspace"
-      },
-      {
-        "op": "wait_frame"
-      },
-      {
-        "op": "key_down",
-        "key": "backspace"
-      },
-      {
-        "op": "key_up",
-        "key": "backspace"
-      },
-      {
-        "op": "wait_frame"
-      },
-      {
-        "op": "key_down",
-        "key": "backspace"
-      },
-      {
-        "op": "key_up",
-        "key": "backspace"
-      },
-      {
-        "op": "wait_frame"
-      },
-      {
-        "op": "key_down",
-        "key": "backspace"
-      },
-      {
-        "op": "key_up",
-        "key": "backspace"
-      },
-      {
-        "op": "wait_frame"
-      },
-      {
-        "op": "key_down",
-        "key": "backspace"
-      },
-      {
-        "op": "key_up",
-        "key": "backspace"
-      },
-      {
-        "op": "wait_frame"
-      },
-      {
-        "op": "key_down",
-        "key": "backspace"
-      },
-      {
-        "op": "key_up",
-        "key": "backspace"
-      },
-      {
-        "op": "wait_frame"
-      },
-      {
-        "op": "key_down",
-        "key": "backspace"
-      },
-      {
-        "op": "key_up",
-        "key": "backspace"
       },
       {
         "op": "wait_frame"
@@ -1673,55 +1533,26 @@
       },
       {
         "op": "key_down",
-        "key": "End"
+        "key": "a",
+        "modifiers": {
+          "shift": false,
+          "ctrl": true,
+          "alt": false,
+          "meta": false
+        }
       },
       {
         "op": "key_up",
-        "key": "End"
+        "key": "a",
+        "modifiers": {
+          "shift": false,
+          "ctrl": false,
+          "alt": false,
+          "meta": false
+        }
       },
       {
         "op": "wait_frame"
-      },
-      {
-        "op": "key_down",
-        "key": "backspace"
-      },
-      {
-        "op": "key_up",
-        "key": "backspace"
-      },
-      {
-        "op": "wait_frame"
-      },
-      {
-        "op": "key_down",
-        "key": "backspace"
-      },
-      {
-        "op": "key_up",
-        "key": "backspace"
-      },
-      {
-        "op": "wait_frame"
-      },
-      {
-        "op": "key_down",
-        "key": "backspace"
-      },
-      {
-        "op": "key_up",
-        "key": "backspace"
-      },
-      {
-        "op": "wait_frame"
-      },
-      {
-        "op": "key_down",
-        "key": "backspace"
-      },
-      {
-        "op": "key_up",
-        "key": "backspace"
       },
       {
         "op": "wait_frame"
@@ -1809,55 +1640,26 @@
       },
       {
         "op": "key_down",
-        "key": "End"
+        "key": "a",
+        "modifiers": {
+          "shift": false,
+          "ctrl": true,
+          "alt": false,
+          "meta": false
+        }
       },
       {
         "op": "key_up",
-        "key": "End"
+        "key": "a",
+        "modifiers": {
+          "shift": false,
+          "ctrl": false,
+          "alt": false,
+          "meta": false
+        }
       },
       {
         "op": "wait_frame"
-      },
-      {
-        "op": "key_down",
-        "key": "backspace"
-      },
-      {
-        "op": "key_up",
-        "key": "backspace"
-      },
-      {
-        "op": "wait_frame"
-      },
-      {
-        "op": "key_down",
-        "key": "backspace"
-      },
-      {
-        "op": "key_up",
-        "key": "backspace"
-      },
-      {
-        "op": "wait_frame"
-      },
-      {
-        "op": "key_down",
-        "key": "backspace"
-      },
-      {
-        "op": "key_up",
-        "key": "backspace"
-      },
-      {
-        "op": "wait_frame"
-      },
-      {
-        "op": "key_down",
-        "key": "backspace"
-      },
-      {
-        "op": "key_up",
-        "key": "backspace"
       },
       {
         "op": "wait_frame"
