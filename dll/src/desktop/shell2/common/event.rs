@@ -6203,8 +6203,10 @@ pub trait PlatformWindow {
 
         let (by_press, by_escape, by_deactivation) = match self.get_layout_window_mut() {
             Some(lw) => (
-                dismiss_outside_on_press(&previous, &current, lw),
-                super::transient::dismiss_on_escape(&previous, &current, lw),
+                dismiss_outside_on_press(&previous, &current, lw)
+                    | super::transient::dismiss_overlays_on_press(&previous, &current, lw),
+                super::transient::dismiss_on_escape(&previous, &current, lw)
+                    | super::transient::dismiss_overlay_on_escape(&previous, &current, lw),
                 super::transient::dismiss_list_popups_on_deactivation(&previous, &current, lw),
             ),
             None => (false, false, false),
@@ -7957,6 +7959,28 @@ pub trait PlatformWindow {
                 }
                 if changed {
                     // The popup set is reconciled after a layout pass.
+                    self.request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
+                    ProcessEventResult::ShouldRegenerateDomCurrentWindow
+                } else {
+                    ProcessEventResult::DoNothing
+                }
+            }
+
+            // A control INSIDE an overlay (a popup this window shows inside itself) closes "its
+            // window": the user dismissing it, as the OS's close box did for a window of its own.
+            CallbackChange::DismissTransientWindow { node } => {
+                let Some(node_id) = node.node.into_crate_internal() else {
+                    return ProcessEventResult::DoNothing;
+                };
+                if node.dom != DomId::ROOT_ID {
+                    return ProcessEventResult::DoNothing;
+                }
+                let dismissed = self
+                    .get_layout_window_mut()
+                    .is_some_and(|lw| lw.dismiss_transient_window(node_id).is_some());
+                if dismissed {
+                    // The `Dismissed` event is queued and the focus owed back; both are paid by the
+                    // next pass.
                     self.request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
                     ProcessEventResult::ShouldRegenerateDomCurrentWindow
                 } else {

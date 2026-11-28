@@ -713,6 +713,13 @@ pub fn regenerate_layout(
     let _ = layout_window.resolve_form_controls_keeping_flat(&mut user_dom);
     drop(span_form_controls);
 
+    // 1.36. POPUPS OF A WINDOW WITH ONE SURFACE. A phone cannot open another window: the engine
+    // shows every popup and dialog inside this one, over the page, and gives them what the OS would
+    // have given a window of its own (`azul_layout::transient_overlay`). Before the fingerprint, so
+    // the retained-layout fast paths below see the DOM the window will show; a window that opens
+    // real windows is untouched.
+    let _ = layout_window.present_transient_windows(&mut user_dom, current_window_state);
+
     // 1.4. PRE-CASCADE DIFF (user directive 2026-08-08: "the start should just
     // scan over the NodeHierarchy to discover anything that changed, which is
     // iterating over a minimal array, in no world should this ever take 93ms").

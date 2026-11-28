@@ -1563,6 +1563,34 @@ pub fn dismiss_outside_on_press(
     any
 }
 
+/// The parent side of a window with ONE surface: a fresh press while overlays (popups shown
+/// inside this window) are open closes those it is outside of
+/// ([`LayoutWindow::dismiss_overlays_on_press`]). The press is not spent.
+pub fn dismiss_overlays_on_press(
+    previous: &FullWindowState,
+    current: &FullWindowState,
+    lw: &mut LayoutWindow,
+) -> bool {
+    if !fresh_press(previous, current) {
+        return false;
+    }
+    let press_at = match current.mouse_state.cursor_position {
+        azul_core::window::CursorPosition::InWindow(p) => Some(p),
+        _ => None,
+    };
+    lw.dismiss_overlays_on_press(press_at)
+}
+
+/// The parent side of a window with ONE surface: a fresh Escape closes the top overlay whose policy
+/// leaves it to the engine ([`LayoutWindow::dismiss_top_overlay_on_escape`]).
+pub fn dismiss_overlay_on_escape(
+    previous: &FullWindowState,
+    current: &FullWindowState,
+    lw: &mut LayoutWindow,
+) -> bool {
+    fresh_escape(previous, current) && lw.dismiss_top_overlay_on_escape()
+}
+
 /// The parent side: this window was DEACTIVATED (the user went to another
 /// window or app) while popups that leave focus on their invoker are open -
 /// a combobox's list. Such a popup is never the active window, so it has no

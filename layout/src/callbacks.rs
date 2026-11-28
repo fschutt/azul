@@ -669,6 +669,17 @@ pub enum CallbackChange {
         open: bool,
     },
 
+    /// The `<transient-window>` at `node` is closed from INSIDE it: a control of the window (its
+    /// close box, a "Done" button, Escape in it) closes "its window" - what the user does to a window
+    /// of its own, and the engine answers as it does for the user's close: `Dismissed` on the node,
+    /// the focus back to what opened it. Pushed by
+    /// [`CallbackInfo::set_transient_window_open`] for an overlay (a popup a one-surface window shows
+    /// inside itself) the callback runs in; every other close stays
+    /// [`CallbackChange::SetTransientWindowOpen`].
+    DismissTransientWindow {
+        node: DomNodeId,
+    },
+
     /// Tear a `tearoff`-capable `<transient-window>` off into a free toplevel
     /// (`torn = true`) or dock it back onto its anchor (`false`) - what the
     /// user's drag of its `-azul-app-region: drag` strip does, available to a
@@ -3712,7 +3723,57 @@ impl CallbackInfo {
     /// reach into the parent's manager this way - close from inside a popup
     /// is the dismiss path.
     pub fn set_transient_window_open(&mut self, node: DomNodeId, open: bool) {
+        // A close from inside an overlay - a popup this window shows inside itself - is the user
+        // closing "the window" they are in: the same words a control of a popup window says, and the
+        // engine answers them the same way (`Dismissed`, the focus back).
+        if !open && self.is_inside_open_overlay(node) {
+            self.push_change(CallbackChange::DismissTransientWindow { node });
+            return;
+        }
         self.push_change(CallbackChange::SetTransientWindowOpen { node, open });
+    }
+
+    /// Whether `node` is a `<transient-window>` this window shows as an OVERLAY
+    /// ([`crate::transient::OverlayBox`]) and the node this callback runs on - the one it was
+    /// pressed or heard on - is `node` itself or inside it.
+    fn is_inside_open_overlay(&self, node: DomNodeId) -> bool {
+        if node.dom != DomId::ROOT_ID {
+            return false;
+        }
+        let Some(overlay) = node.node.into_crate_internal() else {
+            return false;
+        };
+        let window = self.get_layout_window();
+        if !window
+            .transient_windows
+            .open_windows()
+            .iter()
+            .any(|w| w.source_node == overlay && w.overlay.is_some())
+        {
+            return false;
+        }
+        let hit = self.get_hit_node();
+        if hit.dom != DomId::ROOT_ID {
+            return false;
+        }
+        let Some(root) = window.layout_results.get(&DomId::ROOT_ID) else {
+            return false;
+        };
+        let hierarchy = root.styled_dom.node_hierarchy.as_container();
+        let mut current = hit.node.into_crate_internal();
+        // No acyclic walk up the tree is longer than the tree.
+        for _ in 0..hierarchy.len() {
+            let Some(n) = current else {
+                return false;
+            };
+            if n == overlay {
+                return true;
+            }
+            current = hierarchy
+                .get(n)
+                .and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id);
+        }
+        false
     }
 
     /// Whether the `<transient-window>` at `node` is open in THIS window:

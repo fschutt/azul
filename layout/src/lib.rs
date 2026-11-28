@@ -631,6 +631,10 @@ pub mod transient;
 /// it goes - for a desktop's OS windows and for a phone's overlays alike.
 #[cfg(feature = "text_layout")]
 pub mod transient_reconcile;
+/// What the OS would give a window of its own, given to the popup a one-surface window shows over
+/// its page: the layer style and the chrome of a sheet.
+#[cfg(all(feature = "text_layout", feature = "widgets"))]
+pub mod transient_overlay;
 /// Where a floating surface (tooltip, menu, popover) opens against its anchor and screen.
 pub mod placement;
 /// Render an icon-registry entry to RGBA pixels, for the system tray.

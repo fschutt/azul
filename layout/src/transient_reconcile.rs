@@ -148,6 +148,28 @@ pub fn transient_window_title(styled: &StyledDom, node: NodeId, parent_title: &s
         .unwrap_or_else(|| parent_title.to_owned())
 }
 
+#[cfg(feature = "widgets")]
+impl LayoutWindow {
+    /// The Dom pass of a window with one surface: gives every popup of `dom` what the OS would give
+    /// a window of its own ([`crate::transient_overlay`]). Run where the app's DOM is made, before
+    /// it is fingerprinted and styled; a window that opens real windows is not touched. Returns how
+    /// many popups it presented. Idempotent: the shell runs it early (before the fingerprint) and
+    /// [`Self::style_user_dom_for`] runs it again on the way to the cascade.
+    pub fn present_transient_windows(
+        &self,
+        dom: &mut azul_core::dom::Dom,
+        window_state: &FullWindowState,
+    ) -> usize {
+        let presentation = self.effective_presentation(window_state);
+        if !presentation.is_one_surface() {
+            return 0;
+        }
+        // The chrome is built from the live theme, like every widget of this window.
+        let _theme = azul_core::app_theme::ThemeScope::enter(self.app_theme.clone());
+        crate::transient_overlay::present_transient_windows(dom, presentation)
+    }
+}
+
 impl LayoutWindow {
     /// The rect inside the window an overlay may be in: the window less its safe area and the
     /// keyboard ([`overlay_bounds_of`]), as this window stands on them now.
@@ -327,6 +349,127 @@ impl LayoutWindow {
         // returns). The list was built BEFORE this reconcile, with the old answer, so rebuild it now.
         if self.transient_keyboard_owner().is_some() != keyboard_owned_before {
             self.refresh_focus_ring();
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------------------------
+// Dismissal of overlays: what the shell's "a press outside closes a popup" and "Escape closes it"
+// are for popups that are windows of their own, for popups that are shown inside this one.
+// ---------------------------------------------------------------------------------------------
+
+impl LayoutWindow {
+    /// A fresh press at `press_at` (window coordinates, `None` where the pointer is not over the
+    /// window) closes every overlay whose policy says a press outside closes it
+    /// (`dismiss="outside"` / `"outside-only"`) and that the press is outside of.
+    ///
+    /// Outside is outside the overlay's box AND its anchor (the invoker decides about a press on
+    /// itself: a toggle there closes it, and a release would otherwise reopen it) AND the boxes of the
+    /// overlays opened from inside it - a dropdown opened from a popover is part of the popover to
+    /// the user. A modal cover is never light-dismissed: the page under it is inert, it closes by a
+    /// request (Escape, the back button, its close box) or its own buttons.
+    ///
+    /// The press is NOT spent: it goes on to whatever it landed on, so a press on the invoker of
+    /// another popover closes the first and opens the second.
+    ///
+    /// Each closed overlay is dismissed as the user's own close: `Dismissed` on its node, the focus
+    /// owed back. Returns whether any was.
+    pub fn dismiss_overlays_on_press(&mut self, press_at: Option<LogicalPosition>) -> bool {
+        use azul_core::transient::TransientDismiss;
+
+        let Some(point) = press_at else {
+            return false;
+        };
+        let targets: Vec<NodeId> = {
+            let Some(root) = self.layout_results.get(&DomId::ROOT_ID) else {
+                return false;
+            };
+            let hierarchy = root.styled_dom.node_hierarchy.as_container();
+            // Is `node` strictly below `ancestor` in the DOM?
+            let is_below = |node: NodeId, ancestor: NodeId| -> bool {
+                let mut current = hierarchy
+                    .get(node)
+                    .and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id);
+                // No acyclic walk up the tree is longer than the tree.
+                for _ in 0..hierarchy.len() {
+                    let Some(n) = current else {
+                        return false;
+                    };
+                    if n == ancestor {
+                        return true;
+                    }
+                    current = hierarchy
+                        .get(n)
+                        .and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id);
+                }
+                false
+            };
+            let overlays: Vec<_> = self
+                .transient_windows
+                .open_windows()
+                .iter()
+                .filter_map(|w| {
+                    w.overlay.map(|overlay| {
+                        (
+                            w.source_node,
+                            overlay,
+                            w.placement.anchor_rect,
+                            w.placement.dismiss,
+                        )
+                    })
+                })
+                .collect();
+            overlays
+                .iter()
+                .filter(|(_, overlay, _, dismiss)| {
+                    !overlay.cover
+                        && matches!(
+                            dismiss,
+                            TransientDismiss::Outside | TransientDismiss::OutsideOnly
+                        )
+                })
+                .filter(|(node, overlay, anchor, _)| {
+                    !overlay.rect.contains(point)
+                        && !anchor.contains(point)
+                        && !overlays.iter().any(|(other, other_overlay, ..)| {
+                            other != node
+                                && is_below(*other, *node)
+                                && other_overlay.rect.contains(point)
+                        })
+                })
+                .map(|(node, ..)| *node)
+                .collect()
+        };
+        let mut any = false;
+        for node in targets {
+            any |= self.dismiss_transient_window(node).is_some();
+        }
+        any
+    }
+
+    /// Escape (or the system's back button) closes the TOP overlay - the one opened last - when its
+    /// policy leaves Escape to the engine (`dismiss="outside"` / `"escape"`). One overlay at a time:
+    /// a dropdown open over a dialog closes first, the dialog on the next Escape.
+    ///
+    /// An overlay whose policy is `"outside-only"` or `"none"` answers Escape itself (a dialog runs its
+    /// cancelable `cancel` step first): the engine leaves the key to it and closes nothing.
+    ///
+    /// Returns whether an overlay was closed.
+    pub fn dismiss_top_overlay_on_escape(&mut self) -> bool {
+        use azul_core::transient::TransientDismiss;
+
+        let top = self
+            .transient_windows
+            .open_windows()
+            .iter()
+            .rev()
+            .find(|w| w.overlay.is_some())
+            .map(|w| (w.source_node, w.placement.dismiss));
+        match top {
+            Some((node, TransientDismiss::Outside | TransientDismiss::Escape)) => {
+                self.dismiss_transient_window(node).is_some()
+            }
+            _ => false,
         }
     }
 }

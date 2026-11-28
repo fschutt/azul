@@ -27308,6 +27308,11 @@ impl LayoutWindow {
         };
         #[cfg(not(feature = "widgets"))]
         let _ = form_scope;
+        // A window with ONE surface shows its popups and dialogs inside itself: they get what the
+        // OS would have given a window of its own (`transient_overlay`). The shell ran this before
+        // it fingerprinted the DOM; the pass is idempotent, a DOM made another way meets it here.
+        #[cfg(feature = "widgets")]
+        let _ = self.present_transient_windows(&mut dom, window_state);
         // A `<webview>` this window cannot show (its shell has no web view
         // backend) shows WHY in its box - a paragraph laid out as its content
         // (`managers::webview::insert_unavailable_fallback`), from the very

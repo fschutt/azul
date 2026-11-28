@@ -3551,6 +3551,30 @@ impl Runner {
                     ProcessEventResult::DoNothing
                 }
             }
+            // A control INSIDE an overlay closes "its window": the user dismissing it, exactly as the
+            // shell's arm (`Dismissed`, the focus owed back, paid below by the focus return).
+            CallbackChange::DismissTransientWindow { node } => {
+                let Some(node_id) = node.node.into_crate_internal() else {
+                    return ProcessEventResult::DoNothing;
+                };
+                if node.dom != DomId::ROOT_ID {
+                    return ProcessEventResult::DoNothing;
+                }
+                if self.layout_window.dismiss_transient_window(node_id).is_some() {
+                    if let Some((target, visible)) = self
+                        .layout_window
+                        .transient_windows
+                        .take_pending_focus_restore()
+                    {
+                        self.layout_window
+                            .focus_manager
+                            .set_focused_node_with_visibility(Some(target), visible);
+                    }
+                    ProcessEventResult::ShouldRegenerateDomCurrentWindow
+                } else {
+                    ProcessEventResult::DoNothing
+                }
+            }
             CallbackChange::SetTransientWindowTorn { node, torn } => {
                 let Some(node_id) = node.node.into_crate_internal() else {
                     return ProcessEventResult::DoNothing;
