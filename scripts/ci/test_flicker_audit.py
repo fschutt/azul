@@ -433,6 +433,26 @@ class SplashThenBlackTests(unittest.TestCase):
         self.assertEqual(f.flat_runs(sigs), [(1, 6)])
 
 
+class LeadingRunTests(unittest.TestCase):
+    """a recording that starts with a long flat run: the iOS GPU path was black from the first frame for 17.4 s and the audit said PASS"""
+
+    def test_a_long_black_run_at_the_start_of_the_recording_is_flagged(self):
+        normal = sig((90, 140, 200), (250, 250, 60))
+        sigs = [sig((0, 0, 0))] * 30 + [normal, normal]
+        flats = [x for x in f.flag_frames(sigs) if x["kind"] == "flat"]
+        self.assertEqual([(x["index"], x["frames"], x["black"], x["fail"]) for x in flats], [(0, 30, True, True)])
+
+    def test_a_few_flat_frames_at_the_start_are_not_a_flag(self):
+        normal = sig((90, 140, 200), (250, 250, 60))
+        self.assertEqual(f.flat_runs([sig((0, 0, 0))] * 3 + [normal, normal]), [])
+
+    def test_a_leading_light_run_is_the_starting_window_and_told(self):
+        normal = sig((90, 140, 200), (250, 250, 60))
+        sigs = [sig((255, 255, 255))] * 20 + [normal, normal]
+        flats = [x for x in f.flag_frames(sigs) if x["kind"] == "flat"]
+        self.assertEqual([(x["splash"], x["fail"]) for x in flats], [(True, False)])
+
+
 class ColourTests(unittest.TestCase):
     """what colour a flat run is, and when it starts: the raw numbers of E46 for whoever re-measures it"""
 
