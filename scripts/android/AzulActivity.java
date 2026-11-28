@@ -498,6 +498,7 @@ public class AzulActivity extends NativeActivity {
                     if (android.os.Build.VERSION.SDK_INT >= 30) {
                         android.view.WindowInsetsController controller = window.getInsetsController();
                         if (controller == null) {
+                            android.util.Log.w("AzulBars", "no insets controller yet: the request of the system bars is not applied");
                             return;
                         }
                         applyBar(controller, android.view.WindowInsets.Type.statusBars(), status);
