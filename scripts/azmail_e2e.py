@@ -1142,6 +1142,42 @@ class FrameRun(SampleRun):
         self.must('click', selector=selector)
         self.frame(None, 2)
 
+    def walk(self, mode):
+        """One pass over the frame in the theme's `mode`: the pictures carry the mode's name and the
+        pass leaves the window as it found it (the sidebar expanded, Home, no overlay)."""
+        subject = 'Garden Weekly'
+        self.click(subject)
+        self.shot(f'{mode}-message-open')
+        if self.form == 'phone':
+            self.click_sel('.__azul-native-sidebar-toggle')
+            self.check('the drawer pushes the view', self.has_class('__azul-native-app-frame-catcher'))
+            self.shot(f'{mode}-drawer')
+            self.click_sel('.__azul-native-app-frame-catcher')
+            self.shot(f'{mode}-rail-after-drawer')
+            # a long press on the row: the sheet (the e2e engine injects the gesture at a place)
+            rect = self.rect_of_text(subject)
+            self.must('long_press', x=rect['x'] + rect['width'] / 2, y=rect['y'] + rect['height'] / 2,
+                      duration_ms=700)
+            self.frame(None, 3)
+            self.check('the sheet is open', self.has_class('__azul-native-action-sheet-panel'))
+            self.shot(f'{mode}-sheet')
+            self.click_sel('.__azul-native-action-sheet-scrim')
+            return
+        self.click_sel('.__azul-native-preview-help')
+        self.shot(f'{mode}-preview-details')
+        self.key('escape')
+        self.click_sel('.__azul-native-sidebar-toggle')
+        self.check('the rail is 18 px wide', self.widths('__azul-native-sidebar-rail') == [18],
+                   f"{self.widths('__azul-native-sidebar-rail')}")
+        self.shot(f'{mode}-rail')
+        self.click_sel('.__azul-native-sidebar-toggle')
+        self.click_exact('File')
+        self.shot(f'{mode}-file-location')
+        self.click_sel('.__azul-native-location-more')
+        self.check('File opens the backstage', self.has_id(PREFIX + 'backstage'))
+        self.shot(f'{mode}-file-pages')
+        self.click_exact('Home')
+
     def run(self):
         self.form = self.args.form or 'desktop'
         log(f'logs and data: {self.tmp}')
@@ -1154,40 +1190,12 @@ class FrameRun(SampleRun):
             self.must('set_mode', mode=mode)
             self.frame(None, 3)
             self.shot(f'{mode}-start')
+            self.walk(mode)
         self.must('set_mode', mode='light')
         self.frame(None, 3)
-        subject = 'Garden Weekly'
-        self.click(subject)
-        self.shot('message-open')
-        if self.form == 'phone':
-            self.click_sel('.__azul-native-sidebar-toggle')
-            self.check('the drawer pushes the view', self.has_class('__azul-native-app-frame-catcher'))
-            self.shot('drawer')
-            self.click_sel('.__azul-native-app-frame-catcher')
-            self.shot('rail-after-drawer')
-            # a long press on the row: the sheet (the e2e engine injects the gesture at a place)
-            rect = self.rect_of_text(subject)
-            self.must('long_press', x=rect['x'] + rect['width'] / 2, y=rect['y'] + rect['height'] / 2,
-                      duration_ms=700)
-            self.frame(None, 3)
-            self.check('the sheet is open', self.has_class('__azul-native-action-sheet-panel'))
-            self.shot('sheet')
-            self.click_sel('.__azul-native-action-sheet-scrim')
-            return
-        self.click_sel('.__azul-native-preview-help')
-        self.shot('preview-details')
-        self.key('escape')
-        self.click_sel('.__azul-native-sidebar-toggle')
-        self.check('the rail is 18 px wide', self.widths('__azul-native-sidebar-rail') == [18],
-                   f"{self.widths('__azul-native-sidebar-rail')}")
-        self.shot('rail')
-        self.click_sel('.__azul-native-sidebar-toggle')
-        self.click_exact('File')
-        self.shot('file-location')
-        self.click_sel('.__azul-native-location-more')
-        self.check('File opens the backstage', self.has_id(PREFIX + 'backstage'))
-        self.shot('file-pages')
-        self.click_exact('Home')
+        if self.failures:
+            raise Failure(f'{len(self.failures)} check(s) failed: ' + '; '.join(self.failures))
+
 
 class EmptyRun(Run):
     """No servers, an empty data folder: the real window, File in the Outlook 2010 look (the
