@@ -117,9 +117,12 @@ pub fn section(app: &RefAny, st: &AppState) -> AppSection {
                 .dom(),
         ))
         .with_child(kit::note("azreader-settings-note"));
-    // A copy of the book and the chapter as a PDF: in the toolbar on a desktop, here on a phone,
-    // whose toolbar holds only what a thumb needs while it reads.
-    let content = if st.open.is_some() {
+    // A copy of the book and the chapter as a PDF: in the toolbar and here on a desktop (the
+    // save dialog). A phone has no save dialog (`FileDialog::save_bytes` answers false there), so
+    // it offers nothing it cannot do.
+    // TODO(WP-F): on a phone write the file into the app's own folder and hand it over with
+    // `CallbackInfo::share(ShareRequest::file(path))`, the buttons shown when `can_share()`.
+    let content = if st.open.is_some() && !st.phone {
         content.with_child(kit::row(
             "azreader-this-book",
             Dom::create_div()
