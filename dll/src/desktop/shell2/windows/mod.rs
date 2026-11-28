@@ -1286,6 +1286,7 @@ impl Win32Window {
                 // is asked again on the frames the animation drivers bring.
                 self.arm_animation_drivers_if_needed();
 
+                let mut cpu_frame_rendered = false;
                 if let Some(ref layout_window) = self.common.layout_window {
                     let dom_id = DomId { inner: 0 };
                     // render_frame looks up the layout result itself; we only need
@@ -1473,6 +1474,7 @@ impl Win32Window {
                                 height,
                                 dpi,
                             );
+                            cpu_frame_rendered = true;
                             // Dangle guard: render_frame's early returns must not
                             // leave a pointer into the DIB armed across frames.
                             self.cpu_backend.native_target = None;
@@ -1618,6 +1620,13 @@ impl Win32Window {
                             // (previous-display-list tracking now lives inside
                             // CpuBackend::render_frame.)
                         }
+                    }
+                }
+                // The frame goes on the window's frame report (the frames since the last counter reset and the
+                // damage): the e2e counters read it, not the backend (`CpuBackend::record_last_frame_on`).
+                if cpu_frame_rendered {
+                    if let Some(lw) = self.common.layout_window.as_mut() {
+                        self.cpu_backend.record_last_frame_on(lw);
                     }
                 }
 
@@ -1869,6 +1878,15 @@ impl Win32Window {
                     },
                 })
                 .collect();
+            // The frame goes on the window's frame report, with what WebRender says it drew: the e2e counters read
+            // the report (`LayoutWindow::record_frame`).
+            let damage = azul_layout::window::FrameDamage::of_gpu_frame(
+                results.stats.total_draw_calls > 0,
+                &self.gpu_damage_rects,
+            );
+            if let Some(lw) = self.common.layout_window.as_mut() {
+                lw.record_frame(damage.clone(), damage);
+            }
 
             self.common.display_list_initialized = true;
 
