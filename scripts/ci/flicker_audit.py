@@ -32,6 +32,8 @@ import mobile_qa as q  # noqa: E402
 
 FRAME_W, FRAME_H = 108, 240           # the size a video is cut to for the analysis and the strips
 FPS = 30                              # the rate the video is resampled to (a screenrecord of a static screen has few frames)
+MAX_BLACK_MS = 100                     # a black screen between two normal frames longer than this FAILS the flash audit (shorter ones are told)
+BLACK_LUMA = 24                        # a flat frame whose mean luminance (of 255) is below this is black
 VIDEO_FLAT_FRACTION = 0.98              # a frame of a recording that is this much one colour between the system bars is flat
 FLASH_DIFF = 0.06                     # a frame this far from both neighbours ...
 NEIGHBOURS_ALIKE = 0.02               # ... while the neighbours are this close to each other is a flash
@@ -147,17 +149,34 @@ def flat_runs(sigs):
     return runs
 
 
-def flag_frames(sigs):
-    """[{index, kind, detail, frames?}]: the frames of a recording that flicker. kinds: `flat` (a run of frames of one colour between two
-    normal frames: `frames` long, from `index`), `flash` (a frame unlike both neighbours that match each other) and `out-of-order` (a
-    state A shown again after B and then B again: A B A B)."""
+def mean_luma(sig):
+    """The mean luminance (0..255) of a signature between the system bars."""
+    if len(sig) == q.COLS * q.ROWS * 3:
+        sig = sig[q.SYSTEM_BAR_ROWS[0] * q.COLS * 3:(q.ROWS - q.SYSTEM_BAR_ROWS[1]) * q.COLS * 3]
+    pixels = len(sig) // 3
+    if not pixels:
+        return 0.0
+    return sum(0.299 * sig[i] + 0.587 * sig[i + 1] + 0.114 * sig[i + 2] for i in range(0, pixels * 3, 3)) / pixels
+
+
+def flag_frames(sigs, fps=FPS, max_black_ms=MAX_BLACK_MS):
+    """[{index, kind, detail, fail, frames?, ms?, black?}]: the frames of a recording that flicker. kinds: `flat` (a run of frames of one
+    colour between two normal frames: `frames` long, from `index`; BLACK when its luminance is under BLACK_LUMA), `flash` (a frame
+    unlike both neighbours that match each other) and `out-of-order` (a state A shown again after B and then B again: A B A B).
+    `fail`: a black run longer than `max_black_ms`, a flat run of another colour, a flash, a state out of order. A black run of
+    `max_black_ms` or less is told (fail False): one black frame at 30 fps is 33 ms."""
     flagged = []
     n = len(sigs)
     flat = set()
     for start, end in flat_runs(sigs):
         length = end - start
-        flagged.append({"index": start, "kind": "flat", "frames": length,
-                        "detail": f"{length} frame(s) ({length / FPS:.2f} s) of one flat colour between two normal frames"})
+        ms = round(1000.0 * length / fps)
+        black = mean_luma(sigs[start]) < BLACK_LUMA
+        what = "BLACK" if black else "flat"
+        fail = (ms > max_black_ms) if black else True
+        flagged.append({"index": start, "kind": "flat", "frames": length, "ms": ms, "black": black, "fail": fail,
+                        "detail": f"{length} frame(s) ({length / fps:.2f} s) of one {what} colour between two normal frames"
+                                  + (f" (limit {max_black_ms} ms)" if black else "")})
         flat.update(range(start, end))
     for i in range(1, n - 1):
         if i in flat:
@@ -165,12 +184,14 @@ def flag_frames(sigs):
         before, here, after = sigs[i - 1], sigs[i], sigs[i + 1]
         d1, d2, around = q.sig_diff(here, before), q.sig_diff(here, after), q.sig_diff(before, after)
         if d1 > FLASH_DIFF and d2 > FLASH_DIFF and around < NEIGHBOURS_ALIKE:
-            flagged.append({"index": i, "kind": "flash", "detail": f"differs {d1:.2f} / {d2:.2f} from its neighbours, which match ({around:.3f})"})
+            flagged.append({"index": i, "kind": "flash", "fail": True,
+                            "detail": f"differs {d1:.2f} / {d2:.2f} from its neighbours, which match ({around:.3f})"})
     runs = runs_of(sigs)
     for k in range(len(runs) - 3):
         a, b, a2, b2 = (sigs[runs[k + j][0]] for j in range(4))
         if q.sig_diff(a, a2) < SAME_STATE and q.sig_diff(b, b2) < SAME_STATE and q.sig_diff(a, b) > FLASH_DIFF:
-            flagged.append({"index": runs[k + 2][0], "kind": "out-of-order", "detail": f"the state of frame {runs[k][0]} is shown again at {runs[k + 2][0]} after another one, and that one again at {runs[k + 3][0]}"})
+            flagged.append({"index": runs[k + 2][0], "kind": "out-of-order", "fail": True,
+                            "detail": f"the state of frame {runs[k][0]} is shown again at {runs[k + 2][0]} after another one, and that one again at {runs[k + 3][0]}"})
     seen, unique = set(), []
     for f in sorted(flagged, key=lambda f: f["index"]):
         if (f["index"], f["kind"]) not in seen:
@@ -355,13 +376,14 @@ def android_audit(args):
         else:
             sigs = [signature_of(f) for f in frames]
             flagged = flag_frames(sigs)
-            ok = not flagged
-            report["flash"] = {"ok": ok, "frames": len(frames), "flagged": flagged, "marks": marks}
+            failing = [f for f in flagged if f.get("fail", True)]
+            ok = not failing
+            report["flash"] = {"ok": ok, "frames": len(frames), "flagged": flagged, "marks": marks, "max_black_ms": MAX_BLACK_MS}
             lines += [f"- {len(frames)} frames at {FPS} fps ({len(frames) / FPS:.0f} s); scenario marks (s): " + ", ".join(f"{t} {l}" for t, l in marks),
-                      f"- {'PASS: no flagged frame' if ok else 'FLAGGED: ' + str(len(flagged)) + ' frame(s)'}"]
+                      f"- {'PASS: no black screen over ' + str(MAX_BLACK_MS) + ' ms, no flat colour, no flash, nothing out of order' if ok else 'FAIL: ' + str(len(failing)) + ' flag(s) of ' + str(len(flagged))}"]
             for f in flagged[:30]:
                 label = max((m for m in marks if m[0] <= f["index"] / FPS + 0.3), default=(0, "?"))[1]
-                lines.append(f"  - frame {f['index']} (t = {f['index'] / FPS:.1f} s, after '{label}'): {f['kind']}: {f['detail']}")
+                lines.append(f"  - {'FAIL' if f.get('fail', True) else 'told'}: frame {f['index']} (t = {f['index'] / FPS:.1f} s, after '{label}'): {f['kind']}: {f['detail']}")
             if flagged and write_strip(out / "strips" / "flagged-frames.png", frames, [strip_indices(f, len(frames)) for f in flagged[:10]]):
                 lines.append("  - strips/flagged-frames.png: one row per flag: a flat run as the frame before it, its first, middle and last frame and the one after; any other flag with two frames on each side")
             lines.append("")
