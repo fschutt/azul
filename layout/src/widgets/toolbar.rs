@@ -1100,7 +1100,11 @@ fn tool(
     let pressed = item.kind == ToolbarItemKind::Toggle && item.pressed;
     let opens_menu = item.kind == ToolbarItemKind::MenuButton || index == MORE_INDEX;
 
-    let mut container = part(&toolbar_item_base(), &look.item);
+    // A finger's size on a phone (48 dp on Android, 44 pt on iOS; nothing on a desktop): a tool
+    // is a button, and a button is a touch target.
+    let mut container = part(&toolbar_item_base(), &look.item).into_library_owned_vec();
+    container.extend(crate::widgets::themes::decl::touch_target_floor());
+    let mut container = CssPropertyWithConditionsVec::from_vec(container);
     if pressed {
         container = crate::widgets::themes::theme_blocks::stack_parts(
             &container,
