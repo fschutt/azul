@@ -108,22 +108,26 @@ def label_frames(sigs, night=False):
     is not, and in the night mode W when it is a LIGHT picture (the wrong colour)."""
     if not sigs:
         return []
-    if night:
-        kinds = [dark_kind(s) for s in sigs]
-    else:
-        kinds = [(("B" if fa.mean_luma(s) < fa.BLACK_LUMA else "S") if fa.flat_frame(s) else None) for s in sigs]
-    first_flat = next((i for i, k in enumerate(kinds) if k), None)
     final = sigs[-1]
+    # the settled picture first: a page that is mostly dark (a text editor in the night mode) must not be taken for the dark starting window
+    settled = [q.sig_diff(s, final) < SETTLED_DIFF for s in sigs]
+    if night:
+        kinds = [None if settled[i] else dark_kind(s) for i, s in enumerate(sigs)]
+    else:
+        kinds = [None if settled[i] else (("B" if fa.mean_luma(s) < fa.BLACK_LUMA else "S") if fa.flat_frame(s) else None) for i, s in enumerate(sigs)]
+    first_flat = next((i for i, k in enumerate(kinds) if k), None)
     out = []
     for i, s in enumerate(sigs):
         if first_flat is None or i < first_flat:
             out.append("L")
         elif kinds[i]:
             out.append(kinds[i])
+        elif settled[i]:
+            out.append("2")
         elif night and fa.mean_luma(s) > LIGHT_PICTURE:
             out.append("W")
         else:
-            out.append("2" if q.sig_diff(s, final) < SETTLED_DIFF else "1")
+            out.append("1")
     return out
 
 

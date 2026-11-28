@@ -117,34 +117,12 @@ fn bar(flat: &[i32], at: usize) -> Option<Option<Bar>> {
 
 /// Whether what the app asks of the system bars (`WindowFlags::system_bars`) changes the insets the window is dispatched: a bar the app hides
 /// takes its inset away, a window that draws into the cutout area takes the cutout's. An app that asks for neither (the default) keeps the insets
-/// of the window's first dispatch, which is all the first layout needs; one that asks for either gets NEW insets a few frames after the request
-/// (the UI thread applies it, the system relayouts the window, the window is dispatched again), and a first layout made before them is made for
-/// a window that is about to change.
+/// of the window's first dispatch, which are right for its first layout; one that asks for either gets NEW insets a few frames after the request
+/// (the UI thread applies it, the system relayouts the window and dispatches it again, a hide with an animation of its own), so the first
+/// dispatch is the window before the request: not the page the app's first layout should be made for.
 #[must_use]
 pub const fn bars_request_moves_insets(status_hidden: bool, navigation_hidden: bool, draw_into_cutout: bool) -> bool {
     status_hidden || navigation_hidden || draw_into_cutout
-}
-
-/// Ask `ask` every `interval` until it answers something other than `before` (the answer is then returned), or `limit` has passed (`None`). A
-/// `None` answer is "nothing yet", never a change. The first question is asked at once.
-pub fn wait_for_change<T: PartialEq>(
-    before: &Option<T>,
-    limit: std::time::Duration,
-    interval: std::time::Duration,
-    mut ask: impl FnMut() -> Option<T>,
-) -> Option<T> {
-    let started = std::time::Instant::now();
-    loop {
-        if let Some(now) = ask() {
-            if before.as_ref() != Some(&now) {
-                return Some(now);
-            }
-        }
-        if started.elapsed() >= limit {
-            return None;
-        }
-        std::thread::sleep(interval);
-    }
 }
 
 /// What `NativeTextBridge.insetsSnapshot` hands the engine when its surface is created, before its first layout: the insets of the window's

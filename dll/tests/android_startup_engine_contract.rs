@@ -143,28 +143,25 @@ fn insets_the_layout_already_has_are_no_layout_pass() {
 }
 
 /// AzWriter on a phone hides the status bar and draws into the cutout area, and its strip takes the bar's place only while the bar is hidden
-/// (`ribbon::status_band`): laid out at the first insets dispatch, before the request is answered, the first picture was another page (an ordinary
-/// row under the bar) and the answer moved it a moment later. The request for the bars is sent at the surface's creation, before the first layout, and
-/// when it moves the insets the layout waits (bounded) for the insets that follow it; an app that asks for nothing of the bars waits for nothing.
+/// (`ribbon::status_band`): the insets of the window's first dispatch are the window BEFORE that request, so a first layout made for them is another
+/// page (an ordinary row under the bar) that the request's answer then replaces. An app that asks the system to hide a bar or to draw into the cutout
+/// area keeps the old path for its first layout (no snapshot: the insets come after the request, as before); an app that asks for nothing gets them.
 ///
-/// Mutation: the request sent after the layout is requested (the state of 98d415cb4e); the wait removed; the wait for every app.
+/// Mutation: the snapshot applied for every app (AzWriter's first picture is the wrong page and moves).
 #[test]
-fn the_system_bars_the_app_asks_for_are_asked_before_the_first_layout_and_awaited_when_they_move_the_insets() {
+fn an_app_that_asks_for_the_bars_to_change_does_not_get_the_snapshot_that_precedes_the_request() {
     let shell = rust_code("dll/src/desktop/shell2/android/mod.rs");
     let arm = shell.find("MainEvent::InitWindow{..}=>{").expect("the surface-created arm") + "MainEvent::InitWindow{..}".len();
     let init = body(&shell[arm..], "=>");
-    let bars = init.find("apply_system_bars_at_surface(window);").expect("the bars are asked for at the surface");
-    let insets = init.find("apply_early_insets(window);").expect("the first insets are applied");
+    let gate = init.find("ifearly_insets_fit_the_request(window){apply_early_insets(window);}").expect("the snapshot is applied only when it fits the request");
     let layout = init.find("window.common.request_regeneration(reason)").expect("the layout is requested");
-    assert!(bars < insets && insets < layout, "the request, then the insets it led to, then the layout");
-    assert!(!init[layout..].contains("apply_system_bars_if_changed(window);"), "no second request after the layout is requested");
+    let request = init[layout..].find("apply_system_bars_if_changed(window);").expect("the request goes to the activity") + layout;
+    assert!(gate < layout && layout < request, "the gate comes before the layout, the request after it as it always did");
 
-    let at = body(&shell, "fnapply_system_bars_at_surface(window:&mutAndroidWindow){");
-    assert!(at.contains("ifwindow.applied_system_bars==Some(wanted){return;}"), "a surface after the first (a rotation) asks nothing again");
-    assert!(at.contains("bars_request_moves_insets(wanted.status asi32!=0,wanted.navigation asi32!=0,wanted.draw_into_cutout)".replace(' ', "").as_str()));
-    let ask = at.find("apply_system_bars_if_changed(window);").expect("the request goes to the activity");
-    assert!(at.find("early_insets()").unwrap() < ask, "what the window had been dispatched is read BEFORE the request");
-    let wait = at.find("wait_for_change(").expect("and the layout waits for the answer");
-    assert!(ask < wait && at[..wait].contains("if!moves{return;}"), "only when the request moves the insets");
-    assert!(shell.contains("constSYSTEM_BARS_WAIT_MS:u64=250;"), "bounded");
+    let fit = body(&shell, "fnearly_insets_fit_the_request(window:&AndroidWindow)->bool{");
+    assert!(
+        fit.contains("bars_request_moves_insets(wanted.status asi32!=0,wanted.navigation asi32!=0,wanted.draw_into_cutout)".replace(' ', "").as_str()),
+        "a hidden bar or the cutout area moves the insets"
+    );
+    assert!(fit.trim_end().ends_with("!moves}"), "and then the snapshot does not fit");
 }

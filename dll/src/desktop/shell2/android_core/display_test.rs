@@ -112,31 +112,3 @@ fn only_a_request_that_hides_a_bar_or_draws_into_the_cutout_moves_the_insets() {
     assert!(bars_request_moves_insets(false, true, false));
     assert!(bars_request_moves_insets(false, false, true), "the cutout area");
 }
-
-/// The wait for the insets after a request: returns the first answer that differs from the one before the request, `None` at the limit, and
-/// never takes "nothing yet" for a change.
-///
-/// Mutation: the answer compared with nothing (the first dispatch ends the wait whatever it says).
-#[test]
-fn the_wait_ends_at_the_first_answer_that_differs_and_at_the_limit_otherwise() {
-    use std::time::Duration;
-    let tick = Duration::from_millis(1);
-    // nothing yet, the old answer again, then a new one
-    let mut answers = vec![None, Some(vec![128]), Some(vec![128]), Some(vec![0])].into_iter();
-    let got = wait_for_change(&Some(vec![128]), Duration::from_secs(5), tick, || answers.next().flatten());
-    assert_eq!(got, Some(vec![0]));
-    // no dispatch before the request: any answer is a change
-    let mut answers = vec![None, Some(7)].into_iter();
-    assert_eq!(wait_for_change(&None, Duration::from_secs(5), tick, || answers.next().flatten()), Some(7));
-    // an answer that never changes: the limit ends the wait
-    let started = std::time::Instant::now();
-    assert_eq!(wait_for_change(&Some(1), Duration::from_millis(30), tick, || Some(1)), None);
-    assert!(started.elapsed() >= Duration::from_millis(30), "it waited for the limit");
-    // the question is asked at least once, even with a limit of nothing
-    let mut asked = 0;
-    let _ = wait_for_change(&Some(1), Duration::ZERO, tick, || {
-        asked += 1;
-        Some(1)
-    });
-    assert_eq!(asked, 1);
-}

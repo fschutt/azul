@@ -84,6 +84,24 @@ class MovedTests(unittest.TestCase):
         self.assertFalse(s["jump"], "a cross-fade into the settled page is not a page that moved")
 
 
+MOSTLY_DARK_PAGE = bytearray(sig((12, 12, 14)))
+for row in range(30, 33):
+    for col in range(10, 30):
+        at = (row * q.COLS + col) * 3
+        MOSTLY_DARK_PAGE[at:at + 3] = bytes((90, 90, 96))     # a line of text: a few percent of the samples, as bright as an icon
+MOSTLY_DARK_PAGE = bytes(MOSTLY_DARK_PAGE)
+
+
+class SettledFirstTests(unittest.TestCase):
+    def test_a_mostly_dark_page_the_recording_ends_with_is_the_settled_picture_not_the_starting_window(self):
+        sigs = [LAUNCHER] * 2 + [DARK_SPLASH_WITH_ICON] * 5 + [DARK_SPLASH] * 3 + [MOSTLY_DARK_PAGE] * 6
+        labels = lab.label_frames(sigs, night=True)
+        self.assertEqual(lab.runs_text(labels), "L2 S5 B3 2x6")
+
+    def test_a_recording_that_ends_on_the_starting_window_has_no_app_phase(self):
+        self.assertEqual(set(lab.label_frames([LAUNCHER, SPLASH, SPLASH, SPLASH])), {"L"})
+
+
 class NightTests(unittest.TestCase):
     def test_a_dark_window_with_an_icon_is_the_starting_window_and_one_without_is_the_gap(self):
         self.assertEqual(lab.dark_kind(DARK_SPLASH_WITH_ICON), "S")
