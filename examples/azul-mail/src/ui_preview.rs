@@ -9,6 +9,10 @@
 //! Preview follow the message at the TOP EDGE of the list while the list scrolls
 //! (`ui_main::on_list_event`, `nav::follow`); a tap holds them until the list is scrolled on, and
 //! a message is marked read by a tap, never by scrolling past it.
+//!
+//! The sizes of the text written here are in `rem` (0.75 rem is 12 px at the default root size of
+//! 16 px), never in px: they follow the root font size, so a system text size that the engine
+//! applies at the root reaches them without a line of this file changing.
 
 use azul::{
     callbacks::{ButtonOnClickCallbackType, PreviewOnEventCallbackType},
@@ -130,7 +134,7 @@ fn pane(s: &MailApp) -> Dom {
             Dom::create_div()
                 .with_css(
                     "display: flex; flex-direction: row; align-items: baseline; gap: 10px; padding: 8px 14px 4px 14px; \
-                     font-size: 12px; color: system:secondary-text;",
+                     font-size: 0.75rem; color: system:secondary-text;",
                 )
                 .with_child(
                     Dom::create_span_with_text(ui_main::display_name(&sender))
@@ -144,7 +148,7 @@ fn pane(s: &MailApp) -> Dom {
 /// A row of a popover: a name and what it says.
 fn fact(name: AzString, value: &str) -> Dom {
     Dom::create_div()
-        .with_css("display: flex; flex-direction: row; gap: 8px; font-size: 12px;")
+        .with_css("display: flex; flex-direction: row; gap: 8px; font-size: 0.75rem;")
         .with_child(
             Dom::create_span_with_text(name.as_str())
                 .with_css("flex-shrink: 0; width: 44px; color: system:secondary-text;"),
@@ -178,7 +182,7 @@ fn attachments_dom(view: &MessageView) -> Dom {
     for attachment in &view.attachments {
         let size = azul_appkit::l10n::decimal(azul::file::DiskSpace::format_bytes(attachment.size as u64).as_str());
         column.add_child(
-            Dom::create_span_with_text(format!("{} ({size})", attachment.name)).with_css("font-size: 12px;"),
+            Dom::create_span_with_text(format!("{} ({size})", attachment.name)).with_css("font-size: 0.75rem;"),
         );
     }
     column
@@ -222,7 +226,7 @@ fn held_dom(held: &str, app: &RefAny) -> Dom {
         .with_css("display: flex; flex-direction: column; gap: 8px; max-width: 320px;")
         .with_child(
             Dom::create_span_with_text(t_args("azmail-pictures-held", &[("held", Arg::from(held))]))
-                .with_css("font-size: 12px;"),
+                .with_css("font-size: 0.75rem;"),
         )
         .with_child(
             Button::with_type(label("azmail-download-pictures"), ButtonType::Primary)
