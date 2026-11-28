@@ -513,6 +513,9 @@ def main(argv):
     if variant and variant not in demo_apps.artifact_only_libs(job.manifest):
         sys.exit(f"demo_build: --variant {variant!r} is no artifact_only lib of scripts/demo_apps.toml "
                  f"({sorted(demo_apps.artifact_only_libs(job.manifest))}): a shipped build takes the lib its app names")
+    for name in args.apps.split():
+        if variant and job.apps[name]["e2e_lib"] != variant:
+            sys.exit(f"demo_build: the QA build of {name} links {job.apps[name]['e2e_lib']!r} (e2e_lib in scripts/demo_apps.toml), not {variant!r}")
     if args.kind == "desktop":
         desktop(args, job)
     else:
