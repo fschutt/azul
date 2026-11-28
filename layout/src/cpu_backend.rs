@@ -540,6 +540,21 @@ impl CpuBackend {
         damage
     }
 
+    /// Puts the frame this backend rendered last on `layout_window`'s frame report: one more frame
+    /// since the last counter reset, and the paint and present damage of it. The e2e counters
+    /// (`assert_idle_stable`, `assert_work_bounded`, `assert_state_machines_idle` ask for "a frame
+    /// was rendered since the last reset", and the frame the debug server serves a screenshot for
+    /// is told apart by it) read the report, never the backend - so a shell calls this right
+    /// after `render_frame`, as the macOS and the headless shell do. A shell that did not (the
+    /// Android and iOS ones until now) answered every one of those assertions with "NO FRAME was
+    /// rendered since the last reset" in a window that had rendered hundreds.
+    pub fn record_last_frame_on(&self, layout_window: &mut LayoutWindow) {
+        layout_window.record_frame(
+            self.last_frame_damage.clone(),
+            self.last_present_damage.clone(),
+        );
+    }
+
     /// The lists a frame is charged the scans of their frame indexes for
     /// ([`Counter::ScanItems`](crate::cpu_counters::Counter::ScanItems)): the window's own and its
     /// views' and the ones the frame before painted (its diff reads their indexes too), each once,

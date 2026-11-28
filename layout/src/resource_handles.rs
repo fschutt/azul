@@ -481,6 +481,7 @@ mod tests {
             system_fonts: fonts,
             registered_fonts: registered
                 .map(|registry| registry as &(dyn core::any::Any + Send + Sync)),
+            localizer: None,
             system_style: std::sync::Arc::new(azul_css::system::SystemStyle::default()),
             active_route: None,
             monitors: azul_core::window::MonitorVec::from_const_slice(&[]),

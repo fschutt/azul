@@ -32,6 +32,7 @@ import mobile_qa as q  # noqa: E402
 
 FRAME_W, FRAME_H = 108, 240           # the size a video is cut to for the analysis and the strips
 FPS = 30                              # the rate the video is resampled to (a screenrecord of a static screen has few frames)
+VIDEO_FLAT_FRACTION = 0.98              # a frame of a recording that is this much one colour between the system bars is flat
 FLASH_DIFF = 0.06                     # a frame this far from both neighbours ...
 NEIGHBOURS_ALIKE = 0.02               # ... while the neighbours are this close to each other is a flash
 SAME_STATE = 0.02
@@ -124,16 +125,44 @@ def runs_of(sigs, same=SAME_STATE):
     return runs
 
 
+def flat_frame(sig):
+    """A frame of a recording that is (nearly) one colour between the system bars: a fade into black is 99.5-99.8 % of it, not all."""
+    return q.flat_fraction(sig) >= VIDEO_FLAT_FRACTION
+
+
+def flat_runs(sigs):
+    """[(start, end_exclusive)] maximal runs of flat frames with a normal frame on BOTH sides (a recording that starts or ends in one
+    colour has no 'between')."""
+    runs, i, n = [], 0, len(sigs)
+    while i < n:
+        if not flat_frame(sigs[i]):
+            i += 1
+            continue
+        j = i
+        while j < n and flat_frame(sigs[j]):
+            j += 1
+        if i > 0 and j < n:
+            runs.append((i, j))
+        i = j
+    return runs
+
+
 def flag_frames(sigs):
-    """-> [{index, kind, detail}]: the frames of a recording that flicker. kinds: `flat` (one colour between two normal frames), `flash` (a
-    frame unlike both neighbours that match each other) and `out-of-order` (a state A shown again after B and then B again: A B A B)."""
+    """[{index, kind, detail, frames?}]: the frames of a recording that flicker. kinds: `flat` (a run of frames of one colour between two
+    normal frames: `frames` long, from `index`), `flash` (a frame unlike both neighbours that match each other) and `out-of-order` (a
+    state A shown again after B and then B again: A B A B)."""
     flagged = []
     n = len(sigs)
+    flat = set()
+    for start, end in flat_runs(sigs):
+        length = end - start
+        flagged.append({"index": start, "kind": "flat", "frames": length,
+                        "detail": f"{length} frame(s) ({length / FPS:.2f} s) of one flat colour between two normal frames"})
+        flat.update(range(start, end))
     for i in range(1, n - 1):
-        before, here, after = sigs[i - 1], sigs[i], sigs[i + 1]
-        if q.is_flat(here) and not q.is_flat(before) and not q.is_flat(after):
-            flagged.append({"index": i, "kind": "flat", "detail": "one flat colour between two normal frames"})
+        if i in flat:
             continue
+        before, here, after = sigs[i - 1], sigs[i], sigs[i + 1]
         d1, d2, around = q.sig_diff(here, before), q.sig_diff(here, after), q.sig_diff(before, after)
         if d1 > FLASH_DIFF and d2 > FLASH_DIFF and around < NEIGHBOURS_ALIKE:
             flagged.append({"index": i, "kind": "flash", "detail": f"differs {d1:.2f} / {d2:.2f} from its neighbours, which match ({around:.3f})"})
@@ -194,28 +223,43 @@ def cut_frames(video):
     return split_frames(done.stdout, FRAME_W * FRAME_H * 3)
 
 
-def write_strip(path, frames, indices, around=2):
-    """One PNG: each flagged frame with `around` frames before and after, side by side, one row per flagged frame."""
-    rows = []
-    for idx in indices:
-        picks = [i for i in range(idx - around, idx + around + 1) if 0 <= i < len(frames)]
+def strip_indices(flag, total, around=2):
+    """The frames a flagged entry shows in the strip: a flat run as the frame before it, its first, middle and last frame and the frame
+    after it; any other flag as the frame with `around` frames on both sides."""
+    if flag.get("kind") == "flat" and flag.get("frames"):
+        start, length = flag["index"], flag["frames"]
+        picks = [start - 1, start, start + length // 2, start + length - 1, start + length]
+    else:
+        picks = list(range(flag["index"] - around, flag["index"] + around + 1))
+    seen, out = set(), []
+    for i in picks:
+        if 0 <= i < total and i not in seen:
+            seen.add(i)
+            out.append(i)
+    return out
+
+
+def write_strip(path, frames, rows):
+    """One PNG: one row per flagged entry, the frames of `rows` (lists of frame indices) side by side."""
+    pictures = []
+    for picks in rows:
         row = bytearray()
         for y in range(FRAME_H):
             for i in picks:
                 row += frames[i][y * FRAME_W * 3:(y + 1) * FRAME_W * 3]
-        rows.append((len(picks) * FRAME_W, bytes(row)))
-    if not rows:
+        pictures.append((len(picks) * FRAME_W, bytes(row)))
+    if not pictures:
         return False
-    width = max(w for w, _r in rows)
+    width = max(w for w, _r in pictures)
     rgba = bytearray()
-    for w, row in rows:
+    for w, row in pictures:
         for y in range(FRAME_H):
             line = row[y * w * 3:(y + 1) * w * 3]
             px = bytearray()
             for x in range(width):
                 px += (line[x * 3:x * 3 + 3] + b"\xff") if x < w else b"\x20\x20\x20\xff"
             rgba += px
-    q.write_png(path, width, FRAME_H * len(rows), bytes(rgba))
+    q.write_png(path, width, FRAME_H * len(pictures), bytes(rgba))
     return True
 
 
@@ -318,8 +362,8 @@ def android_audit(args):
             for f in flagged[:30]:
                 label = max((m for m in marks if m[0] <= f["index"] / FPS + 0.3), default=(0, "?"))[1]
                 lines.append(f"  - frame {f['index']} (t = {f['index'] / FPS:.1f} s, after '{label}'): {f['kind']}: {f['detail']}")
-            if flagged and write_strip(out / "strips" / "flagged-frames.png", frames, [f["index"] for f in flagged[:10]]):
-                lines.append("  - strips/flagged-frames.png: each flagged frame with two frames before and after")
+            if flagged and write_strip(out / "strips" / "flagged-frames.png", frames, [strip_indices(f, len(frames)) for f in flagged[:10]]):
+                lines.append("  - strips/flagged-frames.png: one row per flag: a flat run as the frame before it, its first, middle and last frame and the one after; any other flag with two frames on each side")
             lines.append("")
 
     # ---- 3. pan jitter
@@ -332,8 +376,12 @@ def android_audit(args):
         d.launch(cold=True)
         d.wait_for_front(timeout=60)
         d.settle(6.0 if "Maps" in name else 3.0)
+        slug = name.split()[0].lower()
+        # a system dialog over the app takes the swipes: look before the pan, and keep the pictures before and after
+        d.sh("uiautomator dump /sdcard/qa-perm.xml", timeout=40)
+        dialog = q.detect_permission_dialog(d.sh("dumpsys window | grep -E 'mCurrentFocus'"), d.sh("cat /sdcard/qa-perm.xml"), d.package)
+        sig_before, _w, _h, shot_before = d.capture(f"pan-{slug}-before")
         d.adb("logcat", "-c")
-        dims = d.dims
         x1, y1, x2, y2, ms = pan
         for _ in range(3):
             d.swipe(x1, y1, x2, y2, ms)
@@ -341,9 +389,16 @@ def android_audit(args):
         time.sleep(1.0)
         events = present_events(d.adb("logcat", "-d", "-v", "threadtime", timeout=60))
         stats = frame_time_stats(events)
-        entry = {"app": name, "presents": len(events), "engine_frame_ms": stats}
+        sig_after, _w, _h, shot_after = d.capture(f"pan-{slug}-after")
+        moved = q.sig_diff(sig_before, sig_after)
+        entry = {"app": name, "presents": len(events), "engine_frame_ms": stats, "picture_changed": round(moved, 3),
+                 "permission_dialog": dialog, "shots": [shot_before, shot_after]}
         report["pan"].append(entry)
         lines.append(f"- {name}: {len(events)} presents during three pans; engine present interval " + (f"p50 {stats['p50']} / p95 {stats['p95']} / max {stats['max']} ms (n={stats['n']})" if stats else "n/a (fewer than two presents)"))
+        lines.append(f"  - the picture after the pans differs {moved:.3f} from the one before (shots/{shot_before}, shots/{shot_after})"
+                     + (" - the pans moved nothing" if moved < q.SAME_BELOW else ""))
+        if dialog:
+            lines.append(f"  - A SYSTEM DIALOG STANDS OVER THE APP before the pans, they went to the dialog: {dialog}")
     lines += ["", "Notes: the engine's present lines carry the engine's own clock; an emulator on a shared runner is not a phone, the shares and the order matter."]
     (out / "flicker.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
     (out / "flicker.json").write_text(json.dumps(report, indent=1), encoding="utf-8")

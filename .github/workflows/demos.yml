@@ -454,9 +454,10 @@ jobs:
           DEMO_LEG: ${{ matrix.leg }}
           DEMO_APPS: ${{ matrix.apps }}
           DEMO_LIB_FILE: ${{ matrix.lib_file }}
+          DEMO_VARIANT: ${{ matrix.variant }}
         run: >-
           python3 scripts/demo_build.py desktop --leg "$DEMO_LEG" --apps "$DEMO_APPS"
-          --lib "libazul-prebuilt/$DEMO_LIB_FILE" --out demos-out --results demos-results --run-check
+          --lib "libazul-prebuilt/$DEMO_LIB_FILE" --out demos-out --results demos-results --run-check --variant "$DEMO_VARIANT"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always()
         with:
@@ -508,13 +509,14 @@ jobs:
           DEMO_LEG: ${{ matrix.leg }}
           DEMO_APPS: ${{ matrix.apps }}
           DEMO_LIB_FILE: ${{ matrix.lib_file }}
+          DEMO_VARIANT: ${{ matrix.variant }}
           DEMO_TARGET: ${{ matrix.target }}
           DEMO_DEPLOYMENT_TARGET: ${{ matrix.deployment_target }}
         run: >-
           python3 scripts/demo_build.py desktop --leg "$DEMO_LEG" --apps "$DEMO_APPS"
           --lib "libazul-prebuilt/$DEMO_LIB_FILE" --out demos-out --results demos-results
           ${DEMO_TARGET:+--target "$DEMO_TARGET"}
-          --deployment-target "$DEMO_DEPLOYMENT_TARGET"
+          --deployment-target "$DEMO_DEPLOYMENT_TARGET" --variant "$DEMO_VARIANT"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always()
         with:
@@ -583,9 +585,10 @@ jobs:
           DEMO_LEG: ${{ matrix.leg }}
           DEMO_APPS: ${{ matrix.apps }}
           DEMO_LIB_FILE: ${{ matrix.lib_file }}
+          DEMO_VARIANT: ${{ matrix.variant }}
         run: >-
           python3 scripts/demo_build.py desktop --leg "$DEMO_LEG" --apps "$DEMO_APPS"
-          --lib "libazul-prebuilt/$DEMO_LIB_FILE" --out demos-out --results demos-results
+          --lib "libazul-prebuilt/$DEMO_LIB_FILE" --out demos-out --results demos-results --variant "$DEMO_VARIANT"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always()
         with:

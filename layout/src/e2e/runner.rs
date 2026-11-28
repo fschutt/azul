@@ -8204,6 +8204,13 @@ mod tests {
 #[path = "tooling_tests.rs"]
 mod tooling_tests;
 
+// ==== The debug timer waits for the window's first layout ====
+// A scenario `AZ_E2E` queued before the window existed is served at the first tick after the
+// window's first layout, not before it. A child of this module: it builds the headless `Runner`.
+#[cfg(test)]
+#[path = "first_layout_tests.rs"]
+mod first_layout_tests;
+
 // ==== WEBVIEW17: a `<webview>` sign-in flow, headless ====
 // `list_webviews` / `simulate_webview_*` and the app's navigation callback
 // catching the loopback redirect. A child of this module for

@@ -43,6 +43,8 @@ PLATFORMS = ("desktop", "android", "ios")
 PHONE_HOST_BY_STEM = {"azwriter_boot": "AzWriter"}
 NO_PHONE_HOST_REASON = "asserts the DOM of a desktop C example (tests/e2e/*.sh, the language board), which is not a phone app"
 NO_DESKTOP_HOST_REASON = "run by the desktop language board against its C example, not by this matrix"
+NO_DESKTOP_BUILD_REASON = ("needs lib.desktop-e2e: no desktop {host} of the desktop QA build was given "
+                           "(scripts/ci/desktop_e2e_build.sh: the shipped libazul with the debug server and the e2e executor)")
 
 
 # ---- discovery ------------------------------------------------------------------------------------------------------------------------
@@ -136,19 +138,31 @@ def not_applicable(scn, platform, reason):
 
 # ---- the platform runs -----------------------------------------------------------------------------------------------------------------
 
-def run_desktop(scns, bins, out, timeout=240):
-    """The desktop run: the host app's binary (a build with the `e2e` feature) with AZ_E2E=<file> on the headless backend."""
+def run_desktop(scns, bins, out, timeout=240, azul_doc=""):
+    """The desktop run. A file that MOUNTS its own DOM runs in-process, headless, in `azul-doc e2e <file> --keep-going` (the executor of the app
+    without an app: the same `azul_layout::e2e`); a file that asserts an app's DOM runs in that app's binary (a build with the `e2e` feature,
+    AZ_E2E=<file>, the headless backend) when one is given; the rest is not run here, with the reason."""
     import os
     records = []
     raw_dir = Path(out) / "raw" / "desktop"
     raw_dir.mkdir(parents=True, exist_ok=True)
     for scn in scns:
         host = scn["host"]
+        if scn["self_mounted"] and azul_doc:
+            started = time.time()
+            try:
+                done = subprocess.run([azul_doc, "e2e", scn["file"], "--keep-going"], capture_output=True, text=True, timeout=timeout)
+                text, why = done.stdout + "\n" + done.stderr, f"azul-doc exited with status {done.returncode} without a verdict"
+            except subprocess.TimeoutExpired as e:
+                text, why = ((e.stdout or b"").decode("utf-8", "replace") if isinstance(e.stdout, bytes) else (e.stdout or "")), f"azul-doc ran longer than {timeout} s"
+            (raw_dir / (Path(scn["rel"]).stem + ".txt")).write_text(text, encoding="utf-8")
+            records += records_for(scn, "desktop", text, started, why)
+            continue
         if host is None:
             records += not_applicable(scn, "desktop", NO_DESKTOP_HOST_REASON)
             continue
         if host not in bins:
-            records += not_applicable(scn, "desktop", f"no desktop build of {host} with the e2e feature was given")
+            records += not_applicable(scn, "desktop", NO_DESKTOP_BUILD_REASON.format(host=host))
             continue
         env = dict(os.environ, AZ_E2E=str(Path(scn["file"]).resolve()), AZ_BACKEND="headless", AZ_LOG="off")
         started = time.time()
@@ -363,6 +377,7 @@ def main(argv):
     sub.add_parser("list", parents=[common])
     d = sub.add_parser("desktop", parents=[common])
     d.add_argument("--bin", action="append", default=[], help="Host=path of its e2e build")
+    d.add_argument("--azul-doc", default="", help="the azul-doc binary: the files that mount their own DOM run in it, in process")
     a = sub.add_parser("android", parents=[common])
     a.add_argument("--apk", action="append", default=[])
     a.add_argument("--serial", default="")
@@ -395,7 +410,7 @@ def main(argv):
         return 0
     if args.cmd == "desktop":
         bins = dict(b.split("=", 1) for b in args.bin)
-        records = run_desktop(scns, bins, out)
+        records = run_desktop(scns, bins, out, azul_doc=args.azul_doc)
     elif args.cmd == "android":
         records = run_android(scns, args.apk, out, args.serial)
     else:

@@ -73,3 +73,31 @@ fn clones_see_the_same_neighbourhood() {
     assert_eq!(owned.poll(0).len(), 1);
     assert!(test.clone().poll(1).is_empty(), "the news was taken by the first reader");
 }
+
+#[test]
+fn the_news_of_a_neighbourhood_that_never_stops_is_kept_to_the_cap_and_the_oldest_give_way() {
+    let mut queue = Vec::new();
+    for i in 0..MAX_NEWS + 5 {
+        push_news(&mut queue, NearbyEvent::Gone(format!("key-{i}")));
+    }
+    assert_eq!(queue.len(), MAX_NEWS, "never more than the cap");
+    assert_eq!(queue.first(), Some(&NearbyEvent::Gone("key-5".to_string())), "the five oldest are gone");
+    assert_eq!(queue.last(), Some(&NearbyEvent::Gone(format!("key-{}", MAX_NEWS + 4))), "and the newest is kept");
+    // below the cap nothing is dropped, and the order is the order the news came in
+    let mut few = Vec::new();
+    push_news(&mut few, NearbyEvent::Gone("a".into()));
+    push_news(&mut few, NearbyEvent::Gone("b".into()));
+    assert_eq!(few, [NearbyEvent::Gone("a".to_string()), NearbyEvent::Gone("b".to_string())]);
+}
+
+#[test]
+fn the_addresses_of_a_neighbour_are_the_ones_listed_for_its_own_key() {
+    let listed = vec![
+        Nearby::from_announcement("first", "", vec!["10.0.0.1:1".into()]),
+        Nearby::from_announcement("second", "", vec!["10.0.0.2:2".into(), "10.0.0.2:3".into()]),
+    ];
+    assert_eq!(addresses_of(&listed, "second"), ["10.0.0.2:2", "10.0.0.2:3"]);
+    assert_eq!(addresses_of(&listed, "first"), ["10.0.0.1:1"]);
+    assert!(addresses_of(&listed, "third").is_empty(), "a neighbour that is not listed has no addresses");
+    assert!(addresses_of(&[], "first").is_empty());
+}

@@ -63,12 +63,19 @@ pub mod agent_process;
 pub mod agent_review;
 pub mod agent_settings;
 pub mod agent_stroke;
+pub mod board_view;
 pub mod census;
 pub mod chips;
 pub mod chips_op;
 pub mod code;
 pub mod agent_window;
 pub mod column;
+pub mod companion_cmd;
+pub mod companion_io;
+pub mod companion_pen;
+pub mod companion_plug;
+pub mod companion_store;
+pub mod companion_ui;
 pub mod conv_ui;
 pub mod conversation;
 pub mod conversation_request;
@@ -90,6 +97,7 @@ pub mod model;
 pub mod perf;
 pub mod pens;
 pub mod page_marks;
+pub mod page_view;
 pub mod patch;
 pub mod patch_store;
 pub mod pointer;
@@ -356,6 +364,18 @@ pub struct AppState {
     /// The level of the last packet of voice, 0 to 1 (the recording's meter).
     pub level: f32,
     pub visible_page: usize,
+    /// The factor the pages are drawn at (the phone's pad zooms them; the pages have always been drawn at 1.0): between
+    /// `page_view::Z_MIN` and `Z_MAX`, read through [`Self::page_zoom`].
+    pub zoom: f32,
+    /// Where the pen (or the cursor) was last seen on the pages, and when: what the phone is told of it.
+    pub pen_seen: Option<(companion_pen::PenAt, std::time::Instant)>,
+    /// How far the strip of pages was scrolled when its pages were last built (px of the screen): what a script needs to find where a node of
+    /// the strip's own DOM is in the window.
+    pub strip_scroll: (f32, f32),
+    /// The pointer is over the whiteboard's panel (what the phone's pad is about: the board's, not the pages'), and where it was last seen in
+    /// the window (kept only while the phone companion is on).
+    pub over_board: bool,
+    pub pointer_at: Option<(f32, f32)>,
     pub epoch: u64,
     pub idle_timer: TimerId,
     pub root: PathBuf,
@@ -386,6 +406,9 @@ pub struct AppState {
     /// The whiteboard of the workspace: its panel and what the app keeps beside it (`whiteboard_plug`). In a `RefCell`: the
     /// layout builds the window from a shared reference to this state, and the panel wants to be built from a mutable one.
     pub wb: std::cell::RefCell<whiteboard_plug::Glue>,
+    /// The phone companion: whether it is on (off until the user turns it on), the host a phone talks to, what is kept of it
+    /// (`companion_plug`). Kept across the folders the window reviews: the phones stay connected while the folder changes.
+    pub companion: std::cell::RefCell<companion_plug::Glue>,
 }
 
 impl AppState {
@@ -426,6 +449,7 @@ impl AppState {
         data_root: PathBuf,
     ) -> Self {
         let wb = std::cell::RefCell::new(whiteboard_plug::Glue::new(&root, &data_root));
+        let companion = std::cell::RefCell::new(companion_plug::Glue::new(companion_store::store_path(&data_root, ABOUT.app_folder)));
         Self {
             source,
             tree,
@@ -481,6 +505,11 @@ impl AppState {
             level_samples: 0,
             level: 0.0,
             visible_page: 0,
+            zoom: 1.0,
+            pen_seen: None,
+            strip_scroll: (0.0, 0.0),
+            over_board: false,
+            pointer_at: None,
             epoch: 0,
             idle_timer: TimerId::unique(),
             root,
@@ -497,6 +526,7 @@ impl AppState {
             save_pending: false,
             session_recorder: None,
             wb,
+            companion,
         }
     }
 
@@ -699,8 +729,18 @@ impl AppState {
         }
     }
 
-    /// Time passes (`elapsed_ms`) with the strip of pages scrolled `scroll_x` in a viewport `view_w` wide: the pages in
-    /// view long enough are seen. Whether a page became seen.
+    /// The factor the pages are drawn at now, held between the limits (1.0 where the field holds no number).
+    #[must_use]
+    pub fn page_zoom(&self) -> f32 {
+        if self.zoom.is_finite() && self.zoom > 0.0 {
+            self.zoom.clamp(page_view::Z_MIN, page_view::Z_MAX)
+        } else {
+            1.0
+        }
+    }
+
+    /// Time passes (`elapsed_ms`) with the strip of pages scrolled `scroll_x` in a viewport `view_w` wide (both in the px of the screen,
+    /// whatever the zoom): the pages in view long enough are seen. Whether a page became seen.
     pub fn watch_pages(&mut self, scroll_x: f32, view_w: f32, elapsed_ms: u32) -> bool {
         if !self.window_active {
             return false;
@@ -709,7 +749,8 @@ impl AppState {
             return false;
         };
         let (path, total) = (file.display.clone(), file.page_count());
-        let in_view = progress::pages_in_view(scroll_x, view_w, ui::PAGE_W, ui::page_stride(), total);
+        let zoom = self.page_zoom();
+        let in_view = progress::pages_in_view(scroll_x / zoom, view_w / zoom, ui::PAGE_W, ui::page_stride(), total);
         let Some(entry) = self.progress.entry(&path) else {
             return false;
         };
@@ -850,6 +891,31 @@ impl AppState {
         listed
     }
 
+    /// Opens the file at `path` of the workspace even when the tree has not listed the folders on the way to it yet (the walk behind the
+    /// window lists them in time, and a folder is listed when it is opened): they are listed now, from the source, as the walk would. `false`
+    /// as [`Self::open_path`]: there is no such file, or it is not shown.
+    pub fn open_path_listed(&mut self, path: &str) -> bool {
+        if self.tree.find(path).is_none() {
+            let parts: Vec<&str> = path.split('/').filter(|p| !p.is_empty()).collect();
+            let folders = parts.len().saturating_sub(1);
+            let mut dir = String::new();
+            for depth in 0..=folders {
+                let listed = self.tree.find(&dir).is_some_and(|id| self.tree.is_listed(id));
+                if !listed {
+                    let entries = self.source.list(&dir);
+                    let workspace = self.workspace;
+                    if !self.take_listing(workspace, &dir, entries) {
+                        break;
+                    }
+                }
+                if let Some(part) = parts.get(depth).filter(|_| depth < folders) {
+                    dir = if dir.is_empty() { (*part).to_string() } else { format!("{dir}/{part}") };
+                }
+            }
+        }
+        self.open_path(path)
+    }
+
     /// The rows of the tree, built again (after a folder was opened, closed or listed).
     pub fn refresh_rows(&mut self) {
         self.rows = self.tree.rows();
@@ -948,6 +1014,14 @@ impl AppState {
         self.live_clock = None;
         self.ink.open();
         self.visible_page = 0;
+        self.touch_companion();
+    }
+
+    /// Something the phone is told of moved (the file, the page, the pen): its state is sent again at the next look at the host.
+    pub fn touch_companion(&self) {
+        if let Ok(mut companion) = self.companion.try_borrow_mut() {
+            companion.touch();
+        }
     }
 
     /// Tells the recorder (one call, the recorder's vocabulary).
@@ -1353,7 +1427,7 @@ pub fn run() {
     let start_w = args.size.map_or(WINDOW_DEFAULT.0, |size| size.0);
     // A `--shot` run is a fixture: it never takes the folder the user last reviewed.
     let remember = args.shot.is_none();
-    let kit_ref = kit::create_kit(SPEC, ABOUT, &SHORTCUTS, &["dictation"], args);
+    let kit_ref = kit::create_kit(SPEC, ABOUT, &SHORTCUTS, &["dictation", "phone"], args);
     startup::phase("kit");
     // The words first: everything from here is said in the language chosen (Settings,
     // `--language`; the system's otherwise).
@@ -1441,6 +1515,9 @@ pub fn run() {
     for problem in &state.hub.problems {
         eprintln!("[AzReview] agent settings: {}", problem.message());
     }
+    // The conversations that finish are told to the phone companion (a buzz on the phone, and the answer to a quick button): it
+    // queues them and tells the phones at its next look at the host (nothing is told while it is off).
+    state.hub.events = state.companion.borrow().events();
     state.switches = own;
     state.perf = perf::Perf::new(std::env::var_os("AZREVIEW_PROFILE").is_some());
     // The speech session of the window (the chain of recognisers, its vocabulary, the call a stop ends) is made on a thread
@@ -1452,6 +1529,7 @@ pub fn run() {
         pointer::register_ops(&mut config);
         chips_op::register_ops(&mut config);
         notes_op::register_ops(&mut config);
+        companion_cmd::register_ops(&mut config);
         state_op::register_ops(&mut config);
     }
     // The session recorder: its settings from the settings file (what was capped is said), the machine's facts once.
@@ -1539,6 +1617,8 @@ extern "C" fn on_window_created(mut data: RefAny, mut info: CallbackInfo) -> Upd
     load_session(&data, &mut info);
     // The whiteboard of the workspace comes back.
     whiteboard_plug::start(&data, &mut info);
+    // What the phone companion kept is read; when the user had turned it on it is bound after the first frame (off: nothing listens).
+    companion_plug::start(&data, &mut info);
     Update::DoNothing
 }
 
@@ -2341,6 +2421,11 @@ fn log_pointer(
             pen: sampled.pen,
             live,
         });
+        // where the pen is on the pages is what the phone's zoom is about (and what its buttons act on)
+        if let Some(page) = page {
+            s.pen_seen = Some((companion_pen::PenAt { page, x: sampled.point.x, y: sampled.point.y, down: sampled.pressed }, std::time::Instant::now()));
+            s.touch_companion();
+        }
     }
 }
 
@@ -2481,6 +2566,10 @@ pub extern "C" fn on_strip_scroll(mut data: RefAny, mut info: CallbackInfo) -> U
     let Some(mut s) = data.downcast_mut::<AppState>() else {
         return Update::DoNothing;
     };
+    // the window moved over the pages: the phone is told
+    s.touch_companion();
+    // (the strip scrolls in the px of the screen: the pages are drawn at the zoom)
+    let x = x / s.page_zoom();
     // The pages are scrolled: the symbol index keeps to the neighbourhood of the file until it is quiet again.
     s.symbols.touch();
     let Some(pages) = s.file().map(code::SourceFile::page_count) else {
@@ -2504,7 +2593,7 @@ pub extern "C" fn on_jump_to_page(mut data: RefAny, mut info: CallbackInfo) -> U
     let Some(page) = ui::index_of(&mut info) else {
         return Update::DoNothing;
     };
-    ui::scroll_to_page(&mut info, page);
+    ui::scroll_to_page(&mut info, page, ui::zoom_of(&data));
     let Some(mut s) = data.downcast_mut::<AppState>() else {
         return Update::DoNothing;
     };
@@ -2523,6 +2612,12 @@ pub extern "C" fn on_bar_more(mut data: RefAny, _info: CallbackInfo) -> Update {
 
 /// "Continue reviewing" (the bar's key, Mod+Shift+C): back to the place the reviewer was taken from, which is then none.
 pub extern "C" fn on_back(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    come_back(&mut data, &mut info)
+}
+
+/// The reviewer comes back to the place the jump to a conversation began (the bottom bar's key, and the phone's "Continue reviewing"): the
+/// file opens when it is not the open one, the pages go to the page, and there is no place to come back to any more.
+pub(crate) fn come_back(data: &mut RefAny, info: &mut CallbackInfo) -> Update {
     let place = {
         let Some(mut s) = data.downcast_mut::<AppState>() else {
             return Update::DoNothing;
@@ -2535,9 +2630,10 @@ pub extern "C" fn on_back(mut data: RefAny, mut info: CallbackInfo) -> Update {
             let _ = s.open_path(&place.file);
         }
         s.visible_page = place.page;
+        s.touch_companion();
         place
     };
-    ui::scroll_to_page(&mut info, place.page);
+    ui::scroll_to_page(info, place.page, ui::zoom_of(data));
     info.trigger_all_virtual_view_rerender();
     Update::RefreshDom
 }
@@ -2563,7 +2659,7 @@ pub extern "C" fn on_chip_click(mut data: RefAny, mut info: CallbackInfo) -> Upd
         let _ = s.progress.jumped_from(here);
     }
     drop(s);
-    ui::scroll_to_page(&mut info, page);
+    ui::scroll_to_page(&mut info, page, ui::zoom_of(&data));
     let Some(mut s) = data.downcast_mut::<AppState>() else {
         return Update::DoNothing;
     };
