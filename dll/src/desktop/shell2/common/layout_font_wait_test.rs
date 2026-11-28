@@ -43,7 +43,7 @@ extern "C" fn page(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
     Dom::create_body().with_child(
         Dom::create_div()
             .with_css(&format!("font-family: \"{family}\"; font-size: 16px;"))
-            .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(&text)),
+            .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(text.as_str())),
     )
 }
 
