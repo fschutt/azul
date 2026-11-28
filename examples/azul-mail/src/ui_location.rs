@@ -11,7 +11,11 @@ use azul::{
 };
 use azul_appkit::l10n::t;
 
-use crate::{listing, ui_backstage, ui_frame, ui_main, with_app, MailApp};
+use crate::{
+    listing, ui_frame,
+    ui_main::{self, Action},
+    with_app, MailApp,
+};
 
 /// What the location says: the mailbox it names (its index, its name) when a mailbox is shown,
 /// and the name big under it.
@@ -88,9 +92,9 @@ pub(crate) fn location(s: &MailApp, app: &RefAny) -> Dom {
 const RAIL_INSET: f32 = 18.0;
 
 /// The block's reports: the mailbox's crumb shows that mailbox's Inbox, `...` opens File's pages.
-extern "C" fn on_location(mut data: RefAny, _info: CallbackInfo, event: LocationEvent) -> Update {
-    with_app(&mut data, |s, _| match event.kind {
-        LocationEventKind::CrumbClicked => {
+extern "C" fn on_location(mut data: RefAny, mut info: CallbackInfo, event: LocationEvent) -> Update {
+    match event.kind {
+        LocationEventKind::CrumbClicked => with_app(&mut data, |s, _| {
             let mailbox = event.tag;
             let shown = mailbox < s.accounts.len() || (mailbox == s.local_index() && s.local_visible());
             if !shown {
@@ -99,15 +103,13 @@ extern "C" fn on_location(mut data: RefAny, _info: CallbackInfo, event: Location
             s.show_account(mailbox);
             s.module = 0;
             Update::RefreshDom
-        }
-        LocationEventKind::MoreClicked => {
-            s.backstage = Some(ui_backstage::PAGE_INFO);
-            Update::RefreshDom
-        }
+        })
+        .unwrap_or(Update::DoNothing),
+        // File's old pages, as the File tab opened them: the backstage
+        LocationEventKind::MoreClicked => ui_main::run_action(&mut data, &mut info, Action::OpenFile),
         // no pen: nothing is edited here
         _ => Update::DoNothing,
-    })
-    .unwrap_or(Update::DoNothing)
+    }
 }
 
 #[cfg(test)]
