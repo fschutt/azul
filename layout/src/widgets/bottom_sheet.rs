@@ -27,8 +27,10 @@
 //! Down step a detent, Home / End go to the highest / lowest, Enter and Space step as a tap does.
 //!
 //! The sheet owns nothing: the app keeps the detent, hears every drag step and every settling
-//! through ONE callback ([`BottomSheetOnEvent`]) and rebuilds. A drag in flight survives a rebuild
-//! (`merge_sheet_state`): while the pointer is down it wins.
+//! through ONE callback ([`BottomSheetOnEvent`]) and rebuilds with the detent it heard (a sheet whose
+//! app does not store it goes back to the detent it was built at). A drag in flight survives a
+//! rebuild (`merge_sheet_state`): while the pointer is down it wins. The sheet's node is keyed by
+//! its detent and its height, so what a drag wrote is never carried onto a sheet the app moved.
 //!
 //! Heights. `Peek` and `Collapsed` are px ([`BottomSheet::with_peek_height`],
 //! [`BottomSheet::with_collapsed_height`]), `Half` is half the container, `Full` the container
@@ -966,10 +968,15 @@ fn build(sheet: BottomSheet) -> Dom {
     )
     .with_ids_and_classes(classes(&[BOTTOM_SHEET_CONTENT_CLASS]));
 
+    // A runtime patch (the height a drag writes with `set_css_property`) follows a node's IDENTITY across a rebuild and wins over
+    // the fresh cascade: a sheet the app moves to another detent (a place opens, the way is asked) would stay at the height of the
+    // user's last drag. The key makes the node a NEW one whenever the detent or the height built for it changes, so the patch of
+    // the old node is not carried over; a rebuild in the middle of a drag keeps both, and the patch with them.
     styled(
         Dom::create_div().with_children(DomVec::from_vec(alloc::vec![grip, content])),
         &root_css(height, bottom_inset),
     )
+    .with_key((BOTTOM_SHEET_CLASS, detent, height.to_bits()))
     .with_ids_and_classes(classes(&[BOTTOM_SHEET_CLASS, detent_class(detent)]))
     .with_accessibility_info(AccessibilityInfo::named(label, AccessibilityRole::Pane))
     .with_callbacks(

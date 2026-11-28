@@ -396,3 +396,20 @@ fn a_sheet_taken_out_leaves_an_empty_one() {
     assert_eq!(s.detent, SheetDetent::Peek);
     assert!(s.label.as_str().is_empty());
 }
+
+#[test]
+fn the_node_is_a_new_one_when_the_detent_or_its_height_changes_so_a_drags_patch_is_not_carried_over() {
+    let key = |s: BottomSheet| s.dom().root.key;
+    let peek = key(sheet());
+    assert!(peek.is_some(), "the sheet's root is keyed");
+    assert_eq!(peek, key(sheet()), "the same sheet is the same node across a rebuild");
+    assert_ne!(peek, key(sheet().with_detent(SheetDetent::Half)), "another detent");
+    assert_ne!(peek, key(sheet().with_peek_height(120.0)), "another height for the same detent");
+    assert_ne!(
+        key(sheet().with_detent(SheetDetent::Half)),
+        key(sheet().with_detent(SheetDetent::Half).with_container_height(1200.0)),
+        "the window grew: half is another number of px"
+    );
+    // a detent the range rules out is built as the one in range: the same node
+    assert_eq!(key(sheet().with_detent(SheetDetent::Peek)), key(sheet().with_detent(SheetDetent::Collapsed).with_lowest(SheetDetent::Peek)));
+}
