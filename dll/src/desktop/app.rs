@@ -1262,6 +1262,6 @@ pub(crate) fn discover_system_style_timed(
     }
 }
 
-#[cfg(all(test, not(miri), not(feature = "web")))]
+#[cfg(test)]
 #[path = "app_font_cache_test.rs"]
 mod app_font_cache_test;

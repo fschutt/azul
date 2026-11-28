@@ -8,13 +8,17 @@
 //! starts of nine) and wrote the manifest and the key file again each time. The count that decides is the number of
 //! DISK faces.
 
+#![cfg(all(not(miri), not(feature = "web")))]
+
 use std::{
     path::{Path, PathBuf},
     sync::Arc,
     time::{Duration, Instant, SystemTime},
 };
 
-use rust_fontconfig::{config::FcScanConfig, disk_cache::FontManifest, registry::FcFontRegistry};
+use rust_fontconfig::{
+    config::FcScanConfig, disk_cache::FontManifest, registry::FcFontRegistry, FcFont, FcPattern,
+};
 
 use super::{persist_font_cache, start_font_cache};
 use crate::desktop::font_cache_guard::{key_file_path, write_key_file, Key, Persisted, Reason, Verdict};
@@ -119,8 +123,23 @@ fn a_start_that_finds_nothing_new_writes_nothing_even_after_the_layout_made_inst
         second.cache.variable_instance(&font, &[(*b"wght", 350.0)]).is_some(),
         "premise: the variable font makes an instance"
     );
+    // And a face registered from memory, as the app's own fonts are at its start (on macOS six faces more than the
+    // manifest held at the end of every scan: the registry's face count is not the manifest's).
+    let bytes = std::fs::read(Path::new(env!("CARGO_MANIFEST_DIR")).join("../layout/tests/fonts/azul-mock-prop.ttf")).unwrap();
+    second.cache.with_memory_fonts(vec![(
+        FcPattern {
+            name: Some("Azul Mock Prop".to_string()),
+            family: Some("Azul Mock Prop".to_string()),
+            ..FcPattern::default()
+        },
+        FcFont {
+            bytes: bytes.into(),
+            font_index: 0,
+            id: "azul-mock-prop".to_string(),
+        },
+    )]);
     assert!(
-        second.cache.len() > disk_faces,
+        second.list().len() > disk_faces,
         "premise: the registry holds a face that is not on disk"
     );
 
