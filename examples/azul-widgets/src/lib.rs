@@ -1060,6 +1060,24 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
                     ),
             ),
             labelled(
+                "Dialog with a text field (on a phone the soft keyboard comes up under it)",
+                Dom::create_div()
+                    .with_css("display: flex; flex-direction: column; align-items: flex-start;")
+                    .with_child(
+                        Dialog::create(rename_body(theme))
+                            .with_title("Rename \u{201C}report.pdf\u{201D}")
+                            .with_invoker(
+                                Button::create("Rename file\u{2026}")
+                                    .with_theme(theme)
+                                    .dom(),
+                            )
+                            .with_modal(true)
+                            .with_close_button(true)
+                            .with_theme(theme)
+                            .dom(),
+                    ),
+            ),
+            labelled(
                 "SplitPane",
                 SplitPane::create(
                     SplitDirection::Horizontal,
@@ -1380,6 +1398,42 @@ fn dialog_body(data: &RefAny, theme: UiTheme) -> Dom {
                         .dom(),
                 ),
         )
+}
+/// The body of the rename dialog: a text field and two buttons (the dialog closes by itself; nothing is renamed).
+fn rename_body(theme: UiTheme) -> Dom {
+    Dom::create_div()
+        .with_css("display: flex; flex-direction: column;")
+        .with_child(
+            TextInput::create()
+                .with_placeholder("New name")
+                .with_accessibility_name("New name")
+                .with_theme(theme)
+                .dom()
+                .with_id("rename-field")
+                .with_css("margin-bottom: 16px;"),
+        )
+        .with_child(
+            Dom::create_div()
+                .with_css("display: flex; flex-direction: row; justify-content: flex-end;")
+                .with_child(
+                    Button::create("Cancel")
+                        .with_on_click(RefAny::new(()), on_dialog_keep)
+                        .with_theme(theme)
+                        .dom()
+                        .with_css("margin-right: 8px;"),
+                )
+                .with_child(
+                    Button::with_type("Rename", ButtonType::Primary)
+                        .with_on_click(RefAny::new(()), on_dialog_rename)
+                        .with_theme(theme)
+                        .dom(),
+                ),
+        )
+}
+extern "C" fn on_dialog_rename(_data: RefAny, info: CallbackInfo) -> Update {
+    let hit = info.get_hit_node();
+    let _ = Dialog::close_from(info, hit, "rename");
+    Update::DoNothing
 }
 extern "C" fn on_dialog_keep(_data: RefAny, info: CallbackInfo) -> Update {
     let hit = info.get_hit_node();
