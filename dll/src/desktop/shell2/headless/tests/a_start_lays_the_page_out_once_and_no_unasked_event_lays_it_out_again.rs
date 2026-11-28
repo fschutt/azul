@@ -56,11 +56,12 @@ fn started() -> (HeadlessWindow, Arc<AtomicUsize>) {
 }
 
 /// Turns of the window's own loop, a driver period apart (the headless shell's `pump_once`: the timers, the threads
-/// and the frame a raised request still owes).
+/// and the frame a raised request still owes). As a child window: the process-wide mailboxes (notifications, global
+/// hotkeys) are the root window's, and a test must not take another test's deliveries.
 fn pump(window: &mut HeadlessWindow, turns: usize) {
     for _ in 0..turns {
         let _ = azul_core::task::advance_test_clock_ms(16);
-        window.pump_once(true);
+        window.pump_once(false);
     }
 }
 
