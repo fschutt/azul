@@ -1458,6 +1458,10 @@ extern "C" fn display_tick(_this: &Object, _cmd: Sel, _link: *mut Object) {
         if window.process_timers_and_threads() {
             window.needs_rerender = true;
         }
+        // What the app asks of the system's chrome (`WindowFlags::system_bars`): a callback of any kind (a click, a
+        // timer, a thread's writeback) may have changed it, and this shell has no other place that pushes the window
+        // state. A tick that finds it unchanged does nothing.
+        window.sync_window_state();
         // Accessibility actions arrive off-loop (VoiceOver invokes
         // `accessibilityActivate` and friends whenever the user gestures) and
         // are queued, not applied, so that UIKit is never re-entered
