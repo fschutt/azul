@@ -11,6 +11,7 @@ const IOS_CLIPBOARD_RS: &str = include_str!("ios/clipboard.rs");
 const IOS_WEBVIEW_RS: &str = include_str!("ios/webview.rs");
 const IOS_SYSTEM_FONT_RS: &str = include_str!("ios/system_font.rs");
 const IOS_OPEN_URL_RS: &str = include_str!("ios/open_url.rs");
+const IOS_SYSTEM_UI_RS: &str = include_str!("ios/system_ui.rs");
 const AUTH_APPLE_RS: &str = include_str!("../extra/auth_session/apple.rs");
 const PERMISSION_IOS_RS: &str = include_str!("../extra/permission/ios.rs");
 const GAMEPAD_APPLE_RS: &str = include_str!("../extra/gamepad/apple.rs");
@@ -80,6 +81,7 @@ fn the_ios_shell_does_not_unwrap_what_the_objective_c_runtime_hands_it() {
         ("ios/clipboard.rs", IOS_CLIPBOARD_RS),
         ("ios/webview.rs", IOS_WEBVIEW_RS),
         ("ios/system_font.rs", IOS_SYSTEM_FONT_RS),
+        ("ios/system_ui.rs", IOS_SYSTEM_UI_RS),
         ("ios/open_url.rs", IOS_OPEN_URL_RS),
         ("extra/file_picker/ios.rs", FILE_PICKER_RS),
     ] {
@@ -884,4 +886,60 @@ fn the_ios_window_feeds_the_engines_gesture_config_from_uikits_numbers() {
     let touch = body(IOS_MOD_RS, "fn handle_touch(");
     at(touch, "UIKIT_GESTURES.pan_threshold_points", "handle_touch");
     assert!(!code_of(touch).contains("10.0"), "the slop is the table's, not a literal");
+}
+
+/// The system's chrome and the display features reach UIKit and the engine through ONE place each: the window's root view
+/// controller is the `AzulViewController` (a plain `UIViewController` answers "as ever" to the status bar, the home
+/// indicator and the deferred edges for good), the options of the window are applied at creation and again by
+/// `sync_window_state`, and `layoutSubviews` reports the display's features beside the insets (and a change of them is a
+/// change of layout). UIKit APIs newer than the oldest iOS the shell runs on are asked about before they are called: an
+/// unrecognised selector is an exception, and an exception through Rust frames is an abort.
+#[test]
+fn the_ios_window_hands_the_system_chrome_and_the_display_features_to_uikit_and_the_engine() {
+    let new = body(IOS_MOD_RS, "pub fn new(");
+    for needed in [
+        "system_ui::declare_view_controller()",
+        "system_ui::ui_of_options(&full_window_state.flags.system_bars)",
+        "system_ui::apply(vc, system_ui_at_start)",
+    ] {
+        at(new, needed, "IOSWindow::new");
+    }
+    in_order(new, "system_ui::declare_view_controller()", "msg_send![vc_class, alloc]", "IOSWindow::new");
+    let sync = body(IOS_MOD_RS, "fn sync_window_state(");
+    at(sync, "flags.system_bars", "sync_window_state");
+    at(sync, "system_ui::apply(", "sync_window_state");
+    at(sync, "applied_system_ui", "sync_window_state");
+    let layout = body(IOS_MOD_RS, "extern \"C\" fn layout_subviews(");
+    at(layout, "system_ui::display_features(", "layout_subviews");
+    at(layout, "report_display_features(features)", "layout_subviews");
+    at(layout, "inset_changed || features_changed", "layout_subviews");
+    let ui = code_of(IOS_SYSTEM_UI_RS);
+    for selector in [
+        "setNeedsUpdateOfHomeIndicatorAutoHidden",
+        "setNeedsUpdateOfScreenEdgesDeferringSystemGestures",
+        "windowScene",
+        "statusBarManager",
+        "interfaceOrientation",
+    ] {
+        let asked = format!("sel!({selector})");
+        let line = ui
+            .lines()
+            .find(|line| line.contains(&asked))
+            .unwrap_or_else(|| panic!("`{selector}` is not asked about"));
+        assert!(line.contains("responds("), "`{selector}` must be asked about with responds() first: `{}`", line.trim());
+    }
+    for method in [
+        "prefersStatusBarHidden",
+        "preferredStatusBarStyle",
+        "prefersHomeIndicatorAutoHidden",
+        "preferredScreenEdgesDeferringSystemGestures",
+    ] {
+        at(&ui, &format!("sel!({method})"), "AzulViewController overrides what UIKit asks");
+    }
+    // the cutout's shape and the corner radius are never read from a private API
+    for private in ["_displayCornerRadius", "_statusBarHeight", "_cornerRadius"] {
+        assert!(!ui.contains(private), "no private API: `{private}`");
+    }
+    // every cutout is reported approximate: it is from a table
+    at(&ui, "approximate: true", "features_of");
 }
