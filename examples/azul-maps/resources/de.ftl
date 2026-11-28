@@ -10,8 +10,6 @@ azmaps-pan-north = Nach Norden schieben
 azmaps-pan-south = Nach Süden schieben
 azmaps-zoom-in = Vergrößern
 azmaps-zoom-out = Verkleinern
-azmaps-hide-sidebar = Seitenleiste ausblenden
-azmaps-show-sidebar = Seitenleiste einblenden
 azmaps-settings = Einstellungen
 azmaps-my-location = Mein Standort
 azmaps-from = Von
@@ -22,7 +20,6 @@ azmaps-swap = Start und Ziel tauschen
 azmaps-directions = Route
 azmaps-recents = Zuletzt verwendet
 azmaps-clear-recents = Zuletzt verwendete löschen
-azmaps-sidebar = Seitenleiste
 azmaps-dropped-pin = Markierte Stelle
 azmaps-remove = Entfernen
 azmaps-you-are-here = Du bist hier
@@ -66,6 +63,48 @@ azmaps-route-steps = Abbiegehinweise
 azmaps-routing-credit = Routing: Valhalla, FOSSGIS / © OpenStreetMap-Mitwirkende
 azmaps-suggestions = Vorschläge
 azmaps-no-places = Kein Ort namens „{ $query }“ bekannt
+
+## Suche, Orte und die Seitenleiste
+
+azmaps-search-places = Orte suchen
+azmaps-clear-search = Suche löschen
+azmaps-chips = Suchen nach
+azmaps-chip-food = Essen
+azmaps-chip-food-query = Restaurant
+azmaps-chip-coffee = Kaffee
+azmaps-chip-coffee-query = Café
+azmaps-chip-fuel = Tanken
+azmaps-chip-fuel-query = Tankstelle
+azmaps-chip-parking = Parken
+azmaps-chip-parking-query = Parkplatz
+azmaps-chip-hotels = Hotels
+azmaps-chip-hotels-query = Hotel
+azmaps-panel = Suche und Orte
+azmaps-show-search = Suche zeigen
+azmaps-expand-panel = Seitenleiste einblenden
+azmaps-collapse-panel = Seitenleiste einklappen
+azmaps-back = Zurück
+azmaps-home-hint = Such einen Ort oder tippe auf die Karte, um eine Markierung zu setzen.
+azmaps-place = Ort
+azmaps-place-at = { $lat }, { $lon }
+azmaps-sheet = Ort und Route
+azmaps-sheet-grip = Ziehen, um mehr oder weniger zu zeigen
+azmaps-route = Route
+azmaps-save = Speichern
+azmaps-share = Teilen
+azmaps-share-name = Link zu diesem Ort kopieren
+azmaps-link-copied = Link kopiert
+azmaps-layers = Kartenstil
+azmaps-layers-menu = Kartenstile
+azmaps-style-standard = Standard
+azmaps-style-muted = Gedeckt
+azmaps-style-colourful = Bunt
+azmaps-style-blue-sea = Blaues Meer
+azmaps-kind-city = Stadt
+azmaps-kind-station = Haltestelle
+azmaps-kind-address = Adresse
+azmaps-kind-place = Ort
+azmaps-kind-saved = Gespeicherter Ort
 
 ## Öffentlicher Verkehr
 

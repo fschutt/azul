@@ -120,7 +120,8 @@ pub fn check_texts(texts: &[&str], prefixes: &[&str], en: &str, de: &str) -> Vec
     problems
 }
 
-/// [`check_texts`] of every `.rs` file under `dir` (but the test files and `tests` folders).
+/// [`check_texts`] of every `.rs` file under `dir` (but the test files, in both spellings - `*_tests.rs` and the
+/// flat form `*_test.rs` that sits beside the module it tests - and `tests` folders).
 #[must_use]
 pub fn check(dir: &Path, prefixes: &[&str], en: &str, de: &str) -> Vec<String> {
     let mut files = Vec::new();
@@ -148,8 +149,12 @@ fn rust_files(dir: &Path, out: &mut Vec<PathBuf>) {
             if name != "tests" {
                 rust_files(&path, out);
             }
-        } else if name.ends_with(".rs") && !name.ends_with("_tests.rs") {
+        } else if name.ends_with(".rs") && !name.ends_with("_tests.rs") && !name.ends_with("_test.rs") {
             out.push(path);
         }
     }
 }
+
+#[cfg(test)]
+#[path = "l10n_check_test.rs"]
+mod l10n_check_test;

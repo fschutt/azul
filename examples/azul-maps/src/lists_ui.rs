@@ -473,7 +473,7 @@ extern "C" fn on_list(mut data: RefAny, _info: CallbackInfo) -> Update {
             east = east.max(*lon);
         }
         let _ = last;
-        let inset = if s.sidebar_open { crate::SIDEBAR_INSET } else { 0.0 };
+        let (inset, _) = s.covered();
         let (lat, lon, zoom) = crate::model::fit_view((south, west), (north, east), s.size.get(), inset);
         s.viewport.zoom = zoom.min(16.0);
         s.centre_on(lat, lon);
@@ -481,7 +481,7 @@ extern "C" fn on_list(mut data: RefAny, _info: CallbackInfo) -> Update {
     Update::RefreshDom
 }
 
-/// A saved place clicked: it becomes the destination.
+/// A saved place clicked: its view opens, and the map shows it.
 extern "C" fn on_saved_place(mut data: RefAny, mut info: CallbackInfo) -> Update {
     let Some((mut app, list, place)) = data.downcast_ref::<ListRef>().map(|r| (r.app.clone(), r.list, r.place)) else {
         return Update::DoNothing;
@@ -493,15 +493,15 @@ extern "C" fn on_saved_place(mut data: RefAny, mut info: CallbackInfo) -> Update
         let Some(p) = s.lists.lists.get(list).and_then(|l| l.places.get(place)).cloned() else {
             return Update::DoNothing;
         };
-        let name = if p.name.is_empty() { crate::model::place_text(p.at.0, p.at.1) } else { p.name.clone() };
-        s.travel.to = name.clone();
-        s.travel.to_pick = Some(crate::Picked { label: name, at: p.at });
+        s.travel.to = p.name.clone();
+        s.travel.to_pick = (!p.name.is_empty()).then(|| crate::Picked { label: p.name.clone(), at: p.at });
         s.suggestions = None;
-        s.centre_on(p.at.0, p.at.1);
+        s.open_place(crate::flow::PlaceCard { name: p.name.clone(), kind: "azmaps-kind-saved", at: p.at, pin: None });
+        let zoom = s.viewport.zoom.max(crate::PICKED_PLACE_ZOOM);
+        s.show_place_at(p.at, zoom);
         s.announce_travel();
     }
     crate::adopt_field_texts(&mut info);
-    crate::ask_route(&app, &mut info);
     Update::RefreshDom
 }
 
