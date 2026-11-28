@@ -2,8 +2,9 @@
 # The gate of a push of the startup work, in two halves that run side by side on two runners (each is a debug build of its own):
 #
 #   dll     the doc checker (`azul-doc check layout`), the WHOLE lib tests of azul-dll, the integration test of the transient
-#           windows (the docking of an inline panel), the source gates, and the type checks of the targets no runner builds
-#           natively (Windows, iOS, Android, macOS: scripts/ci/startup_check_targets.sh)
+#           windows (the docking of an inline panel), the source gates, and (last: their target directories sit in the tree) the
+#           type checks of the targets no runner builds natively (Windows, iOS, Android, macOS: scripts/ci/startup_check_targets.sh)
+#   srcgate the source gates alone (a clean tree)
 #   layout  the CI's workspace test command for azul-css / azul-core / azul-layout / webrender (the same feature list, the
 #           fonts the layout tests measure), its three required-features steps, and both clippy lines with `-D warnings`
 #
@@ -44,11 +45,18 @@ case "$part" in
 dll)
     sudo apt-get install -y -qq libv4l-dev fonts-dejavu-core > /dev/null 2>&1
     step check-layout cargo run -r -p azul-doc -- check layout
-    step targets bash scripts/ci/startup_check_targets.sh
     step dll-lib cargo test -p azul-dll --lib --no-fail-fast
     guard dll-lib
     step dll-transient cargo test -p azul-dll --test transient_window_layout
     guard dll-transient
+    # The source gates scan the whole tree, and the speech-engine gate reads the `.fingerprint` files of any `target*` directory
+    # it finds for the name of a feature no shipped build may name: they run BEFORE the cross-target checks, whose target
+    # directories (target-windows, target-ios, target-android, target-macos) sit in the repository root.
+    step srcgate cargo test -p azul-srcgate --no-fail-fast
+    guard srcgate
+    step targets bash scripts/ci/startup_check_targets.sh
+    ;;
+srcgate)
     step srcgate cargo test -p azul-srcgate --no-fail-fast
     guard srcgate
     ;;
