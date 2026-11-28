@@ -254,6 +254,45 @@ class AuditTests(unittest.TestCase):
         r = self.run_audit([node(0, "div", 0, 0, 100, 100)], [])
         self.assertEqual(r["sideways_scroll"]["count"], 0)
 
+    # AzMaps' chips row (run 46136628553): a 387 dp wide sideways scroller at x 12 with a 456 dp wide content: the fifth chip (x 378..468) and the text inside it (x 407..455, past the
+    # scroller's edge) were counted as crossing the window's edge. They are scrolled content.
+    CHIPS = [node(0, "body", 0, 0, 411.4, 900), node(26, "div", 12, 120, 387.4, 52, ident="__azmaps_chips"),
+             node(30, "div", 378.5, 122.8, 89.4, 48.0), node(31, "button", 378.5, 122.8, 89.4, 48.0, ident="chip-4"), node(32, "p", 407.5, 139.8, 47.4, 14.0)]
+    CHIPS_TREE = [a11y(26, 26, "Group", None, 12, 120, 387.4, 52, clips=True), a11y(30, 30, "Group", None, 378.5, 122.8, 89.4, 48.0, parent=26),
+                  a11y(31, 31, "Button", "Hotels", 378.5, 122.8, 89.4, 48.0, clickable=True, parent=30), a11y(32, 32, "Paragraph", "Hotels", 407.5, 139.8, 47.4, 14.0, parent=31)]
+    CHIPS_SCROLL = {"status": "ok", "data": {"type": "scroll_states", "value": {"scroll_states": [
+        {"node_id": 26, "scroll_x": 0.0, "scroll_y": 0.0, "content_width": 455.9, "content_height": 52.0, "container_width": 387.4, "container_height": 52.0,
+         "max_scroll_x": 68.5, "max_scroll_y": 0.0}]}}}
+
+    def test_what_lies_inside_a_sideways_scroller_is_scrolled_content_not_a_page_that_does_not_fit(self):
+        r = la.audit(answer(self.CHIPS), answer(self.CHIPS_TREE), STATE, self.bars, "portrait", self.CHIPS_SCROLL)
+        self.assertEqual(r["edge_right"]["count"], 0)
+        self.assertEqual(r["edge_right"]["in_sideways_scrollers"], 3)      # the group and the button start inside the scroller; the paragraph (it starts past the scroller's edge) by its accessibility parents
+        self.assertEqual(r["cut_text"]["count"], 0)
+        self.assertEqual(r["sideways_scroll"]["count"], 1)                 # it is still listed as the scroller it is
+        self.assertIn("Not counted: 3 boxes inside a scroll container that scrolls sideways", la.report_markdown([r]))
+
+    def test_the_same_boxes_without_the_scroll_states_are_still_listed(self):
+        r = la.audit(answer(self.CHIPS), answer(self.CHIPS_TREE), STATE, self.bars, "portrait")
+        self.assertGreaterEqual(r["edge_right"]["count"], 2)
+        self.assertEqual(r["edge_right"]["in_sideways_scrollers"], 0)
+        self.assertEqual(r["cut_text"]["count"], 2)                        # the button "Hotels" and its paragraph
+
+    def test_a_box_that_crosses_the_edge_beside_a_scroller_is_still_listed(self):
+        layout = self.CHIPS + [node(40, "button", 400, 130, 90, 30, ident="beside")]        # in the chips row's band but a sibling, not inside it: starts past the scroller's right edge (399.4)
+        tree = self.CHIPS_TREE + [a11y(40, 40, "Button", "Beside", 400, 130, 90, 30, clickable=True, parent=None)]
+        r = la.audit(answer(layout), answer(tree), STATE, self.bars, "portrait", self.CHIPS_SCROLL)
+        self.assertEqual([e["node"] for e in r["edge_right"]["top"]], ["button#beside"])
+
+    def test_a_scroller_that_does_not_fit_the_window_explains_nothing(self):
+        wide = {"status": "ok", "data": {"type": "scroll_states", "value": {"scroll_states": [
+            {"node_id": 26, "scroll_x": 0.0, "scroll_y": 0.0, "content_width": 900.0, "content_height": 52.0, "container_width": 600.0, "container_height": 52.0,
+             "max_scroll_x": 300.0, "max_scroll_y": 0.0}]}}}
+        layout = [node(0, "body", 0, 0, 411.4, 900), node(26, "div", 12, 120, 600, 52), node(30, "div", 378.5, 122.8, 89.4, 48.0)]
+        r = la.audit(answer(layout), answer([]), STATE, self.bars, "portrait", wide)
+        self.assertEqual(r["edge_right"]["in_sideways_scrollers"], 0)
+        self.assertGreaterEqual(r["edge_right"]["count"], 1)               # the scroller itself ends at 612 dp: the page does not fit
+
     def test_without_a_layout_dump_it_says_so_instead_of_an_empty_list(self):
         r = la.audit(None, None, STATE, self.bars, "portrait")
         self.assertIn("error", r)

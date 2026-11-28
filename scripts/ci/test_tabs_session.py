@@ -169,5 +169,53 @@ class TextSizeJobTests(unittest.TestCase):
         self.assertEqual(subprocess.run(["bash", "-n", str(HERE / "text_size_job.sh")]).returncode, 0)
 
 
+class IosTabsJobDevicesTests(unittest.TestCase):
+    """ios_tabs_job.sh: both phones by default, one phone for a lean job (AZ_TABS_IOS_DEVICES, device types separated by ;)"""
+    TEXT = (HERE / "ios_tabs_job.sh").read_text(encoding="utf-8")
+
+    def test_the_default_is_both_phones_in_the_old_order(self):
+        self.assertIn('AZ_TABS_IOS_DEVICES:-iPhone 16 Pro;iPhone SE (3rd generation)', self.TEXT)
+        self.assertLess(self.TEXT.index("iPhone 16 Pro;iPhone SE"), self.TEXT.index('for dev in "${device_list[@]}"'))
+
+    def test_the_device_types_are_split_on_semicolons_so_that_names_with_spaces_survive(self):
+        self.assertIn("IFS=';' read -r -a device_list", self.TEXT)
+
+    def test_the_script_is_valid_shell(self):
+        import subprocess
+        self.assertEqual(subprocess.run(["bash", "-n", str(HERE / "ios_tabs_job.sh")]).returncode, 0)
+
+    def test_the_split_gives_the_names_back_whole(self):
+        import subprocess
+        out = subprocess.run(["bash", "-c", 'devices="iPhone 16 Pro;iPhone SE (3rd generation)"; IFS=";" read -r -a l <<<"$devices"; printf "%s|" "${l[@]}"'],
+                             capture_output=True, text=True).stdout
+        self.assertEqual(out, "iPhone 16 Pro|iPhone SE (3rd generation)|")
+
+
+class E2eJobTests(unittest.TestCase):
+    """e2e_job.sh: ONE runner job of the e2e session for the scenario files named: the step responses (the debug server's run_e2e_tests answer) are kept"""
+    TEXT = (HERE / "e2e_job.sh").read_text(encoding="utf-8")
+
+    def test_the_job_builds_the_e2e_variant_and_hands_the_files_to_the_session(self):
+        self.assertIn("mobile-e2e", self.TEXT)
+        self.assertEqual(self.TEXT.count('AZ_QA_SCENARIOS="$files"'), 2)       # once per platform
+        self.assertIn('android_qa.sh demo-out/qa-e2e "$apk" swiftshader_indirect "$app e2e" e2e', self.TEXT)
+        self.assertIn('ios_qa.sh demo-out/qa-e2e "$zip" "$app e2e" e2e', self.TEXT)
+
+    def test_the_extra_knobs_and_the_files_to_keep_are_documented_where_the_job_is_started_from(self):
+        self.assertIn("AZ_QA_EXTRA_ENV", self.TEXT)
+        self.assertIn("scenario-<file stem>.json", self.TEXT)
+        self.assertIn("!demo-out/qa-e2e/**/*.mp4", self.TEXT)
+
+    def test_both_sessions_read_the_scenarios_and_the_session_writes_the_answers(self):
+        for name in ("android_qa.sh", "ios_qa.sh"):
+            self.assertIn("AZ_QA_SCENARIOS", (HERE / name).read_text(encoding="utf-8"), name)
+        e2e = (HERE / "mobile_e2e.py").read_text(encoding="utf-8")
+        self.assertIn('f"scenario-{name}.json"', e2e)
+
+    def test_the_script_is_valid_shell(self):
+        import subprocess
+        self.assertEqual(subprocess.run(["bash", "-n", str(HERE / "e2e_job.sh")]).returncode, 0)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

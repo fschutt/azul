@@ -132,19 +132,35 @@ def walk_nodes(obj, out=None):
     return out
 
 
-def layout_overflow(layout_answer, width):
+def layout_overflow(layout_answer, width, scroll_answer=None):
     """The nodes of `get_all_nodes_layout` whose rect crosses the window's right edge: the page does not fit a phone's width
     (a toolbar that cannot wrap, a card or video of a fixed 480 px). -> (count, [(tag, id, classes, x, y, w, h), ...] the
-    widest first, without the nodes inside an offender that starts at the same place)."""
+    widest first, without the nodes inside an offender that starts at the same place). With the answer of `get_scroll_states`:
+    not the nodes inside a scroll container that scrolls sideways and fits the window itself (a chips row: its content is
+    reached by scrolling): the nodes that start inside such a container, and the nodes inside those."""
     data = (layout_answer or {}).get("data") or {}
     nodes = ((data.get("value") or {}).get("nodes") if isinstance(data, dict) else None) or []
-    over = []
+    by_id = {n.get("node_id"): n for n in nodes}
+    scrollers = []
+    sdata = (scroll_answer or {}).get("data") or {}
+    for st in ((sdata.get("value") or {}).get("scroll_states") if isinstance(sdata, dict) else None) or []:
+        r = (by_id.get(st.get("node_id")) or {}).get("rect")
+        if st.get("max_scroll_x", 0.0) > 1.0 and r and r.get("width", 0) > 0 and r["x"] >= -1.0 and r["x"] + r["width"] <= width + 1.0:
+            scrollers.append((r["x"], r["y"], r["x"] + r["width"], r["y"] + r["height"]))
+    over, scrolled = [], []
     for n in nodes:
         r = n.get("rect")
         if not r or r.get("width", 0) <= 0:
             continue
         if r["x"] < width and r["x"] + r["width"] > width + 1.0:
+            box = (r["x"], r["y"], r["x"] + r["width"], r["y"] + r["height"])
+            if any(box[0] >= l - 1.0 and box[0] < rr and box[1] >= t - 1.0 and box[3] <= b + 1.0 for l, t, rr, b in scrollers):
+                scrolled.append(box)
+                continue
             over.append((n.get("tag"), n.get("id"), n.get("classes") or [], r["x"], r["y"], r["width"], r["height"]))
+    if scrolled:
+        # the nodes inside a scrolled one (the text inside a chip that starts past the scroller's edge)
+        over = [o for o in over if not any(o[3] >= l - 1.0 and o[4] >= t - 1.0 and o[3] + o[5] <= rr + 1.0 and o[4] + o[6] <= b + 1.0 for l, t, rr, b in scrolled)]
     top = []
     for o in sorted(over, key=lambda t: (-t[5], t[4])):
         if not any(abs(o[3] - t[3]) < 1 and t[4] - 1 <= o[4] <= t[4] + t[6] for t in top):
@@ -172,6 +188,8 @@ def e2e_session(args):
             if args.platform == "android":
                 out = dev.adb("install", "-r", "-t", args.apk, timeout=240)
                 s.check("adb install succeeds", "Success" in out, out.strip()[-160:])
+                if qa_extra_env():
+                    dev.adb("logcat", "-G", "16M")     # the knobs asked for print more lines: the default buffer (256 KB) would wrap before the scenario ends
                 dev.adb("logcat", "-c")
                 dev.sh("settings put system accelerometer_rotation 0")
                 dev.sh("settings put secure show_ime_with_hard_keyboard 1")
@@ -192,10 +210,10 @@ def e2e_session(args):
     def s_start(s):
         if args.platform == "android":
             dev.adb("forward", f"tcp:{args.port}", f"tcp:{args.port}")
-            dev.sh(f"setprop debug.az.env 'AZ_DEBUG={args.port};AZ_LOG=info;AZ_DUMP_PRESENT=1'")
+            dev.sh(f"setprop debug.az.env '{android_env_property(args.port, qa_extra_env())}'")
             out = dev.launch(cold=True)
         else:
-            out = dev.launch(extra_env={"AZ_DEBUG": str(args.port), "AZ_DUMP_PRESENT": "1"}, cold=True)
+            out = dev.launch(extra_env=dict({"AZ_DEBUG": str(args.port), "AZ_DUMP_PRESENT": "1"}, **qa_extra_env()), cold=True)
             out = json.dumps({k: v for k, v in out.items() if k != "console"})
         s.note(f"launch: {str(out).strip()[:160]}")
         t = dev.wait_for_front(timeout=args.first_frame_timeout)
@@ -250,7 +268,11 @@ def e2e_session(args):
             s.note(f"{len(walk_nodes(layout))} nodes with a rect logged")
             width = find_key(state.get("get_state"), "logical_width") or 0
             if width:
-                count, top = layout_overflow(layout, float(width))
+                try:
+                    scrolls = json.loads((run.logs_dir / "scroll-states.json").read_text(encoding="utf-8"))
+                except (OSError, ValueError):
+                    scrolls = None
+                count, top = layout_overflow(layout, float(width), scrolls)
                 first = ", ".join(f"{t[0]}{'#' + t[1] if t[1] else ''} x {t[3]:.0f}..{t[3] + t[5]:.0f} at y {t[4]:.0f}" for t in top[:4])
                 s.check(f"the page fits the window's width ({float(width):.0f} logical px): no node crosses the right edge", count == 0,
                         f"{count} nodes cross it; widest: {first}", required=False)
@@ -465,6 +487,18 @@ def e2e_session(args):
             s.check("the cold start in German shows words, not message ids", not c["raw_keys_b"], f"{c['raw_keys_b'][:4]}", required=False)
         dev.sh(f"cmd locale set-app-locales {pkg} --locales en-US")
         dev.settle(3.0)
+        # the engine does not read the language again while it runs (the running switch above changed 0 of 52 texts): without a restart the steps after this one ran
+        # in German (the AzMaps pictures of run 46136628553 are German). A cold start back in English, with the server up again, so that they run in English.
+        dev.sh(f"am force-stop {pkg}")
+        dev.home()
+        time.sleep(2.0)
+        dev.launch(cold=True)
+        dev.wait_for_front(timeout=args.first_frame_timeout)
+        if wait_server("a cold start back in English"):
+            dev.settle(2.0)
+            back = tree()
+            b = la.compare_words(base, back)
+            s.check("after the language is set back, a cold start shows the English words again", b["changed"] == 0, f"{b['changed']} of {b['named']} named nodes differ from the English ones; first: {b['sample'][:3]}", required=False)
 
     if args.platform == "android" and args.audit_only:
         run.step("e35-language-de-and-back", "cmd locale set-app-locales de-DE: while the app runs and at a cold start, the texts of the same nodes against English", s_locale)
@@ -573,10 +607,11 @@ def e2e_session(args):
     def s_script_maps(s):
         """AzMaps, real touches. The refactored app (WP-E2, no sidebar): the layers key `#__azmaps_layers` (a popover of four styles `#__azmaps_style-0..3`,
         a pick prints AZMAPS_STYLE), the first chip under the search bar `#__azmaps_chip-0` (prints AZMAPS_CHIP), the search field `#__azmaps_search` (the
-        soft keyboard, the sheet must lift above it), a double tap that drops a pin and opens its place (AZMAPS_PLACE). The app before it: the sidebar key
-        `#__azmaps_sidebar-toggle` (AZMAPS_SIDEBAR). Whichever keys the server names are used; the picture sequence says which app it was."""
+        soft keyboard, the sheet must lift above it, the zoom / locate / layers keys wait while it is up), a single tap on the map that drops a pin and opens its place
+        (AZMAPS_PINS, AZMAPS_PLACE). The app before it: the sidebar key `#__azmaps_sidebar-toggle` (AZMAPS_SIDEBAR) and a double tap that dropped a pin. Whichever keys the
+        server names are used; the picture sequence says which app it was. (AZMAPS_VIEW is not read: the app prints its first one before android_main installs the stdout
+        bridge, so it never reaches logcat, and AzMaps has no double-tap zoom: a pin drops on a single tap.)"""
         dev.settle(15.0)
-        views0 = q.marker_values(dev.adb("logcat", "-d", "-v", "threadtime", timeout=60), "AZMAPS_VIEW")
         before = device_shot(s, "maps-15s")
         mark = dev.now_mark()
         last = before
@@ -628,8 +663,22 @@ def e2e_session(args):
                     f"printed {marks}")
             last = sidebar
         w, h = dev.dims
-        # the refactored app: the sheet sits over the window's centre at its half detent after the chip step, so the map is tapped ABOVE it (WP-E2: x = width / 2, y about 25 % of the height)
-        tap_x, tap_y = int(w * 0.5), int(h * (0.25 if layers else 0.62))
+        if layers:
+            # the refactored app (WP-E2): a SINGLE tap on the visible map drops a pin and opens its place (AZMAPS_PINS / AZMAPS_PLACE). The sheet sits over the window's centre at its half
+            # detent after the chip step, so the map is tapped ABOVE it (x = width / 2, y 30 % of the height). There is NO double-tap zoom in AzMaps: a pin drops on a single tap, so the
+            # first tap of a double tap drops a pin and opens its card and the second lands on the new pin's marker and closes the card again (WP-E2; a change of the tap model, the
+            # user's call), so the script makes no double tap there.
+            mark3 = dev.now_mark()
+            dev.tap(int(w * 0.5), int(h * 0.30))
+            dev.settle(3.0)
+            pinned = device_shot(s, "maps-single-tap-place")
+            log3 = dev.adb("logcat", "-d", "-v", "threadtime", timeout=60)
+            pins3, place3 = q.marker_values(log3, "AZMAPS_PINS", since=mark3), q.marker_values(log3, "AZMAPS_PLACE", since=mark3)
+            s.check("a single tap on the visible map drops a pin and opens its place (AZMAPS_PINS / AZMAPS_PLACE, and the picture)", bool(place3) or q.sig_diff(pinned, last) > q.SAME_BELOW,
+                    f"pins printed {pins3}, place {place3}; the picture differs {q.sig_diff(pinned, last):.3f}", required=False)
+            return
+        # the app before the refactor: a double tap on the map drops a pin and opens its place
+        tap_x, tap_y = int(w * 0.5), int(h * 0.62)
         mark2 = dev.now_mark()
         dev.tap(tap_x, tap_y)
         time.sleep(0.12)
@@ -637,27 +686,10 @@ def e2e_session(args):
         dev.settle(3.0)
         zoomed = device_shot(s, "maps-double-tap")
         log2 = dev.adb("logcat", "-d", "-v", "threadtime", timeout=60)
-        views = q.marker_values(log2, "AZMAPS_VIEW", since=mark2)
         pins, place = q.marker_values(log2, "AZMAPS_PINS", since=mark2), q.marker_values(log2, "AZMAPS_PLACE", since=mark2)
-        s.note(f"AZMAPS_VIEW before the double tap {views0[-1:]}; after {views[-2:]}; what else the app printed for it: AZMAPS_PINS {pins}, AZMAPS_PLACE {place} "
-               f"(a double tap that drops a pin and opens its card is not a zoom)")
-        try:
-            z0 = float(views0[-1].split()[2]) if views0 else None
-            z1 = float(views[-1].split()[2]) if views else None
-        except (ValueError, IndexError):
-            z0 = z1 = None
-        s.check("a double tap on the map zooms in", z0 is not None and z1 is not None and z1 > z0,
-                f"zoom {z0} -> {z1}; the picture differs {q.sig_diff(zoomed, last):.3f}; pins printed {pins}, place {place}", required=False)
-        if layers:
-            # the refactored app: a SINGLE tap on the visible map drops a pin and opens its place (AZMAPS_PINS / AZMAPS_PLACE)
-            mark3 = dev.now_mark()
-            dev.tap(tap_x, int(h * 0.30))
-            dev.settle(3.0)
-            pinned = device_shot(s, "maps-single-tap-place")
-            log3 = dev.adb("logcat", "-d", "-v", "threadtime", timeout=60)
-            pins3, place3 = q.marker_values(log3, "AZMAPS_PINS", since=mark3), q.marker_values(log3, "AZMAPS_PLACE", since=mark3)
-            s.check("a single tap on the visible map drops a pin and opens its place (AZMAPS_PINS / AZMAPS_PLACE, and the picture)", bool(place3) or q.sig_diff(pinned, zoomed) > q.SAME_BELOW,
-                    f"pins printed {pins3}, place {place3}; the picture differs {q.sig_diff(pinned, zoomed):.3f}", required=False)
+        s.note(f"what the app printed for the double tap: AZMAPS_PINS {pins}, AZMAPS_PLACE {place}")
+        s.check("a double tap on the map drops a pin and opens its place (AZMAPS_PINS / AZMAPS_PLACE)", bool(pins) or bool(place) or q.sig_diff(zoomed, last) > q.SAME_BELOW,
+                f"pins printed {pins}, place {place}; the picture differs {q.sig_diff(zoomed, last):.3f}", required=False)
 
     def s_script_meet(s):
         dev.settle(6.0)
@@ -750,6 +782,14 @@ def e2e_session(args):
             # otherwise: a 70-step scenario on a software-GL window or a slow emulator took longer and answered "Timeout waiting for response")
             answer = srv.op("run_e2e_tests", timeout=240, timeout_secs=240, tests=tests)
             (run.logs_dir / f"scenario-{name}.json").write_text(json.dumps(answer, indent=2), encoding="utf-8")
+            # the pictures the take_screenshot steps answered with (base64 PNGs in the answer), as files in order
+            for k, png in enumerate(scenario_pictures(answer)):
+                (run.logs_dir / f"scenario-{name}-shot-{k:03d}.png").write_bytes(base64.b64decode(png))
+            if qa_extra_env():
+                # the knobs asked for (AZ_QA_EXTRA_ENV) print lines: the log of the run, filtered to the [reconcile] lines on Android (iOS: console-N.err.txt holds them all)
+                if args.platform == "android":
+                    text = dev.adb("logcat", "-d", "-v", "threadtime", timeout=120)
+                    dev.save_log(f"reconcile-{name}.txt", "\n".join(l for l in text.splitlines() if "[reconcile]" in l))
             data = answer.get("data") if isinstance(answer, dict) else None
             results = (data or {}).get("results") if isinstance(data, dict) else None
             if results is None and isinstance(data, dict) and isinstance(data.get("value"), dict):
@@ -872,6 +912,63 @@ def e2e_session(args):
     run.step("e70-logs", "the log of the whole session", s_logs)
     run.write()
     return run
+
+
+def qa_extra_env(text=None):
+    """AZ_QA_EXTRA_ENV="KEY=VALUE;KEY=VALUE": more knobs for the app under test, handed to it at its start (TABS: AZ_RECONCILE_DEBUG=1 for the [reconcile] lines). -> a dict."""
+    text = os.environ.get("AZ_QA_EXTRA_ENV", "") if text is None else text
+    out = {}
+    for part in text.split(";"):
+        key, sep, value = part.partition("=")
+        if sep and key.strip():
+            out[key.strip()] = value.strip()
+    return out
+
+
+def android_env_property(port, extra=None):
+    """The value of the system property `debug.az.env` the engine reads its AZ_* knobs from: the debug server's port, the info log, the present dump and the extra knobs. A system property holds 91
+    characters at most: more raises ValueError (a silently cut property would drop a knob and the run would look fine)."""
+    value = f"AZ_DEBUG={port};AZ_LOG=info;AZ_DUMP_PRESENT=1" + "".join(f";{k}={v}" for k, v in (extra or {}).items())
+    if len(value) > 91:
+        raise ValueError(f"debug.az.env would be {len(value)} characters, a property holds 91: {value}")
+    return value
+
+
+def png_strings(obj, found=None):
+    """The base64 PNGs inside a JSON answer, in the order they occur: a string that starts with iVBORw0KGgo, or a data URI `data:image/png;base64,iVBORw0KGgo...` (what the engine answers a
+    take_screenshot with). -> the base64 text without the data URI's prefix."""
+    found = [] if found is None else found
+    if isinstance(obj, str):
+        text = obj.split(",", 1)[1] if obj.startswith("data:image/png;base64,") and "," in obj else obj
+        if text.startswith("iVBORw0KGgo"):
+            found.append(text)
+    elif isinstance(obj, dict):
+        for v in obj.values():
+            png_strings(v, found)
+    elif isinstance(obj, list):
+        for v in obj:
+            png_strings(v, found)
+    return found
+
+
+def scenario_pictures(answer):
+    """The pictures of a `run_e2e_tests` answer, one per step that has one, in step order: the step's own `screenshot`, else the first PNG inside its `response` (a step that carries
+    the same picture twice counts once). Without the answer's usual shape: every PNG inside it, in order."""
+    data = answer.get("data") if isinstance(answer, dict) else None
+    results = (data or {}).get("results") if isinstance(data, dict) else None
+    if results is None and isinstance(data, dict) and isinstance(data.get("value"), dict):
+        results = data["value"].get("results")
+    if not isinstance(results, list):
+        return png_strings(answer)
+    out = []
+    for r in results:
+        for st in (r.get("steps") or []) if isinstance(r, dict) else []:
+            if not isinstance(st, dict):
+                continue
+            found = png_strings(st.get("screenshot")) or png_strings(st.get("response"))
+            if found:
+                out.append(found[0])
+    return out
 
 
 def main(argv):
