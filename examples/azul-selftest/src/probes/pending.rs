@@ -61,12 +61,6 @@ pub static PROBES: &[ProbeDef] = &[
         "a webview node loads a local page and reports its title (WebViewEvent)",
     ),
     pending(
-        "network.iroh_lan",
-        "network",
-        "LAN discovery (iroh)",
-        "IrohConfig::with_local_discovery is OFF by default; turned on it holds the multicast lock only while it is on; the Local Network dialog on iOS comes only at pairing",
-    ),
-    pending(
         "lifecycle.background",
         "lifecycle",
         "Pause, resume, low memory",

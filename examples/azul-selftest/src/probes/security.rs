@@ -42,6 +42,12 @@ fn name_of(result: &KeyringResult) -> &'static str {
         KeyringResult::Denied => "Denied",
         KeyringResult::Unavailable => "Unavailable",
         KeyringResult::Error => "Error",
+        KeyringResult::Cancelled => "Cancelled",
+        KeyringResult::Failed => "Failed",
+        KeyringResult::LockedOut => "LockedOut",
+        KeyringResult::NotEnrolled => "NotEnrolled",
+        KeyringResult::Invalidated => "Invalidated",
+        KeyringResult::WouldPrompt => "WouldPrompt",
     }
 }
 
@@ -53,7 +59,7 @@ fn keyring_round_trip(_ctx: &mut Ctx<'_>) -> Step {
     }
     const NAME: &str = "azselftest.roundtrip";
     const SECRET: &str = "az-selftest-secret-1";
-    match Keyring::store_blocking(AzString::from(NAME), AzString::from(SECRET), false) {
+    match Keyring::store_blocking(AzString::from(NAME), AzString::from(SECRET)) {
         KeyringResult::Stored => {}
         KeyringResult::Unavailable => {
             return Step::Done(Verdict::Unavailable(format!("the keyring answered Unavailable (capability said {backend})")));
@@ -113,6 +119,8 @@ fn biometric_prompt(ctx: &mut Ctx<'_>) -> Step {
         Some(BiometricResult::Failed) => Step::Done(Verdict::Denied("the finger or face did not match".into())),
         Some(BiometricResult::Unavailable) => Step::Done(Verdict::Unavailable("the platform says the biometric is unavailable".into())),
         Some(BiometricResult::Error) => Step::Done(Verdict::Fail("the biometric prompt answered Error".into())),
+        Some(BiometricResult::LockedOut) => Step::Done(Verdict::Denied("the biometric is locked out: too many tries, the passcode unlocks it".into())),
+        Some(BiometricResult::NotEnrolled) => Step::Done(Verdict::Unavailable("no face or finger is enrolled (a Simulator: Features > Face ID > Enrolled)".into())),
         None if ctx.elapsed_ms > SHEET_WAIT_MS => {
             Step::Done(Verdict::NeedsHuman("nobody answered the sheet in 60 s (on the emulator: adb emu finger touch 1)".into()))
         }
