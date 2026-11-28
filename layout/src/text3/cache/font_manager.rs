@@ -260,6 +260,39 @@ pub struct CondemnedEmbeddedFonts {
     pub dropped: u64,
 }
 
+/// One wait a [`SystemFontsGate`] made for the layout.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SystemFontsWait {
+    /// How long the layout was held, in milliseconds.
+    pub millis: f64,
+    /// What the layout needed from the system's fonts that made it wait.
+    pub why: String,
+}
+
+/// What a host gives a [`FontManager`] to wait for the system's fonts with: the font registry's scan of them (rust-fontconfig's
+/// scout and builders) runs on threads of its own, and a start with no cache from an earlier run (the first start after an
+/// install, an OS update or a changed font) has parsed few of them when the first layout begins.
+///
+/// The layout does not wait for the scan up front. It asks the gate where it needs a face from the system: the stacks of a
+/// DOM that the faces registered in memory do not draw (a stack that opens with a system family, a character none of those
+/// faces draws), and the characters of typed text that no face of their chain draws. A DOM whose text the faces in memory
+/// draw never asks, and its first frame does not wait for the scan at all.
+///
+/// A manager without a gate (a test, a tool, a host that has no scan) never waits.
+pub trait SystemFontsGate: Send + Sync + core::fmt::Debug {
+    /// Whether a wait could still be owed: a scan of the system's fonts is under way and there is no cache from an earlier
+    /// run to go by. `false` for the rest of the run once the scan is done (the layout then does no work for the gate).
+    fn pending(&self) -> bool;
+
+    /// Holds the layout until the fonts of the CSS family lists `stacks` are in the font cache, or the host's own limit is
+    /// reached. Returns at once when nothing is pending. `why` says what the layout needs from the system (the startup
+    /// timeline prints it).
+    fn wait_for(&self, stacks: &[Vec<String>], why: &str);
+
+    /// The waits made since the last call, oldest first: what the host reports of the layout (a counter, a mark).
+    fn take_waits(&self) -> Vec<SystemFontsWait>;
+}
+
 #[derive(Debug)]
 pub struct FontManager<T> {
     /// The font-path cache. `FcFontCache` in rust-fontconfig 4.1 is
@@ -308,6 +341,9 @@ pub struct FontManager<T> {
     /// (scout-on-demand). `None` falls back to querying whatever is
     /// already in the shared cache.
     pub registry: Option<Arc<rust_fontconfig::registry::FcFontRegistry>>,
+    /// The host's wait for the system's fonts ([`SystemFontsGate`]): this window's own, not shared by
+    /// [`Self::clone_shared`]. `None` never waits.
+    pub system_fonts_gate: Option<Arc<dyn SystemFontsGate>>,
     /// `FxHash` of the `prev_font_hashes` slice at the moment the last
     /// successful `collect_and_resolve_font_chains_with_registration`
     /// call populated `font_chain_cache`. Lets repeated layouts of the
@@ -394,6 +430,8 @@ impl<T: ParsedFontTrait> FontManager<T> {
             condemned_embedded_fonts: Arc::clone(&self.condemned_embedded_fonts),
             font_hash_to_families: self.font_hash_to_families.clone(),
             registry: self.registry.clone(),
+            // A window's own: what it waited for is its report, and its host installs it again.
+            system_fonts_gate: None,
             // Deliberately reset: the sig gates a chain-resolver skip that is
             // only valid against THIS manager's font_chain_cache history.
             last_resolved_font_stacks_sig: None,
@@ -455,6 +493,7 @@ impl<T: ParsedFontTrait> FontManager<T> {
             condemned_embedded_fonts: Arc::default(),
             font_hash_to_families: HashMap::new(),
             registry: None,
+            system_fonts_gate: None,
             last_resolved_font_stacks_sig: None,
             memory_families: HashMap::new(),
             loaded_fonts_memo: Arc::new(Mutex::new(None)),
@@ -1257,6 +1296,7 @@ impl<T: ParsedFontTrait> FontManager<T> {
                 &fc_cache,
                 registry.as_deref(),
                 &loaded,
+                self.system_fonts_gate.as_deref(),
             )
         };
         if additions.is_empty() {

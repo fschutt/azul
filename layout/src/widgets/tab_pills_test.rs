@@ -653,3 +653,21 @@ fn a_strip_with_other_lanes_mounts_a_new_marker_so_that_the_room_is_planned_agai
     assert_ne!(marker_in(DisplayPreset::Pixel8), marker_in(DisplayPreset::IPhoneDynamicIsland));
     assert_eq!(marker_in(DisplayPreset::Pixel8), marker_in(DisplayPreset::Pixel8));
 }
+
+#[test]
+fn a_ribbons_row_in_the_same_band_mounts_its_own_marker_not_the_tab_bars() {
+    // The ribbon's row takes the place of a tab bar's in the same band, on the same tab: the marker of the
+    // one must not be taken for the marker of the other (a keyed node found again is not mounted again,
+    // and nothing would plan the room around the camera for the new row).
+    let band = band_of(DisplayPreset::Pixel8, 411.0, 800.0);
+    let header = StripScrollData::for_band(
+        Some(&band),
+        vec![TAB_ACTIVE_CLASS_NAME.to_string(), TAB_NOT_ACTIVE_CLASS_NAME.to_string()],
+    );
+    let ribbon = StripScrollData::for_band(
+        Some(&band),
+        vec!["__azul-native-ribbon-tab".to_string(), "__azul-native-ribbon-appbutton".to_string()],
+    );
+    assert_ne!(selected_marker(header.clone(), 0).root.get_key(), selected_marker(ribbon, 0).root.get_key());
+    assert_eq!(selected_marker(header.clone(), 0).root.get_key(), selected_marker(header, 0).root.get_key());
+}
