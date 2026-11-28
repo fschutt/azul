@@ -2042,6 +2042,10 @@ impl TabHeader {
     }
 }
 
+/// The class of the scrolling row of a strip that sits in the status bar's band: the one handle a
+/// scenario or a test finds the band's row by, whatever other strips the page has.
+pub const BAND_STRIP_CLASS: &str = "__azul-native-tabs-touch-band";
+
 /// The classes of the touch strip's header, its scrolling row and its pills.
 static TOUCH_HEADER_CLASSES: &[IdOrClass] =
     &[Class(AzString::from_const_str("__azul-native-tabs-touch-header"))];
@@ -2330,6 +2334,10 @@ impl TabHeader {
             "position: relative; box-sizing: border-box; width: 100%; height: {row}px; \
              flex-shrink: 0; overflow: hidden;"
         );
+        let mut strip = strip;
+        if band.is_some() {
+            strip.add_class(AzString::from_const_str(BAND_STRIP_CLASS));
+        }
         let mut children = vec![strip];
         if let Some(band) = band.as_ref() {
             // The window's background under the band, and over the pills where the cutouts are.
@@ -2488,6 +2496,8 @@ pub(crate) fn attach_flip_band(
 /// the band with the window's background, and a cover over each gap the cutouts leave.
 pub(crate) fn touch_header(strip: Dom, band: &crate::widgets::tab_strip::StatusBarBand) -> Dom {
     let row = band.height.max(crate::widgets::tab_strip::TOUCH_ROW);
+    let mut strip = strip;
+    strip.add_class(AzString::from_const_str(BAND_STRIP_CLASS));
     let mut children = vec![strip];
     children.extend(crate::widgets::tab_strip::cover_rects(band).iter().map(gap_cover));
     Dom::create_div()
