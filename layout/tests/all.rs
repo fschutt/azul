@@ -172,6 +172,8 @@ mod azul_widgets_toolbar_wraps_on_a_narrow_screen;
 mod azul_maps_drive_banner_fits_a_phone;
 #[path = "azul_maps_sidebar_is_a_sheet_on_a_phone.rs"]
 mod azul_maps_sidebar_is_a_sheet_on_a_phone;
+#[path = "azul_paint_toolbar_fits_a_phone.rs"]
+mod azul_paint_toolbar_fits_a_phone;
 #[path = "block_edge_keys.rs"]
 mod block_edge_keys;
 #[path = "block_merge_filter.rs"]
