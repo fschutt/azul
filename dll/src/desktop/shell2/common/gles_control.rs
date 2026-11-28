@@ -10,6 +10,7 @@
 //!    attribute, divisor 1), drawn with `glDrawElementsInstanced`, sampling the same texture: `composite` of WebRender;
 //! 4b. `flat_lowp`: the quad pipeline's varyings, `flat lowp ivec4` carrying values that need more than eight bits and a `flat mediump vec4`;
 //! 4c. `quad_u8norm`: the same draw with WebRender's own unit quad, normalized unsigned bytes with a stride of two;
+//! 4g. `sampler_precision`: `highp`, `mediump` and `lowp` `sampler2D` over RGBA8 and R8 textures, and the shape of WebRender's composite fragment shader;
 //! 4f. `external_text`: the samplers set once after the link, as WebRender does, in shaders that mention `samplerExternalOES` in code that is not compiled;
 //! 4e. `big_texture`: render targets of 4 to 16 MB (WebRender's shared render targets are 2048 x 2048 RGBA8) sampled over the whole window;
 //! 4d. `texture_size`: `textureSize()` in the vertex stage, for render targets and uploaded textures of several sizes and formats;
@@ -218,6 +219,10 @@ const VERTEX_FETCH_FS: &str = "#version 300 es\nprecision highp float;\nin vec4 
 /// WebRender's `gpu_cache_update`: one point per texel, written into a float texture (the GPU cache of every phone's frame).
 const SCATTER_VS: &str = "#version 300 es\nin vec4 aValue;\nin vec2 aPosition;\nout highp vec4 vData;\nvoid main() {\n    vData = aValue;\n    gl_Position = vec4(aPosition * 2.0 - 1.0, 0.0, 1.0);\n    gl_PointSize = 1.0;\n}\n";
 const SCATTER_FS: &str = "#version 300 es\nprecision highp float;\nin highp vec4 vData;\nout vec4 oValue;\nvoid main() {\n    oValue = vData;\n}\n";
+const PRECISION_HIGHP_FS: &str = "#version 300 es\nprecision highp float;\nuniform highp sampler2D sTex;\nin vec2 vUv;\nout vec4 oColour;\nvoid main() {\n    oColour = texture(sTex, vUv);\n}\n";
+const PRECISION_MEDIUMP_FS: &str = "#version 300 es\nprecision highp float;\nuniform mediump sampler2D sTex;\nin vec2 vUv;\nout vec4 oColour;\nvoid main() {\n    oColour = texture(sTex, vUv);\n}\n";
+const PRECISION_LOWP_FS: &str = "#version 300 es\nprecision highp float;\nuniform lowp sampler2D sTex;\nin vec2 vUv;\nout vec4 oColour;\nvoid main() {\n    oColour = texture(sTex, vUv);\n}\n";
+const PRECISION_VARYING_FS: &str = "#version 300 es\nprecision highp float;\nuniform highp sampler2D sTex;\nin highp vec2 vUv;\nout vec4 oColour;\nvoid main() {\n    vec2 uv = vUv;\n    vec4 texel = texture(sTex, uv.xy);\n    vec4 color = texel;\n    oColour = color;\n}\n";
 const EXTERNAL_PLAIN_FS: &str = "#version 300 es\nprecision mediump float;\nuniform sampler2D sTex;\nin vec2 vUv;\nout vec4 oColour;\nvoid main() {\n    oColour = texture(sTex, vUv);\n}\n";
 const EXTERNAL_DEAD_FS: &str = "#version 300 es\nprecision mediump float;\n#ifdef WR_FEATURE_TEXTURE_EXTERNAL\n#extension GL_OES_EGL_image_external_essl3 : require\nuniform samplerExternalOES sTex;\n#else\nuniform sampler2D sTex;\n#endif\nin vec2 vUv;\nout vec4 oColour;\nvoid main() {\n    oColour = texture(sTex, vUv);\n}\n";
 const EXTERNAL_EXT_ONLY_FS: &str = "#version 300 es\nprecision mediump float;\n#ifdef WR_FEATURE_TEXTURE_EXTERNAL\n#extension GL_OES_EGL_image_external_essl3 : require\n#endif\nuniform sampler2D sTex;\nin vec2 vUv;\nout vec4 oColour;\nvoid main() {\n    oColour = texture(sTex, vUv);\n}\n";
@@ -864,6 +869,60 @@ fn phase_external_text(gl: &GenericGlContext, target: Target) -> Row {
     }
     let error = gl.get_error();
     row("external_text", &checks, error, &notes.join("; "))
+}
+
+/// 4g. The precision WebRender declares its colour samplers with (`uniform highp sampler2D sColor0`, `HIGHP_SAMPLER_FLOAT`): a red RGBA8 texture and a
+/// red R8 texture sampled with a highp, a mediump and a lowp `sampler2D` and with WebRender's own composite fragment shader's shape. All must read red.
+fn phase_sampler_precision(gl: &GenericGlContext, target: Target) -> Row {
+    let size = target.size;
+    let cases: [(&str, &str, u32); 5] = [
+        ("RGBA8 highp sampler2D", PRECISION_HIGHP_FS, glconst::RGBA8),
+        ("RGBA8 mediump sampler2D", PRECISION_MEDIUMP_FS, glconst::RGBA8),
+        ("RGBA8 lowp sampler2D", PRECISION_LOWP_FS, glconst::RGBA8),
+        ("RGBA8 the shape of the composite fragment shader", PRECISION_VARYING_FS, glconst::RGBA8),
+        ("R8 highp sampler2D", PRECISION_HIGHP_FS, glconst::R8),
+    ];
+    let mut checks: Vec<(&str, [u8; 4], [u8; 4])> = Vec::new();
+    let mut notes: Vec<String> = Vec::new();
+    for (name, fragment, format) in cases {
+        let program = match program_of(gl, FULL_VS, fragment, &[]) {
+            Ok(program) => program,
+            Err(why) => {
+                notes.push(format!("{name}: the program did not build: {why}"));
+                continue;
+            }
+        };
+        let texture = gl.gen_textures(1).first().copied().unwrap_or(0);
+        gl.active_texture(glconst::TEXTURE0);
+        gl.bind_texture(glconst::TEXTURE_2D, texture);
+        gl.tex_parameter_i(glconst::TEXTURE_2D, glconst::TEXTURE_MAG_FILTER, glconst::LINEAR as i32);
+        gl.tex_parameter_i(glconst::TEXTURE_2D, glconst::TEXTURE_MIN_FILTER, glconst::LINEAR as i32);
+        gl.tex_parameter_i(glconst::TEXTURE_2D, glconst::TEXTURE_WRAP_S, glconst::CLAMP_TO_EDGE as i32);
+        gl.tex_parameter_i(glconst::TEXTURE_2D, glconst::TEXTURE_WRAP_T, glconst::CLAMP_TO_EDGE as i32);
+        gl.tex_storage_2d(glconst::TEXTURE_2D, 1, format, 4, 4);
+        gl.pixel_store_i(glconst::UNPACK_ALIGNMENT, 1);
+        if format == glconst::R8 {
+            gl.tex_sub_image_2d(glconst::TEXTURE_2D, 0, 0, 0, 4, 4, glconst::RED, glconst::UNSIGNED_BYTE, &[255_u8; 16]);
+        } else {
+            let pixels: Vec<u8> = (0..16).flat_map(|_| [255_u8, 0, 0, 255]).collect();
+            gl.tex_sub_image_2d(glconst::TEXTURE_2D, 0, 0, 0, 4, 4, glconst::RGBA, glconst::UNSIGNED_BYTE, &pixels);
+        }
+        window_target(gl, target);
+        gl.clear_color(0.2, 0.2, 0.2, 1.0);
+        gl.clear(glconst::COLOR_BUFFER_BIT);
+        gl.use_program(program);
+        let sampler = gl.get_uniform_location(program, "sTex");
+        gl.uniform_1i(sampler, 0);
+        full_screen(gl, program, 0.0);
+        gl.finish();
+        checks.push((name, RED, px(gl, size.0 / 2, size.1 / 2)));
+        gl.use_program(0);
+        gl.bind_texture(glconst::TEXTURE_2D, 0);
+        gl.delete_textures(&[texture]);
+        gl.delete_program(program);
+    }
+    let error = gl.get_error();
+    row("sampler_precision", &checks, error, &notes.join("; "))
 }
 
 /// 4d. `textureSize()` in the VERTEX stage (every textured shader of WebRender normalises its UV rectangle by it: `vs_init_sample_color0`, `brush_image`):
@@ -1629,7 +1688,7 @@ fn phase_shared_depth(gl: &GenericGlContext, target: Target, programs: &Programs
 }
 
 /// The phases, by name, in the order the ladder runs them.
-pub const PHASES: [&str; 17] = [
+pub const PHASES: [&str; 18] = [
     "clear",
     "shader",
     "dummy_texture",
@@ -1638,6 +1697,7 @@ pub const PHASES: [&str; 17] = [
     "flat_lowp",
     "quad_u8norm",
     "external_text",
+    "sampler_precision",
     "big_texture",
     "texture_size",
     "data_textures",
@@ -1674,6 +1734,7 @@ pub fn run_ladder(gl: &GenericGlContext, target: Target, show: &mut dyn FnMut(&'
             "flat_lowp" => phase_flat_lowp(gl, target, &programs),
             "quad_u8norm" => phase_quad_u8norm(gl, target, &programs),
             "external_text" => phase_external_text(gl, target),
+            "sampler_precision" => phase_sampler_precision(gl, target),
             "big_texture" => phase_big_texture(gl, target, &programs),
             "texture_size" => phase_texture_size(gl, target, &programs),
             "data_textures" => phase_data_textures(gl, target, &programs),
