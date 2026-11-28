@@ -9,6 +9,8 @@
 //!   between its states) and the room the OS's window controls take at the left (macOS's traffic
 //!   lights, which overhang the 18 px rail);
 //! - [`tab_row_left_pad`] is how far the tab row keeps from the window's left edge to clear them;
+//! - [`apply_sidebar_event`] is what an app does with the sidebar's reports (the model is the
+//!   truth: the toggle, a row, a quick-access button, the swipe from the rail);
 //! - [`example`] is the whole frame of a small mail client, the example the apps copy from: a
 //!   sidebar (navigation rows, quick-access buttons, a status slot), the ribbon with the location in
 //!   its first tab, the list as the body, an opt-in Preview with its (?) buttons, the command bar.
@@ -86,6 +88,24 @@ impl Default for ExampleModel {
             warning: false,
             bold: false,
         }
+    }
+}
+
+/// What the example does with the sidebar's reports: the model is the truth, the sidebar owns
+/// nothing. Every app writes this match once and no more; `phone` says the drawer closes once a
+/// place is chosen (a desktop keeps its expanded sidebar open).
+pub fn apply_sidebar_event(model: &mut ExampleModel, event: &SidebarEvent, phone: bool) {
+    match event.kind {
+        SidebarEventKind::RowClicked => {
+            model.folder = event.tag;
+            if phone && model.sidebar == SidebarState::Expanded {
+                model.sidebar = SidebarState::Rail;
+            }
+        }
+        // the toggle, the 16 px handle, a swipe from the rail, a tap on the pushed-aside view
+        SidebarEventKind::StateChanged => model.sidebar = event.state,
+        SidebarEventKind::QuickAction if event.tag == 1 => model.bold = event.expand,
+        _ => {}
     }
 }
 
