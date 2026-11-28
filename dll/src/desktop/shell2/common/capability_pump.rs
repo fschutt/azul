@@ -179,6 +179,13 @@ pub fn pump(lw: &mut LayoutWindow) -> bool {
         }
     }
 
+    // Which of the run's services the scripted user stands in for: a scenario that drives the
+    // keyring or the gate asks, so it never reaches the user's own keychain or sensor.
+    lw.app_services.biometric.user.set_driven(
+        crate::desktop::extra::keyring::is_stand_in_run(),
+        azul_core::run_mode::test_hooks().no_biometric,
+    );
+
     // Biometric: availability probe (OnceLock-cached native call), then
     // dispatch queued prompts (tracked in-flight so the timer stays armed
     // until the reply folds back), then fold parked outcomes. A completion

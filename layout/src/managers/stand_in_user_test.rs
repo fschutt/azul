@@ -141,3 +141,15 @@ fn the_outcomes_have_names_and_the_names_read_back() {
     assert_eq!(ScriptedOutcome::from_name("thumb"), None);
     assert_eq!(ScriptedOutcome::from_name(""), None);
 }
+
+#[test]
+fn the_pump_says_which_services_this_user_stands_in_for() {
+    let user = StandInUser::new();
+    assert!(!user.keyring_driven() && !user.gate_driven(), "a real run until the pump says so");
+    user.set_driven(true, false);
+    assert!(user.keyring_driven());
+    assert!(!user.gate_driven());
+    let same = user.clone();
+    same.set_driven(false, true);
+    assert!(!user.keyring_driven() && user.gate_driven(), "a clone is the same user");
+}

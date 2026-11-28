@@ -90,12 +90,22 @@ pub enum SheetOutcome {
 /// The most outcomes a script holds: a longer one is cut (a scenario names a handful).
 pub const MAX_SCRIPT: usize = 64;
 
+/// Which of the run's services the user stands in for (the pump says so).
+#[derive(Debug, Clone, Copy, Default)]
+struct Driven {
+    /// The keyring of this run is a stand-in.
+    keyring: bool,
+    /// The biometric gate of this run is a stand-in.
+    gate: bool,
+}
+
 #[derive(Debug)]
 struct State {
     enrolled: bool,
     passcode_set: bool,
     epoch: u32,
     outcomes: VecDeque<ScriptedOutcome>,
+    driven: Driven,
 }
 
 /// The scripted user of the stand-ins. See the module.
@@ -131,6 +141,7 @@ impl StandInUser {
                 passcode_set: false,
                 epoch: 0,
                 outcomes: VecDeque::new(),
+                driven: Driven::default(),
             })),
         }
     }
@@ -148,6 +159,25 @@ impl StandInUser {
         }
         state.enrolled = enrolled;
         state.passcode_set = passcode_set;
+    }
+
+    /// The pump says which of the run's two services this user stands in for: the keyring and the
+    /// standalone gate. A scenario that drives a flow asks first ([`Self::keyring_driven`]): it must
+    /// never reach the user's own keychain or sensor.
+    pub fn set_driven(&self, keyring: bool, gate: bool) {
+        self.lock().driven = Driven { keyring, gate };
+    }
+
+    /// Whether this run's keyring is a stand-in this user answers for.
+    #[must_use]
+    pub fn keyring_driven(&self) -> bool {
+        self.lock().driven.keyring
+    }
+
+    /// Whether this run's biometric gate is a stand-in this user answers for.
+    #[must_use]
+    pub fn gate_driven(&self) -> bool {
+        self.lock().driven.gate
     }
 
     /// Whether a biometric is enrolled.

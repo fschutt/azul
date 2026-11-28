@@ -381,6 +381,13 @@ pub fn request_quietly_blocking(namespace: &KeyringNamespace, req: &KeyringReque
     )
 }
 
+/// Whether this run's keyring is a stand-in (the memory or the file of a debug build or a test
+/// run) and not the system's: what a scenario that drives the keyring asks first.
+#[must_use]
+pub fn is_stand_in_run() -> bool {
+    backend_for(&RunFacts::of_this_run()) != Backend::Platform
+}
+
 /// The scripted user of the stand-ins for a call that has no context (a worker thread's
 /// static): the one of the app this process runs, else a device with nothing set up. A real
 /// backend never reads it.
