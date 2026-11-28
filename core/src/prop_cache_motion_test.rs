@@ -10,7 +10,7 @@ use azul_css::{
     OptionF32,
 };
 
-use crate::{dom::Dom, styled_dom::StyledDom, styled_node::NodeId};
+use crate::{dom::Dom, id::NodeId, styled_dom::StyledDom};
 
 fn styled() -> StyledDom {
     let mut dom = Dom::create_body().with_children(vec![Dom::create_div()].into());
