@@ -100,10 +100,17 @@ const SHEET_STYLE: &str = "box-sizing: border-box; position: relative; display: 
 /// What the sheet's content is: the rest of the card, scrolling what does not fit.
 const CONTENT_STYLE: &str = "flex: 1 1 auto; min-height: 0; overflow: auto; display: block;";
 
-/// The close box a finger can hit.
+/// The close box a finger can hit: 44 px square, hanging from the top of the title band (the skin puts it
+/// there, `top: 3px`) with its glyph at the TOP of the box - on the band's middle - and the rest of the target
+/// below the band, over the content's first inset.
 const CLOSE_TOUCH_STYLE: &str =
-    "min-width: 44px; min-height: 44px; display: flex; align-items: center; \
+    "min-width: 44px; min-height: 44px; display: flex; align-items: flex-start; \
      justify-content: center; font-size: 24px;";
+
+/// The title of a sheet: the skin's band reaches past the 14 px inset of the panel it was made for (negative
+/// side margins); the card has no inset, so the band is the card's width and its text keeps the skin's own
+/// padding (14 px) from the edge.
+const TITLE_FIT_STYLE: &str = "margin-left: 0px; margin-right: 0px;";
 
 /// A panel a widget made for a window of its own (the dialog's panel: its own frame, its minimum
 /// and maximum width) becomes plain content of the card: the card is the frame now.
@@ -315,14 +322,14 @@ fn present_one(dom: &mut Dom, anchor: TransientAnchor, skin: &DialogSkin) {
             // No title: the close box must not sit on the content.
             card_children.push(Dom::create_div().with_css_props(skin.close_row.clone()));
         } else {
-            card_children.push(
-                crate::widgets::widget_p_with_text(AzString::from(title.clone()))
-                    .with_ids_and_classes(
-                        alloc::vec![IdOrClass::Class(AzString::from_const_str(SHEET_TITLE_CLASS))]
-                            .into(),
-                    )
-                    .with_css_props(skin.title.clone()),
-            );
+            let mut title_row = crate::widgets::widget_p_with_text(AzString::from(title.clone()))
+                .with_ids_and_classes(
+                    alloc::vec![IdOrClass::Class(AzString::from_const_str(SHEET_TITLE_CLASS))]
+                        .into(),
+                )
+                .with_css_props(skin.title.clone());
+            append_style(&mut title_row.root, &parsed(TITLE_FIT_STYLE));
+            card_children.push(title_row);
         }
     }
     card_children.push(

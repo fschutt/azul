@@ -255,6 +255,14 @@ fn a_dialog_is_a_sheet_at_the_bottom_of_a_narrow_window() {
     let title = rect_of(&lw, node_with_class(&lw, "__azul-overlay-title")).expect("the title row");
     let close = rect_of(&lw, node_with_class(&lw, "__azul-overlay-close")).expect("the close box");
     assert!(title.origin.y >= sheet.origin.y && close.origin.y >= sheet.origin.y);
+    assert!(
+        (title.origin.x - sheet.origin.x).abs() < 1.0 && (title.size.width - sheet.size.width).abs() < 1.0,
+        "the title band spans the card, edge to edge (not past it): {title:?} in {sheet:?}"
+    );
+    assert!(
+        close.origin.y >= sheet.origin.y - 8.0 && close.origin.y <= sheet.origin.y + 8.0,
+        "the close box hangs from the top of the title band: {close:?} in {sheet:?}"
+    );
     assert!(close.size.width >= 44.0 && close.size.height >= 44.0, "a finger can hit it: {close:?}");
     let content_rect = rect_of(&lw, node_with_class(&lw, "panel")).expect("the content");
     assert!(
@@ -326,6 +334,42 @@ fn a_dialog_is_a_centred_card_on_a_wide_window() {
     let centre_y = sheet.origin.y + sheet.size.height / 2.0;
     assert!((centre_x - 400.0).abs() <= 1.0, "centred across: {sheet:?}");
     assert!((centre_y - 300.0).abs() <= 1.0, "and down: {sheet:?}");
+}
+
+/// What the Dialog widget makes as a popover - a panel with its own frame (border, title band, padding) - is held
+/// WHOLE by its overlay: the overlay's box ends where the panel ends, the bottom border included. An emulator showed
+/// the panel cut off at its bottom edge, the border gone.
+#[test]
+fn an_overlay_holds_the_dialog_widgets_panel_whole() {
+    use azul_layout::widgets::{
+        button::Button,
+        dialog::{Dialog, DialogClosedBy},
+        themes::UiTheme,
+    };
+
+    let (mut lw, ws) = window(PHONE, true);
+    let dialog = Dialog::create(Dom::create_p_with_text("A non-modal dialog below its button."))
+        .with_title("Popover".into())
+        .with_invoker(Button::create("Open popover".into()).with_theme(UiTheme::Flora).dom())
+        .with_closed_by(DialogClosedBy::Any)
+        .with_close_button(true)
+        .with_theme(UiTheme::Flora)
+        .dom();
+    let dom = Dom::create_body().with_css("margin: 0;").with_child(dialog);
+    show(&mut lw, &ws, &dom);
+    open_popup(&mut lw);
+    show(&mut lw, &ws, &dom);
+
+    let overlay = rect_of(&lw, popup_node(&lw)).expect("the overlay is laid out");
+    let panel = rect_of(&lw, node_with_class(&lw, "__azul-native-dialog-panel")).expect("the panel is laid out");
+    assert!(
+        panel.origin.y + panel.size.height <= overlay.origin.y + overlay.size.height + 0.5,
+        "the overlay ends where the panel ends: panel {panel:?} in overlay {overlay:?}"
+    );
+    assert!(
+        panel.origin.x + panel.size.width <= overlay.origin.x + overlay.size.width + 0.5,
+        "and holds its width: panel {panel:?} in overlay {overlay:?}"
+    );
 }
 
 /// A press outside an open popover closes it - and the press on its invoker does not, the invoker

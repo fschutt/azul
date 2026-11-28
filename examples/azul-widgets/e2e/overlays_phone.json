@@ -25,7 +25,7 @@
       },
       {
         "op": "assert_response",
-        "contains": "\"popup_count\":0"
+        "not_contains": "\"shown\":\"overlay\""
       },
       {
         "op": "scroll_into_view",
@@ -86,7 +86,7 @@
       },
       {
         "op": "assert_response",
-        "contains": "\"popup_count\":0"
+        "not_contains": "\"shown\":\"overlay\""
       },
       {
         "op": "scroll_into_view",
@@ -139,7 +139,7 @@
       },
       {
         "op": "assert_response",
-        "contains": "\"popup_count\":0"
+        "not_contains": "\"shown\":\"overlay\""
       },
       {
         "op": "take_screenshot"
@@ -193,7 +193,7 @@
       },
       {
         "op": "assert_response",
-        "contains": "\"popup_count\":0"
+        "not_contains": "\"shown\":\"overlay\""
       },
       {
         "op": "scroll_into_view",
@@ -242,7 +242,7 @@
       },
       {
         "op": "assert_response",
-        "contains": "\"popup_count\":0"
+        "not_contains": "\"shown\":\"overlay\""
       }
     ],
     "only_on": [
@@ -285,7 +285,7 @@
       },
       {
         "op": "assert_response",
-        "contains": "\"popup_count\":0"
+        "not_contains": "\"shown\":\"overlay\""
       },
       {
         "op": "scroll_into_view",
@@ -346,7 +346,7 @@
       },
       {
         "op": "assert_response",
-        "contains": "\"popup_count\":0"
+        "not_contains": "\"shown\":\"overlay\""
       },
       {
         "op": "scroll_into_view",
@@ -399,7 +399,7 @@
       },
       {
         "op": "assert_response",
-        "contains": "\"popup_count\":0"
+        "not_contains": "\"shown\":\"overlay\""
       },
       {
         "op": "take_screenshot"
@@ -453,7 +453,7 @@
       },
       {
         "op": "assert_response",
-        "contains": "\"popup_count\":0"
+        "not_contains": "\"shown\":\"overlay\""
       },
       {
         "op": "scroll_into_view",
@@ -502,7 +502,7 @@
       },
       {
         "op": "assert_response",
-        "contains": "\"popup_count\":0"
+        "not_contains": "\"shown\":\"overlay\""
       }
     ],
     "only_on": [
@@ -640,7 +640,7 @@
       },
       {
         "op": "assert_response",
-        "contains": "\"popup_count\":0"
+        "not_contains": "\"shown\":\"overlay\""
       }
     ]
   },
@@ -728,7 +728,7 @@
       },
       {
         "op": "assert_response",
-        "contains": "\"popup_count\":1"
+        "contains": "\"covers_window\":true"
       },
       {
         "op": "assert_response",
@@ -756,7 +756,7 @@
       },
       {
         "op": "assert_response",
-        "contains": "\"popup_count\":0"
+        "not_contains": "\"shown\":\"overlay\""
       }
     ],
     "only_on": [
@@ -857,7 +857,7 @@
       },
       {
         "op": "assert_response",
-        "contains": "\"popup_count\":1"
+        "contains": "\"covers_window\":true"
       },
       {
         "op": "assert_response",
@@ -885,7 +885,7 @@
       },
       {
         "op": "assert_response",
-        "contains": "\"popup_count\":0"
+        "not_contains": "\"shown\":\"overlay\""
       }
     ],
     "only_on": [
