@@ -8,7 +8,8 @@
 // A URL is opened with ACTION_VIEW in a NEW TASK: a browser or a map app is another app, and the back button returns
 // to this one.
 //
-// The pseudo URL `azul-settings:app` is the app's OWN page in the system settings (permissions, notifications, battery):
+// The pseudo URL `azul-settings:app` (and `android-settings:app-details`, the name the permission manager uses) is the app's OWN
+// page in the system settings (permissions, notifications, battery):
 // where an app sends a user who refused a permission for good, since Android shows no dialog for it any more
 // (Settings.ACTION_APPLICATION_DETAILS_SETTINGS with the package: URI of the app).
 
@@ -27,6 +28,9 @@ public final class AzulUrl {
     /** The pseudo URL of the app's own page in the system settings. */
     public static final String APP_SETTINGS = "azul-settings:app";
 
+    /** The same page under the name the permission manager's `settings_url` gives Android (`CallbackInfo::open_app_settings`). */
+    public static final String APP_DETAILS = "android-settings:app-details";
+
     /**
      * Start the handler of `url`. Returns whether an activity was started.
      */
@@ -36,7 +40,7 @@ public final class AzulUrl {
         }
         try {
             Intent intent;
-            if (APP_SETTINGS.equals(url)) {
+            if (APP_SETTINGS.equals(url) || APP_DETAILS.equals(url)) {
                 intent = new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
                         Uri.fromParts("package", activity.getPackageName(), null));
             } else {

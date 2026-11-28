@@ -230,7 +230,9 @@ pub(super) fn blocking(req: &KeyringRequest, _interaction: Interaction) -> Keyri
             if item.is_null() {
                 return None;
             }
-            let text = env.get_string(&JString::from(item)).ok()?;
+            // The `JavaStr` borrows the `JString`: the string is a named binding, not a temporary of the line above.
+            let jstr = JString::from(item);
+            let text = env.get_string(&jstr).ok()?;
             Some(text.into())
         };
         let code: i32 = element(env, 0)?.parse().ok()?;
