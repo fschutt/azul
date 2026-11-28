@@ -104,7 +104,7 @@ pub fn probe_availability() -> BiometricKind {
 // Kind contract with the Java side: 0=NotAvailable, 1=Fingerprint,
 // 2=Face, 3=Iris (the Java side derives the sensor from PackageManager
 // features when canAuthenticate reports SUCCESS).
-#[cfg(target_os = "android")]
+#[cfg(any(target_os = "android", test))]
 fn map_kind(code: i32) -> BiometricKind {
     match code {
         1 => BiometricKind::Fingerprint,
@@ -114,13 +114,12 @@ fn map_kind(code: i32) -> BiometricKind {
     }
 }
 
-// Result contract with the Java `AuthenticationCallback`:
-// 0=Authenticated, 1=Failed, 2=Cancelled, 3=FellBackToPasscode,
-// 4=Unavailable, 5=Error. (Java maps onAuthenticationSucceeded with
-// AUTHENTICATION_RESULT_TYPE_DEVICE_CREDENTIAL → 3, BIOMETRIC → 0;
-// onAuthenticationError USER_CANCELED/NEGATIVE_BUTTON → 2,
-// NO_BIOMETRICS/HW_* → 4, else → 5.)
-#[cfg(target_os = "android")]
+// Result contract with the Java `AuthenticationCallback` (one cause per code, `AzulBiometric.mapError`):
+// 0=Authenticated, 1=Failed, 2=Cancelled, 3=FellBackToPasscode, 4=Unavailable, 5=Error, 6=LockedOut,
+// 7=NotEnrolled. (Java maps onAuthenticationSucceeded with AUTHENTICATION_RESULT_TYPE_DEVICE_CREDENTIAL -> 3,
+// BIOMETRIC -> 0; onAuthenticationError: USER_CANCELED / NEGATIVE_BUTTON / CANCELED / TIMEOUT -> 2, LOCKOUT /
+// LOCKOUT_PERMANENT -> 6, NO_BIOMETRICS / NO_DEVICE_CREDENTIAL -> 7, HW_NOT_PRESENT / HW_UNAVAILABLE -> 4, else -> 5.)
+#[cfg(any(target_os = "android", test))]
 fn map_result(code: i32) -> BiometricResult {
     match code {
         0 => BiometricResult::Authenticated,
@@ -128,6 +127,8 @@ fn map_result(code: i32) -> BiometricResult {
         2 => BiometricResult::Cancelled,
         3 => BiometricResult::FellBackToPasscode,
         4 => BiometricResult::Unavailable,
+        6 => BiometricResult::LockedOut,
+        7 => BiometricResult::NotEnrolled,
         _ => BiometricResult::Error,
     }
 }
@@ -176,3 +177,7 @@ pub unsafe extern "system" fn Java_com_azul_biometric_AzulBiometric_nativeOnBiom
         services.biometric.results.push(map_result(result_code));
     }
 }
+
+#[cfg(test)]
+#[path = "android_test.rs"]
+mod tests;
