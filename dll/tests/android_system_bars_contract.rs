@@ -69,6 +69,11 @@ fn the_shell_applies_the_options_on_change_and_lets_fixed_icons_stand() {
     let shell = rust_code("dll/src/desktop/shell2/android/mod.rs");
     let sync = body(&shell, "fnsync_window_state(&mutself){");
     assert!(sync.contains("apply_system_bars_if_changed(self);"));
+    let arm = shell.find("MainEvent::InitWindow{..}=>{").expect("the surface-created arm") + "MainEvent::InitWindow{..}".len();
+    assert!(
+        body(&shell[arm..], "=>").contains("apply_system_bars_if_changed(window);"),
+        "and the window's options are applied when it is created, before the app's create callback"
+    );
     let change = body(&shell, "fnapply_system_bars_if_changed(window:&mutAndroidWindow){");
     assert!(change.contains("ifwindow.applied_system_bars==Some(wanted){return;}"), "only a change is applied");
     assert!(change.contains("window.bars_icons_fixed=wanted.icons!=azul_core::display_features::SystemBarIcons::Auto;"));

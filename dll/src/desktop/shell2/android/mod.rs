@@ -1912,6 +1912,9 @@ fn handle_poll_event(app: &AndroidApp, window: &mut AndroidWindow, event: PollEv
                         // WindowResized) it tags the pass `Resize`.
                         let reason = resize_reason(window);
                         window.common.request_regeneration(reason);
+                        // What the window asks of the system bars and the cutout area (`WindowFlags::system_bars`), at its
+                        // creation: `sync_window_state` follows the changes.
+                        apply_system_bars_if_changed(window);
                         // The app's `WindowCreateOptions::create_callback`, ONCE per window lifetime, as the
                         // desktop shells fire it: the window exists (the surface, its real size and density),
                         // nothing is laid out yet. An app starts its timers, workers, locale and requests
