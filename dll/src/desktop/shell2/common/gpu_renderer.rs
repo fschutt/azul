@@ -296,6 +296,7 @@ fn apply_experiment(options: &mut webrender::WebRenderOptions) {
             "storage_off" => options.allow_texture_storage_support = false,
             "scatter_off" => options.gpu_cache_scatter = Some(false),
             "markers_off" => options.enable_gpu_markers = false,
+            "no_program_cache" => options.cached_programs = None,
             "disable_opaque" => options.debug_flags |= webrender::DebugFlags::DISABLE_OPAQUE_PASS,
             "disable_alpha" => options.debug_flags |= webrender::DebugFlags::DISABLE_ALPHA_PASS,
             "disable_batching" => options.debug_flags |= webrender::DebugFlags::DISABLE_BATCHING,
