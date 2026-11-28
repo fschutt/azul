@@ -21,8 +21,15 @@ upper="$(echo "$lower" | tr '[:lower:]' '[:upper:]')"
 export "CC_${lower}=$ndkbin/${target}24-clang" "CXX_${lower}=$ndkbin/${target}24-clang++" "AR_${lower}=$ndkbin/llvm-ar"
 export "CARGO_TARGET_${upper}_LINKER=$ndkbin/${target}24-clang" "CARGO_TARGET_${upper}_AR=$ndkbin/llvm-ar"
 FEATURES="std,logging,link-static,a11y,android-activity,ndk,jni,cpurender,map-tiles,pdf"
-cargo check -p azul-dll --lib --target "$target" --no-default-features --features "$FEATURES" --message-format short
+# Both feature sets are checked even when the first one fails: a runner slot can take hours, and every compile error of both is
+# wanted from ONE run.
+status=0
+cargo check -p azul-dll --lib --target "$target" --no-default-features --features "$FEATURES" --message-format short || status=1
 # the QA APK's lib carries the debug server and the e2e op dispatcher: android_main has blocks behind
 # `any(feature = "debug-server", feature = "e2e-scripting")` that the list above does not compile
-cargo check -p azul-dll --lib --target "$target" --no-default-features --features "$FEATURES,debug-server,e2e-scripting" --message-format short
+cargo check -p azul-dll --lib --target "$target" --no-default-features --features "$FEATURES,debug-server,e2e-scripting" --message-format short || status=1
+if [ "$status" != 0 ]; then
+  echo "android shell: cargo check FAILED ($target)"
+  exit 1
+fi
 echo "android shell: cargo check ok ($target)"
