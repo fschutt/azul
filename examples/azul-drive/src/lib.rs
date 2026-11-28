@@ -344,6 +344,7 @@ mod ui_dialogs;
 /// The search's results in the folder view.
 mod ui_find;
 mod ui_panes;
+mod follow;
 mod ui_frame;
 mod ui_location;
 mod ui_preview;
@@ -1332,8 +1333,9 @@ pub(crate) struct DriveState {
     pub controls: (f32, f32),
     /// The phone's quick-action sheet: the key of the item it is open for.
     pub sheet: Option<ui_sheet::Sheet>,
-    /// The item at the top edge of the folder view (its key): what a phone's preview follows.
-    pub top_key: Option<String>,
+    /// What the folder view's scroll remembers: a phone's selection and preview follow the row at
+    /// its top edge (`follow`).
+    pub follow: follow::Follow,
     pub renaming: Option<Renaming>,
     pub column_drag: Option<ColumnDrag>,
     /// The items being dragged in the window (their drive, their items).
@@ -1617,20 +1619,13 @@ impl DriveState {
         self.entry(key)
     }
 
-    /// The item the preview shows. On a desktop the selected one (the first of several), else the
-    /// folder's first item. On a phone the item at the top edge of the folder view
-    /// ([`DriveState::top_key`], which the view's scroll follows), the first one before it has
-    /// scrolled: the selection never follows a scroll, only the preview does.
+    /// The item the preview shows: the selected one (the first of several), else the folder's
+    /// first item. On a phone the selection is the row at the top edge of the folder view - it
+    /// follows the list's scroll (`follow`) - so the preview does too.
     pub fn preview_subject(&self) -> Option<&Entry> {
-        if self.phone {
-            return self
-                .top_key
-                .as_deref()
-                .and_then(|key| self.entry(key))
-                .or_else(|| self.visible_entries().into_iter().next());
-        }
-        self.single_selected()
-            .or_else(|| self.selected_entries().into_iter().next())
+        self.selected_entries()
+            .into_iter()
+            .next()
             .or_else(|| self.visible_entries().into_iter().next())
     }
 
@@ -2569,7 +2564,7 @@ pub(crate) fn go(
     s.editing_path = false;
     s.location_text.clear();
     s.sheet = None;
-    s.top_key = None;
+    s.follow = follow::Follow::default();
     s.renaming = None;
     // A search ends where its folder is left (a result's folder opens without it): the box
     // empties too - what was typed there outranks the rebuild until the app sets it.
@@ -3196,6 +3191,13 @@ fn scanned(
     let keys = s.visible_keys();
     let order: Vec<&str> = keys.iter().map(String::as_str).collect();
     s.selection.retain(&order);
+    // A phone's list opens with its top row selected (the selection follows the top edge).
+    if follow::follows_scroll(s.phone) && s.selection.is_empty() {
+        if let Some(first) = keys.first() {
+            s.selection.click(first);
+            s.print_selection();
+        }
+    }
     // A location tab that came back: its view where it was left.
     if let Some(y) = s.scroll_when_listed.take() {
         ui_view::scroll_view_to(info, s, y);
@@ -4520,7 +4522,7 @@ pub fn start() {
         phone: args.form == Some(args::FormArg::Phone),
         controls: (0.0, 0.0),
         sheet: None,
-        top_key: None,
+        follow: follow::Follow::default(),
         renaming: None,
         column_drag: None,
         dragging: None,

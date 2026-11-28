@@ -1691,8 +1691,9 @@ fn view_scrolled(mut data: RefAny, mut info: CallbackInfo, ended: bool) -> Updat
     };
     let s = &mut *guard;
     s.view_scroll = (offset, height);
-    // A phone's preview follows the item at the top edge, instantly: only its pane draws again.
-    crate::ui_preview::follow_top(&mut info, &handle, s, ended);
+    // A phone's selection and preview follow the row at the top edge, instantly: only the pane
+    // and the rows draw again.
+    crate::ui_preview::follow_scroll(&mut info, &handle, s, offset, ended);
     let now = std::time::Instant::now();
     if ended {
         s.scroll_work_at = None;
@@ -1741,6 +1742,8 @@ pub(crate) fn scroll_view_to(info: &mut CallbackInfo, s: &mut DriveState, y: f32
         return;
     }
     s.view_scroll.0 = y.max(0.0);
+    // The scroll is the app's own: a phone's selection does not follow it.
+    s.follow.app_scrolled(y.max(0.0));
     info.scroll_to(dom, node, LogicalPosition::create(0.0, y.max(0.0)));
 }
 
@@ -1776,6 +1779,8 @@ pub(crate) fn reveal_item(info: &mut CallbackInfo, s: &mut DriveState, key: &str
         return;
     }
     s.view_scroll.0 = y.max(0.0);
+    // A key's reveal is the app's own scroll: a phone's selection does not follow it.
+    s.follow.app_scrolled(y.max(0.0));
     info.scroll_to(dom, node, LogicalPosition::create(0.0, y.max(0.0)));
 }
 

@@ -170,6 +170,7 @@ fn narrow(info: &mut CallbackInfo, s: &mut DriveState, text: String) {
     s.editing_path = true;
     s.location_text = text;
     s.view_scroll.0 = 0.0;
+    s.follow.app_scrolled(0.0);
     ui_view::scroll_view_to_top(info);
     let keys = s.visible_keys();
     let order: Vec<&str> = keys.iter().map(String::as_str).collect();
@@ -183,6 +184,7 @@ fn end_edit(info: &mut CallbackInfo, s: &mut DriveState) {
     }
     s.editing_path = false;
     s.location_text.clear();
+    s.follow.app_scrolled(0.0);
     ui_view::scroll_view_to_top(info);
 }
 

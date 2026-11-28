@@ -1,4 +1,4 @@
-use azul::widgets::FormFactor;
+use azul::widgets::{FormFactor, PreviewDock};
 
 use super::*;
 
@@ -23,4 +23,14 @@ fn auto_is_a_phone_only_on_a_touch_platform_in_a_narrow_window() {
         "the phone's width is under the line"
     );
     assert!(!is_phone(FormFactor::Auto, 0.0, true), "a window not measured yet is not narrow");
+}
+
+/// The window is made for the right hand for now: the preview docks at the right of a desktop and at
+/// the foot of a phone, and the decision is one function.
+#[test]
+fn the_window_is_right_handed_and_the_dock_is_decided_in_one_place() {
+    assert_eq!(HANDEDNESS, Handedness::Right);
+    assert_eq!(Handedness::default(), Handedness::Right);
+    assert_eq!(HANDEDNESS.preview_dock(false), PreviewDock::Right);
+    assert_eq!(HANDEDNESS.preview_dock(true), PreviewDock::Bottom);
 }

@@ -78,10 +78,14 @@ extern "C" fn on_play_audio(mut data: RefAny, mut info: CallbackInfo) -> Update 
 /// is in, the pane says so.
 pub(crate) fn preview_pane(s: &DriveState, app: &RefAny, _dark: bool) -> Dom {
     let subject = s.preview_subject();
+    // On a phone the row changes with every row the list scrolls past: the pane keeps the picture
+    // it had until the settled row's own content is in, instead of flashing a loading notice.
+    let keep = s.preview.as_ref().filter(|_| crate::follow::follows_scroll(s.phone));
     let current = s
         .preview
         .as_ref()
-        .filter(|p| subject.map_or(true, |e| e.key == p.key));
+        .filter(|p| subject.map_or(true, |e| e.key == p.key))
+        .or(keep);
     let body = match (current, subject) {
         (None, Some(entry)) => note(&t_args(
             "azdrive-preview-loading",

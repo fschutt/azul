@@ -6,11 +6,11 @@
 //! needs saying (a sync conflict, a failed transfer: the widget's `PreviewBanner`), its words in
 //! short and its own (?) for the rest.
 //!
-//! On a desktop the pane shows the selected item (the first one while none is). On a phone it
-//! shows the item at the TOP EDGE of the folder view and follows it while the list scrolls
-//! ([`follow_top`], from the view's scroll callback): the pane is a virtual view of its own, so a
-//! change of the item draws that pane again ([`redraw_pane`]) and nothing else - not the list, not
-//! the window. The selection never follows the scroll; only the preview does.
+//! The pane shows the selected item (the first one while none is). On a phone the selection IS the
+//! row at the TOP EDGE of the folder view while the list scrolls ([`follow_scroll`], from the view's
+//! scroll callback; the rules are `follow`'s): the pane is a virtual view of its own, so a change
+//! of the row draws that pane again ([`redraw_pane`]) and the rows in place - not the window; a
+//! tap pins a row until the list scrolls again. A desktop's scroll leaves the selection alone.
 //!
 //! The pane's size - its width at the right, its height at the foot - is the user's drag, kept in
 //! the settings.
@@ -29,9 +29,9 @@ use azul::{
 use azul_appkit::l10n::label;
 
 use crate::{
-    actions, ids,
+    actions, follow, ids,
     model::{clamped_preview_size, Settings},
-    save_settings, sync_view, ui_panes, ui_view, with_state, DriveState,
+    save_settings, sync_view, ui_frame, ui_panes, ui_view, with_state, DriveState,
 };
 
 // ==== The widget ====
@@ -57,6 +57,7 @@ pub(crate) fn preview(s: &DriveState, app: &RefAny, dark: bool) -> Preview {
             s.settings.preview_width
         })
         .with_form(s.form)
+        .with_dock(ui_frame::HANDEDNESS.preview_dock(s.phone))
         .with_surface(SidebarSurface::Theme)
         .with_on_event(app.clone(), on_preview as PreviewOnEventCallbackType);
     if !details {
@@ -133,22 +134,32 @@ pub(crate) fn top_key(s: &DriveState) -> Option<String> {
     ui_view::shown_order(s).get(first).map(|e| e.key.clone())
 }
 
-/// The folder view scrolled: on a phone the preview follows the item now at its top edge - the pane
-/// draws it at once; with `settled` (the scroll ended) the item's own picture or text is asked for
-/// too, so a long scroll reads no file it passed.
-pub(crate) fn follow_top(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState, settled: bool) {
-    if !s.phone || !s.settings.preview_pane {
+/// The folder view scrolled to `offset` (`settled`: the scroll ended). On a phone the selection and
+/// the preview follow the row at its top edge (`follow`): the row is selected at once, the pane and
+/// the rows draw it again in place - only they, not the window - and, once the scroll has settled,
+/// the item's own picture or text is asked for, so a long scroll reads no file it passed.
+pub(crate) fn follow_scroll(
+    info: &mut CallbackInfo,
+    app: &RefAny,
+    s: &mut DriveState,
+    offset: f32,
+    settled: bool,
+) {
+    if !follow::follows_scroll(s.phone) || ui_view::uses_icon_grid(s) {
         return;
     }
-    let Some(key) = top_key(s) else {
-        return;
-    };
-    let changed = s.top_key.as_deref() != Some(key.as_str());
-    if changed {
-        s.top_key = Some(key);
+    let top = top_key(s);
+    let selected = s.selection.keys();
+    let selected: Vec<&str> = selected.iter().map(String::as_str).collect();
+    let step = s.follow.scrolled(offset, top.as_deref(), &selected);
+    if let follow::Step::Select(key) = step {
+        s.selection.click(&key);
+        s.type_ahead.clear();
+        s.print_selection();
         redraw_pane(info);
+        ui_view::redraw_rows(info);
     }
-    if settled {
+    if follow::load_due(settled) {
         actions::request_preview(info, app, s);
     }
 }
