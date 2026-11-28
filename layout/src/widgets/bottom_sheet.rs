@@ -6,10 +6,10 @@
 //!  ┌──────────────────────────────────┐
 //!  │ the map, the editor ...          │
 //!  │                                  │
-//!  ├────────────── ▬▬▬ ───────────────┤  Full:      the container less the top margin
+//!  ├────────────── ▬▬▬ ───────────────┤  Full:      85 % of the container
 //!  │ the sheet's content              │  Half:      half of the container
-//!  │                                  │  Peek:      a summary (148 px)
-//!  ├──────────────────────────────────┤  Collapsed: the grip and one line (44 px)
+//!  │                                  │  Peek:      a summary (130 px)
+//!  ├──────────────────────────────────┤  Collapsed: the grip and one line (30 px)
 //!  └──────────────────────────────────┘
 //! ```
 //!
@@ -32,11 +32,13 @@
 //! rebuild (`merge_sheet_state`): while the pointer is down it wins. The sheet's node is keyed by
 //! its detent and its height, so what a drag wrote is never carried onto a sheet the app moved.
 //!
-//! Heights. `Peek` and `Collapsed` are px ([`BottomSheet::with_peek_height`],
-//! [`BottomSheet::with_collapsed_height`]), `Half` is half the container, `Full` the container
-//! less the top margin; the four are kept in order whatever the numbers, and a detent the app
-//! rules out ([`BottomSheet::with_lowest`] / [`BottomSheet::with_highest`]) is never settled on.
-//! A number that is not finite is replaced by its default, never an error.
+//! Heights. `Peek` (130 px) and `Collapsed` (30 px) are px ([`BottomSheet::with_peek_height`],
+//! [`BottomSheet::with_collapsed_height`]), `Half` is half the container, `Full` 85 % of it or the
+//! container less the top margin the app names; the four are kept in order whatever the numbers, and
+//! a detent the app rules out ([`BottomSheet::with_lowest`] / [`BottomSheet::with_highest`]) is never
+//! settled on. A number that is not finite is replaced by its default, never an error. The pure
+//! part - the detents, where a drag settles, what the keys do - is `widgets::detents`, shared with
+//! the Preview's bottom pane.
 //!
 //! Key types: [`BottomSheet`], [`SheetDetent`], [`BottomSheetEvent`], [`BottomSheetEventKind`],
 //! [`BottomSheetOnEvent`].
@@ -55,6 +57,8 @@ use azul_css::{
     impl_option, props::layout::LayoutHeight, props::property::CssProperty, AzString,
 };
 
+use super::detents::{detent_after_key, length, step_round, Heights, CONTAINER_HEIGHT_DEFAULT};
+pub use super::detents::SheetDetent;
 use crate::callbacks::CallbackInfo;
 
 /// The sheet's root.
@@ -76,58 +80,8 @@ pub const BOTTOM_SHEET_FULL_CLASS: &str = "__azul-native-bottom-sheet-full";
 
 /// The grip's height, px: a finger's strip.
 pub const GRIP_HEIGHT: f32 = 32.0;
-/// The peek detent's height when the app names none, px.
-pub const PEEK_HEIGHT_DEFAULT: f32 = 148.0;
-/// The collapsed detent's height when the app names none, px: the grip and one line.
-pub const COLLAPSED_HEIGHT_DEFAULT: f32 = 44.0;
-/// The room the full detent leaves above the sheet when the app names none, px.
-pub const TOP_MARGIN_DEFAULT: f32 = 56.0;
-/// What a container is taken to be when the app names none (or a number that is not one), px.
-pub const CONTAINER_HEIGHT_DEFAULT: f32 = 800.0;
 /// How far the pointer travels before a press is a drag and not a tap, px.
 pub const TAP_SLOP: f32 = 8.0;
-/// A last step of this many px (per event, about a frame) or more is a fling.
-pub const FLING_STEP: f32 = 6.0;
-/// How many events of that step a fling carries on: where it would end, px = step x this.
-pub const FLING_EVENTS: f32 = 12.0;
-
-/// Where a sheet rests.
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
-#[repr(C)]
-pub enum SheetDetent {
-    /// Only the grip and one line (a tab strip, a title) show.
-    Collapsed,
-    /// A summary: a place's name and its actions.
-    #[default]
-    Peek,
-    /// Half of the container.
-    Half,
-    /// The container less the top margin.
-    Full,
-}
-
-impl SheetDetent {
-    /// The detent above this one (the highest stays).
-    #[must_use]
-    pub const fn higher(self) -> Self {
-        match self {
-            Self::Collapsed => Self::Peek,
-            Self::Peek => Self::Half,
-            Self::Half | Self::Full => Self::Full,
-        }
-    }
-
-    /// The detent below this one (the lowest stays).
-    #[must_use]
-    pub const fn lower(self) -> Self {
-        match self {
-            Self::Collapsed | Self::Peek => Self::Collapsed,
-            Self::Half => Self::Peek,
-            Self::Full => Self::Half,
-        }
-    }
-}
-
 /// What happened to the sheet.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
@@ -195,12 +149,12 @@ pub struct BottomSheet {
     /// The height of the box the sheet floats in, px (the window's, when the sheet covers it):
     /// 0 is 800.
     pub container_height: f32,
-    /// The peek detent's height, px; 0 is 148.
+    /// The peek detent's height, px; 0 is 130.
     pub peek_height: f32,
-    /// The collapsed detent's height, px; 0 is 44.
+    /// The collapsed detent's height, px; 0 is 30.
     pub collapsed_height: f32,
     /// The room the full detent leaves above the sheet, px (the status bar, the search bar a map
-    /// keeps in view); 0 is 56.
+    /// keeps in view); 0 is 15 % of the container (the full detent is 85 % of it).
     pub top_margin: f32,
     /// How far the sheet's lower edge lies above the container's: the on-screen keyboard.
     pub bottom_inset: f32,
@@ -446,153 +400,6 @@ impl Default for BottomSheet {
 impl From<BottomSheet> for Dom {
     fn from(s: BottomSheet) -> Self {
         s.dom()
-    }
-}
-
-// ---------------------------------------------------------------------------
-// The numbers
-// ---------------------------------------------------------------------------
-
-/// A number that must be a finite, positive length, else `default`.
-fn length(value: f32, default: f32) -> f32 {
-    if value.is_finite() && value > 0.0 {
-        value
-    } else {
-        default
-    }
-}
-
-/// The four heights of a sheet, px, in order: collapsed <= peek <= half <= full <= the container.
-#[derive(Debug, Copy, Clone, PartialEq)]
-pub struct Heights {
-    /// The collapsed detent.
-    pub collapsed: f32,
-    /// The peek detent.
-    pub peek: f32,
-    /// The half detent.
-    pub half: f32,
-    /// The full detent.
-    pub full: f32,
-}
-
-impl Heights {
-    /// The heights for a container `container` tall: a number that is not a positive finite one
-    /// is its default, and the four are held in order (a container shorter than the peek makes
-    /// every detent the container).
-    #[must_use]
-    pub fn new(container: f32, collapsed: f32, peek: f32, top_margin: f32) -> Self {
-        let container = length(container, CONTAINER_HEIGHT_DEFAULT);
-        let peek = length(peek, PEEK_HEIGHT_DEFAULT).min(container);
-        let collapsed = length(collapsed, COLLAPSED_HEIGHT_DEFAULT).min(peek);
-        let margin = length(top_margin, TOP_MARGIN_DEFAULT);
-        let half = (container * 0.5).max(peek);
-        let full = (container - margin).max(half);
-        Self {
-            collapsed,
-            peek,
-            half,
-            full,
-        }
-    }
-
-    /// The height of `detent`.
-    #[must_use]
-    pub const fn of(&self, detent: SheetDetent) -> f32 {
-        match detent {
-            SheetDetent::Collapsed => self.collapsed,
-            SheetDetent::Peek => self.peek,
-            SheetDetent::Half => self.half,
-            SheetDetent::Full => self.full,
-        }
-    }
-
-    /// The detent, between `lowest` and `highest`, whose height is nearest to `height` (the
-    /// higher one when two are as near).
-    #[must_use]
-    pub fn nearest(&self, height: f32, lowest: SheetDetent, highest: SheetDetent) -> SheetDetent {
-        let mut best = highest;
-        let mut at = highest;
-        let mut distance = (self.of(highest) - height).abs();
-        while at > lowest {
-            at = at.lower();
-            let d = (self.of(at) - height).abs();
-            if d < distance {
-                best = at;
-                distance = d;
-            }
-        }
-        best
-    }
-
-    /// Where a drag that ended at `height`, last moving `step` px per event (up is positive),
-    /// settles: a fling (`step` of [`FLING_STEP`] or more) carries on for [`FLING_EVENTS`] events,
-    /// then the nearest detent in range wins.
-    #[must_use]
-    pub fn settle(
-        &self,
-        height: f32,
-        step: f32,
-        lowest: SheetDetent,
-        highest: SheetDetent,
-    ) -> SheetDetent {
-        let carried = if step.is_finite() && step.abs() >= FLING_STEP {
-            step * FLING_EVENTS
-        } else {
-            0.0
-        };
-        self.nearest(height + carried, lowest, highest)
-    }
-
-    /// The height a drag that began at `start_height` with the pointer at `start_y` makes of the
-    /// sheet with the pointer at `now_y` (window coordinates: y grows downwards, so a pointer
-    /// going up grows the sheet), held between the lowest and the highest detent's heights.
-    #[must_use]
-    pub fn dragged(
-        &self,
-        start_height: f32,
-        start_y: f32,
-        now_y: f32,
-        lowest: SheetDetent,
-        highest: SheetDetent,
-    ) -> f32 {
-        let wanted = start_height + (start_y - now_y);
-        let (a, b) = (self.of(lowest), self.of(highest));
-        let (low, high) = if a <= b { (a, b) } else { (b, a) };
-        let wanted = if wanted.is_nan() { start_height } else { wanted };
-        wanted.max(low).min(high)
-    }
-}
-
-/// What a key on the focused grip does to the detent: `None` for a key the grip ignores.
-#[must_use]
-pub fn detent_after_key(
-    key: VirtualKeyCode,
-    detent: SheetDetent,
-    lowest: SheetDetent,
-    highest: SheetDetent,
-) -> Option<SheetDetent> {
-    let (lowest, highest) = (lowest.min(highest), lowest.max(highest));
-    let wanted = match key {
-        VirtualKeyCode::Up | VirtualKeyCode::PageUp => detent.higher(),
-        VirtualKeyCode::Down | VirtualKeyCode::PageDown => detent.lower(),
-        VirtualKeyCode::Home => highest,
-        VirtualKeyCode::End => lowest,
-        VirtualKeyCode::Return | VirtualKeyCode::NumpadEnter | VirtualKeyCode::Space => {
-            return Some(step_round(detent, lowest, highest))
-        }
-        _ => return None,
-    };
-    Some(wanted.clamp(lowest, highest))
-}
-
-/// The tap's step: the next detent up, from the highest back to the lowest.
-#[must_use]
-pub fn step_round(detent: SheetDetent, lowest: SheetDetent, highest: SheetDetent) -> SheetDetent {
-    let (lowest, highest) = (lowest.min(highest), lowest.max(highest));
-    if detent >= highest {
-        lowest
-    } else {
-        detent.higher().clamp(lowest, highest)
     }
 }
 
