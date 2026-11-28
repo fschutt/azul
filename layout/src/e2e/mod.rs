@@ -189,6 +189,11 @@ mod scrollbar_fade_css_tests;
 #[cfg(test)]
 mod class_swap_tests;
 
+// The scenarios of the e2e matrix (`tests/e2e/*.json`) that found a bug of the layout, run
+// headless: an inline list item in a line, `:focus-within` that changes the padding.
+#[cfg(test)]
+mod matrix_scenarios_tests;
+
 // A value written to a node inside a `VirtualView` (the editor's zoom: `translate() scale()` to
 // the map's picture) is painted by the next CPU frame: the frame's values and damage are those
 // of every DOM of the window, not the root's alone.
