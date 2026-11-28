@@ -87,7 +87,7 @@ fn the_second_pass_names_the_line_that_asked_for_it() {
     assert_eq!(begins.len(), 2, "two passes were timed: {begins:?}");
     assert_eq!(
         begins[0], "#1 reason=Initial",
-        "the pass a window is born owing has no asker"
+        "the pass a window is born owing has no asker: nobody asked for it, the window was born owing it"
     );
     let here = file!();
     assert_eq!(

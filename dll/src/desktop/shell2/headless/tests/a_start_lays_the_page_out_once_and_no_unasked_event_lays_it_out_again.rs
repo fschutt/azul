@@ -97,25 +97,31 @@ fn a_start_asks_the_page_for_its_dom_once() {
     assert!(!rebuild_owed(&window), "nothing is owed after the start");
 }
 
-/// The window gains the keyboard focus (X11's `FocusIn`, Win32's `WM_SETFOCUS`, AppKit's `becomeKeyWindow`): the
-/// engine styles the window active and fires `WindowFocusReceived`; no page is asked for.
+/// The window loses the keyboard focus and gains it (X11's `FocusOut` and `FocusIn`, Win32's `WM_KILLFOCUS` and
+/// `WM_SETFOCUS`, AppKit's `resignKeyWindow` and `becomeKeyWindow`): the engine styles the window (in)active and fires
+/// `WindowFocusLost` and `WindowFocusReceived`; no page is asked for.
 #[test]
-fn the_window_gaining_the_focus_asks_the_page_for_nothing() {
+fn the_window_losing_and_gaining_the_focus_asks_the_page_for_nothing() {
     let (mut window, layouts) = settled();
-    window.snapshot_window_state_baseline("test.focus_in");
-    window
-        .common
-        .update_unsynced_state(|ws| ws.window_focused = true);
-    window.common.note_focus_gained();
-    let result = window.process_window_events(0);
-    window.service_frame(result);
-    pump(&mut window, 3);
-    assert_eq!(
-        layouts_of(&layouts),
-        1,
-        "the first focus asked for a new DOM (result {result:?})"
-    );
-    assert!(!rebuild_owed(&window));
+    for focused in [false, true] {
+        window.snapshot_window_state_baseline("test.window_focus");
+        window
+            .common
+            .update_unsynced_state(|ws| ws.window_focused = focused);
+        if focused {
+            window.common.note_focus_gained();
+        }
+        let result = window.process_window_events(0);
+        window.service_frame(result);
+        pump(&mut window, 3);
+        assert_eq!(
+            layouts_of(&layouts),
+            1,
+            "the window {} the focus and asked for a new DOM (result {result:?})",
+            if focused { "gaining" } else { "losing" }
+        );
+        assert!(!rebuild_owed(&window));
+    }
 }
 
 /// The pointer moves over the page, across a button, a text field and a check box, and leaves it again.
@@ -159,13 +165,23 @@ fn a_wheel_notch_and_a_key_nobody_listens_to_ask_the_page_for_nothing() {
     assert!(!rebuild_owed(&window));
 }
 
-/// A resize to the size the window already has (the system says "resized" at every relayout of its surface; Android
-/// does it at the first draw) is no layout at all.
+/// A resize to the size the window already has (the system says "resized" at every relayout of its surface; Android does it
+/// at the first draw), taken the way every shell takes a size change: the shared policy
+/// (`CommonWindowState::request_regeneration_for_resize`) rebuilds the DOM only when a breakpoint is crossed or a recorded
+/// size query flips, and the same size is neither.
 #[test]
 fn a_resize_to_the_size_the_window_has_asks_the_page_for_nothing() {
     let (mut window, layouts) = settled();
-    window.simulate_resize(400.0, 600.0);
+    let size = window.common.current_window_state().size.dimensions;
+    window.snapshot_window_state_baseline("test.same_size");
+    window
+        .common
+        .update_window_state(event::WindowStateSource::Os, |ws| ws.size.dimensions = size);
+    let full = window.common.request_regeneration_for_resize(size, size);
+    let result = window.process_window_events(0);
+    window.service_frame(result);
     pump(&mut window, 3);
+    assert!(!full, "the policy asked for a full rebuild at the size the window has");
     assert_eq!(layouts_of(&layouts), 1, "the same size again asked for a new DOM");
     assert!(!rebuild_owed(&window));
 }
