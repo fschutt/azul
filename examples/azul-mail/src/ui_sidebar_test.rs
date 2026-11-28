@@ -37,3 +37,14 @@ fn every_quick_button_runs_its_own_command_and_compose_is_new_mail() {
         let _ = quick_command(quick);
     }
 }
+
+#[test]
+fn the_text_beside_the_pie_is_short_and_empty_with_no_pie() {
+    crate::l10n::in_english();
+    assert_eq!(sync_text(StatusBarSyncKind::Syncing, Some(41.6)), "42 %");
+    assert_eq!(sync_text(StatusBarSyncKind::Syncing, Some(250.0)), "100 %");
+    assert_eq!(sync_text(StatusBarSyncKind::Syncing, None), "");
+    assert_eq!(sync_text(StatusBarSyncKind::Connected, None), "Up to date");
+    assert_eq!(sync_text(StatusBarSyncKind::Error, None), "Failed");
+    assert_eq!(sync_text(StatusBarSyncKind::Offline, None), "");
+}

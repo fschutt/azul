@@ -116,6 +116,40 @@
       {
         "op": "assert_response",
         "contains": "\"found\":true"
+      },
+      {
+        "op": "click",
+        "selector": ".__azul-native-sidebar-toggle"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_settled"
+      },
+      {
+        "op": "click",
+        "text": "Inbox"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_settled"
+      },
+      {
+        "op": "find_node_by_text",
+        "text": "Items: 4"
+      },
+      {
+        "op": "assert_response",
+        "contains": "\"found\":true"
       }
     ]
   },
@@ -321,7 +355,8 @@
       },
       {
         "op": "click",
-        "selector": ".__azul-native-app-frame-catcher"
+        "x": 350,
+        "y": 320
       },
       {
         "op": "wait_frame"

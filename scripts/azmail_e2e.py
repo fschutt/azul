@@ -1143,6 +1143,12 @@ class FrameRun(SampleRun):
                     return target['rect']
         raise Failure(f'no node reads {text!r}')
 
+    def tap(self, x, y):
+        """A click at the window's place (x, y)."""
+        self.settle()
+        self.must('click', x=x, y=y)
+        self.frame(None, 2)
+
     def click_sel(self, selector):
         self.settle()
         self.must('click', selector=selector)
@@ -1151,14 +1157,17 @@ class FrameRun(SampleRun):
     def walk(self, mode):
         """One pass over the frame in the theme's `mode`: the pictures carry the mode's name and the
         pass leaves the window as it found it (the sidebar expanded, Home, no overlay)."""
-        subject = 'Garden Weekly'
+        # the whole subject: 'Garden Weekly' alone is also a name in Find a Contact's list, which
+        # comes first in the document
+        subject = NEWSLETTER
         self.click(subject)
         self.shot(f'{mode}-message-open')
         if self.form == 'phone':
             self.click_sel('.__azul-native-sidebar-toggle')
             self.check('the drawer pushes the view', self.has_class('__azul-native-app-frame-catcher'))
             self.shot(f'{mode}-drawer')
-            self.click_sel('.__azul-native-app-frame-catcher')
+            # a tap beside the drawer (the catcher lies under it: its middle is the drawer's)
+            self.tap(PHONE_SIZE[0] - 10, PHONE_SIZE[1] // 2)
             self.shot(f'{mode}-rail-after-drawer')
             # a long press on the row: the sheet (the e2e engine injects the gesture at a place)
             rect = self.rect_of_text(subject)
@@ -1167,7 +1176,8 @@ class FrameRun(SampleRun):
             self.frame(None, 3)
             self.check('the sheet is open', self.has_class('__azul-native-action-sheet-panel'))
             self.shot(f'{mode}-sheet')
-            self.click_sel('.__azul-native-action-sheet-scrim')
+            # a tap on the scrim above the sheet
+            self.tap(PHONE_SIZE[0] // 2, 40)
             return
         self.click_sel('.__azul-native-preview-help')
         self.shot(f'{mode}-preview-details')

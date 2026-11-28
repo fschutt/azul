@@ -118,6 +118,20 @@ pub(crate) fn sync_pie(kind: StatusBarSyncKind, percent: Option<f32>) -> Option<
     }
 }
 
+/// The short text beside the pie in the expanded sidebar ("42 %", "Up to date"): the long line is
+/// the popover's detail. Empty with no pie.
+#[must_use]
+pub(crate) fn sync_text(kind: StatusBarSyncKind, percent: Option<f32>) -> String {
+    match kind {
+        StatusBarSyncKind::Syncing => percent
+            .filter(|p| p.is_finite())
+            .map_or_else(String::new, |p| format!("{:.0} %", p.clamp(0.0, 100.0))),
+        StatusBarSyncKind::Connected => t("azmail-sidebar-up-to-date"),
+        StatusBarSyncKind::Error => t("azmail-sidebar-failed"),
+        StatusBarSyncKind::Offline => String::new(),
+    }
+}
+
 /// The unread mail of every mailbox's Inbox (the slot's badge).
 #[must_use]
 pub(crate) fn unread_total(s: &MailApp) -> usize {
@@ -141,7 +155,7 @@ fn statuses(s: &MailApp) -> Vec<SidebarStatus> {
     if let Some((fraction, tone)) = sync_pie(kind, percent) {
         out.push(
             SidebarStatus::create(t("azmail-tab-send-receive"), fraction, tone)
-                .with_text(line.as_str())
+                .with_text(sync_text(kind, percent).as_str())
                 .with_detail(line.as_str()),
         );
     }

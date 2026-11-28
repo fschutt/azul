@@ -571,3 +571,5 @@ azmail-share-refused = The system refused to share: { $reason }
 azmail-share-too-big = This file is too big to share ({ $size }).
 azmail-share-nothing = There is nothing to share.
 azmail-more-attachments = ({ $count } more attachments)
+azmail-sidebar-up-to-date = Up to date
+azmail-sidebar-failed = Failed

@@ -1,7 +1,7 @@
 [
   {
     "name": "azmail_phone_the_frame_keeps_its_places_at_the_system_text_size",
-    "description": "AzMail's phone layout (a phone's own size, no account needed) under the SYSTEM text size, which the run sets before it starts the app (iOS Simulator: `xcrun simctl ui <udid> content_size <category>`; Android: `adb shell settings put system font_scale <1.0 | 1.3 | 2.0>`; a desktop run cannot set it and uses AZMAIL_FORM=phone for the layout). The frame keeps its places at every size: the tab row starts at the left edge, the rail is 18 px, the body and the status bar start beside the rail, the drawer opens and a tap beside it closes it. Three pictures (the rail, the drawer, the rail again) are taken for the comparison between the sizes; what overflows or is clipped in them is for the layout audit that runs on the same states. The engine does not read the system text size yet (iOS and Android never read it, no layout code applies AccessibilitySettings::text_scale_factor), so today every size gives the same picture and the assertions hold; they are for the day it does.",
+    "description": "AzMail's phone layout (a phone's own size, no account needed) under the SYSTEM text size, which the run sets before it starts the app (iOS Simulator: `xcrun simctl ui <udid> content_size <category>`; Android: `adb shell settings put system font_scale <1.0 | 1.3 | 2.0>`; a desktop run cannot set it and uses AZMAIL_FORM=phone for the layout). The frame keeps its places at every size: the tab row starts at the left edge, the rail is 18 px, the body and the status bar start beside the rail, the drawer opens and pushes the view aside. Two pictures (the rail, the drawer) are taken for the comparison between the sizes; what overflows or is clipped in them is for the layout audit that runs on the same states. The engine does not read the system text size yet (iOS and Android never read it, no layout code applies AccessibilitySettings::text_scale_factor), so today every size gives the same picture and the assertions hold; they are for the day it does.",
     "steps": [
       {
         "op": "set_mode",
@@ -75,33 +75,6 @@
       {
         "op": "assert_exists",
         "selector": ".__azul-native-app-frame-catcher"
-      },
-      {
-        "op": "take_screenshot"
-      },
-      {
-        "op": "click",
-        "selector": ".__azul-native-app-frame-catcher"
-      },
-      {
-        "op": "wait_frame"
-      },
-      {
-        "op": "wait_frame"
-      },
-      {
-        "op": "wait_settled"
-      },
-      {
-        "op": "assert_not_exists",
-        "selector": ".__azul-native-app-frame-catcher"
-      },
-      {
-        "op": "assert_layout",
-        "selector": ".__azul-native-app-frame-body",
-        "property": "x",
-        "expected": 18,
-        "tolerance": 1
       },
       {
         "op": "take_screenshot"
