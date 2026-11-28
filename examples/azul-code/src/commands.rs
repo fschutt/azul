@@ -15,7 +15,7 @@ use std::{
 use azul::{
     callbacks::{TimerCallbackInfo, TimerCallbackReturn},
     dialog::{FileDialog, FileOpenResult},
-    dom::{DomId, DomNodeId, FocusTarget, KeyModifiers, VirtualKeyCode},
+    dom::{DomId, DomNodeId, FocusTarget, KeyModifiers, ScrollIntoViewOptions, VirtualKeyCode},
     option::{OptionFileTypeList, OptionString},
     prelude::*,
     task::{Timer, TimerId},
@@ -328,6 +328,7 @@ pub fn open_file_in(st: &mut AppState, info: &mut CallbackInfo, app: &RefAny, ro
     if let Some(i) = st.tabs.find(&doc_ident(&root, key)) {
         st.tabs.active = i;
         st.refresh_find();
+        reveal_active_tab(st, info);
         return;
     }
     storage::spawn_drive_jobs(
@@ -662,6 +663,53 @@ extern "C" fn on_focus_tick(mut data: RefAny, info: TimerCallbackInfo) -> TimerC
     TimerCallbackReturn::terminate_unchanged()
 }
 
+/// What a reveal timer looks for: a DOM id.
+struct RevealRequest {
+    id: String,
+}
+
+/// Scrolls the node with DOM id `id` into view once the window has it (the same wait as [`focus_soon`]: the
+/// node may be one the rebuild this callback asks for makes).
+pub fn reveal_soon(info: &mut CallbackInfo, id: &str) {
+    let timer = Timer::create(
+        RefAny::new(RevealRequest { id: id.to_string() }),
+        on_reveal_tick,
+        info.get_system_time_fn(),
+    )
+    .with_interval(Duration::System(SystemTimeDiff::from_millis(40)));
+    info.add_timer(TimerId::unique(), timer);
+}
+
+extern "C" fn on_reveal_tick(mut data: RefAny, info: TimerCallbackInfo) -> TimerCallbackReturn {
+    let Some(id) = data.downcast_ref::<RevealRequest>().map(|r| r.id.clone()) else {
+        return TimerCallbackReturn::terminate_unchanged();
+    };
+    let tries = info.call_count;
+    let mut callback_info = info.callback_info;
+    let dom = DomId { inner: 0 };
+    let node = callback_info.get_node_id_by_id_attribute(dom, id.as_str());
+    if node.into_raw() == 0 {
+        return if tries > 50 {
+            TimerCallbackReturn::terminate_unchanged()
+        } else {
+            TimerCallbackReturn::continue_unchanged()
+        };
+    }
+    callback_info.scroll_node_into_view(DomNodeId { dom, node }, ScrollIntoViewOptions::nearest());
+    TimerCallbackReturn::terminate_unchanged()
+}
+
+/// The tab in front scrolled into view in the tab strip (which scrolls sideways when the tabs do not fit): the
+/// phone's slot of the tab (its name and its close button), the desktop's name.
+pub fn reveal_active_tab(st: &AppState, info: &mut CallbackInfo) {
+    let id = if phone::is_compact(st.window.0, st.window.1) {
+        ids::tab_slot(st.tabs.active)
+    } else {
+        ids::tab(st.tabs.active)
+    };
+    reveal_soon(info, id.as_str());
+}
+
 // ==== The answers ====
 
 /// What the drive threads did: a folder listed, a file read or written, the
@@ -739,6 +787,7 @@ pub extern "C" fn on_drive_done(mut app: RefAny, mut msg: RefAny, mut info: Call
                     st.tabs.open(doc);
                     st.refresh_find();
                     focus_soon(&mut info, ids::EDITOR.as_str());
+                    reveal_active_tab(st, &mut info);
                 }
                 Err(e) => {
                     st.fail(

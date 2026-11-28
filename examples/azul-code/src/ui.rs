@@ -1013,6 +1013,7 @@ pub(crate) extern "C" fn on_tab_click(mut data: RefAny, mut info: CallbackInfo) 
             st.tabs.active = index;
             st.refresh_find();
             commands::focus_soon(info, ids::EDITOR.as_str());
+            commands::reveal_active_tab(st, info);
         }
     })
 }
