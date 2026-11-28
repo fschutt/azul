@@ -93,6 +93,19 @@ pub const fn mouse_effect(phase: Phase, primary_lifting: bool) -> MouseEffect {
     }
 }
 
+/// `InputDevice.SOURCE_CLASS_JOYSTICK`: the class bit of `SOURCE_JOYSTICK` (0x01000010), the source of a pad's
+/// sticks, triggers and hat.
+pub const SOURCE_CLASS_JOYSTICK: u32 = 0x0000_0010;
+
+/// Whether a `MotionEvent` of `source` (the `AInputEvent_getSource` bits) is a game pad's axes: sticks, triggers, hat.
+/// Those events reach the native input queue like a finger's and carry no position: reading them as a pointer made a
+/// stick deflection a phantom touch near (0, 0), and the pad's own path (`AzulGamepad.onMotion`, which the event
+/// reaches when the native loop leaves it unhandled) never needed them as one.
+#[must_use]
+pub const fn is_a_pad_stick(source: u32) -> bool {
+    source & SOURCE_CLASS_JOYSTICK != 0
+}
+
 #[cfg(test)]
 #[path = "touch_test.rs"]
 mod tests;

@@ -232,8 +232,10 @@ pub struct Root {
     pub demo: bool,
     stashed: Option<Box<dyn PhoneApi>>,
     /// The phone's own app makes its real connection when the window exists (`glue::on_window_ready`), not when the library loads: an
-    /// Android app has no activity yet then, and the engine's local-network discovery needs the activity's Wi-Fi multicast lock. Until
-    /// then the screens talk to the stand-in they were made with.
+    /// Android app has no activity yet then, and the engine's local-network discovery needs the activity's Wi-Fi multicast lock. And only
+    /// a phone that was paired with a Mac makes it then: a new phone makes it when the person starts a pairing
+    /// ([`Root::wants_connection_for`]), because binding the endpoint is what makes the system ask about the local network. Until then
+    /// the screens talk to the stand-in they were made with.
     pub connect_later: bool,
     /// The window's setup (the timer, the real connection) has been done: it is asked for twice (the window's creation callback, which
     /// the phones' shells never call, and the first mount of the screens, which every shell reports) and done once.
@@ -256,6 +258,14 @@ impl Root {
             connect_later: false,
             window_ready: false,
         }
+    }
+
+    /// Whether `action` starts something that needs the real connection, which the phone's own app has not made yet: pasting text that is
+    /// a pairing offer. Nothing else does (the first screen, "Scan QR code" and "Try it without a Mac" use no network), so a phone that
+    /// was never paired touches the local network when the person starts a pairing and not before, and the demo never does.
+    #[must_use]
+    pub fn wants_connection_for(&self, action: &Action) -> bool {
+        self.connect_later && !self.demo && matches!(action, Action::PairPaste(text) if azul_review_link::pairing::PairingOffer::parse(text).is_ok())
     }
 
     /// The window says it is ready (its creation callback and the first mount of the screens both say so): what is to be done now. It is

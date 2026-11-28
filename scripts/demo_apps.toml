@@ -24,6 +24,13 @@
 #   <Name>-linux  <Name>-macos  <Name>-macos-intel  <Name>-windows.exe        (shipped as .tar.gz)
 #   <Name>-android-arm64.apk  <Name>-android-x86_64.apk
 #   <Name>-ios-device.app.zip  <Name>-ios-sim.app.zip
+#
+# QA-ONLY APPS (`qa_only = true`, AzSelfTest: every device capability, one probe each): an app that exists only as a QA build. It is
+# built when a run asks for QA builds (rust.yml's demos_e2e), for the phone columns of the artifact-only library its `mobile_lib` names
+# (which is its QA library: android-arm64, android-x86_64, ios-sim), as <Name>-e2e-<column> in artifacts named demoe2e-*. It is no row or
+# link of the release page, no release asset, no cell of the status table (its builds are lines of the QA table) and no entry of the
+# shipped plan: scripts/demo_apps.py load() keeps it in m["qa_app"], apart from m["app"], and the page generator drops it when it reads
+# this file. Phones only (platforms = ["android", "ios"]); `demo_apps.py check` refuses everything else.
 
 schema = 1
 
@@ -76,7 +83,8 @@ reason = "azul.iroh for the phone apps that use it (AzCompanion: AzReview over t
 # AZLIN-BUILD-MARKER:test-hooks, and scripts/demo_lib.sh checks it both ways: a library WITHOUT the feature (everything that
 # ships) must not hold the marker, this one must; `demo_apps.py check` refuses the feature in any lib that is not artifact_only.
 features = "std,logging,link-static,a11y,map-tiles,pdf,debug-server,e2e-scripting,test-hooks"
-targets = ["android-x86_64", "ios-sim"]
+# android-arm64 is the phone in the hand (the QA on a real device, AzSelfTest), android-x86_64 the emulator, ios-sim the Simulator
+targets = ["android-arm64", "android-x86_64", "ios-sim"]
 artifact_only = true
 reason = "the engine's debug server for the E2E and lifecycle tests of the phone shells (never shipped)"
 
@@ -84,7 +92,7 @@ reason = "the engine's debug server for the E2E and lifecycle tests of the phone
 # The QA twin of mobile-iroh: mobile-e2e (the debug server, E2E scripting and test hooks) plus iroh, for the QA builds (`e2e = true`) of
 # the apps that use iroh (`e2e_lib = "mobile-e2e-iroh"`: AzMeet, AzCompanion). Artifact only, as mobile-e2e is, and for the same reasons.
 features = "std,logging,link-static,a11y,map-tiles,pdf,debug-server,e2e-scripting,test-hooks,iroh"
-targets = ["android-x86_64", "ios-sim"]
+targets = ["android-arm64", "android-x86_64", "ios-sim"]
 artifact_only = true
 reason = "the engine's debug server for the QA builds of the apps that use iroh (never shipped)"
 
@@ -441,3 +449,35 @@ dir = "examples/azul-videocut"
 description = "a video editor: media bin, monitors, a timeline and an MP4 export"
 platforms = ["linux", "macos-arm64", "macos-intel", "windows"]
 weight = 2
+
+[[app]]
+package = "AzSelfTest"
+dir = "examples/azul-selftest"
+description = "every device capability, one probe each, on the phone"
+platforms = ["android", "ios"]
+weight = 1
+# A QA build only (see QA-ONLY APPS above): the phone in the hand runs it with scripts/ci/android_phone_selftest.py, the emulator and
+# the Simulator with the QA harness. Each probe asks for its own capability only when its row runs: nothing is asked at launch.
+qa_only = true
+# The QA library with iroh: the row of the local network (iroh's LAN discovery) is one of the rows.
+mobile_lib = "mobile-e2e-iroh"
+e2e_lib = "mobile-e2e-iroh"
+[app.android]
+# What the rows of the capabilities that need a permission need declared (`pm grant` / the row's own request answers them):
+# camera and microphone (the capture rows and the recogniser), location (the geolocation row), activity recognition (the step counter).
+permissions = [
+  "android.permission.CAMERA",
+  "android.permission.RECORD_AUDIO",
+  "android.permission.ACCESS_FINE_LOCATION",
+  "android.permission.ACCESS_COARSE_LOCATION",
+  "android.permission.ACTIVITY_RECOGNITION",
+]
+[app.ios]
+# build-ios.sh writes NSLocalNetworkUsageDescription and NSBonjourServices = [_irohv1._udp] from this text (the Simulator does not show the prompt: TN3179).
+local_network = "AzSelfTest looks for other devices on your Wi-Fi to check that the local network works."
+[app.ios.usage]
+NSCameraUsageDescription = "AzSelfTest opens the camera to check that it works."
+NSMicrophoneUsageDescription = "AzSelfTest opens the microphone to check that it works."
+NSLocationWhenInUseUsageDescription = "AzSelfTest reads your location to check that it works."
+NSFaceIDUsageDescription = "AzSelfTest asks for Face ID to check that the sheet works."
+NSMotionUsageDescription = "AzSelfTest reads the motion sensors to check that they work."

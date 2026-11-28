@@ -12,14 +12,16 @@
 //! `process_app`: a JNI entry point carries no context), where the layout
 //! pass folds it into the `GeolocationManager`.
 //!
-//! Pending (non-Rust): the `AzulGeolocation.java` helper itself, plus the
-//! manifest `ACCESS_FINE/COARSE/BACKGROUND_LOCATION` declarations. Until it
-//! ships, `find_class` fails and subscribe/release degrade to a no-op.
+//! A subscription made before its permission is answered is kept by the Java side and starts at the answer; a
+//! refusal arrives here as an error (`nativeOnLocationError`), which the app reads from the manager.
+//!
+//! Pending (non-Rust): the manifest `ACCESS_FINE/COARSE/BACKGROUND_LOCATION` declarations. Without the helper
+//! class, `find_class` fails and subscribe/release degrade to a no-op.
 
 #[cfg(target_os = "android")]
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use azul_layout::managers::geolocation::{GeolocationDiffEvent, LocationFix};
+use azul_layout::managers::geolocation::{GeolocationDiffEvent, LocationError, LocationFix};
 
 // One geolocation subscription is live at a time (the manager is
 // refcount-based). A nonzero handle lets `release` target the right
@@ -160,4 +162,32 @@ pub unsafe extern "system" fn Java_com_azul_geolocation_AzulGeolocation_nativeOn
         speed_mps,
         timestamp_ms: timestamp_ms as u64,
     });
+}
+
+/// Receives an error of the live subscription from `AzulGeolocation`: `code` 1 = the location permission was
+/// refused. Dropped, like a late fix, when `handle` is not the live subscription. The app reads it from the
+/// manager (`LocationError`), and the loop is woken to deliver the event.
+#[cfg(target_os = "android")]
+#[no_mangle]
+pub unsafe extern "system" fn Java_com_azul_geolocation_AzulGeolocation_nativeOnLocationError(
+    _env: *mut jni::sys::JNIEnv,
+    _class: jni::sys::jclass,
+    handle: jni::sys::jlong,
+    code: jni::sys::jint,
+) {
+    if (handle as u64) != SUBSCRIPTION_HANDLE.load(Ordering::Relaxed) {
+        return;
+    }
+    let Some(services) = crate::desktop::process_app::services() else {
+        return;
+    };
+    let message = match code {
+        1 => "the location permission was refused",
+        _ => "the location subscription failed",
+    };
+    services.geolocation.push_error(LocationError {
+        code: u32::try_from(code).unwrap_or(0),
+        message: message.to_string(),
+    });
+    crate::desktop::shell2::android::wake_event_loop();
 }
