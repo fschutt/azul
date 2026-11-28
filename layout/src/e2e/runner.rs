@@ -1177,6 +1177,8 @@ impl Runner {
                 &lw.media_session_manager,
                 // Media playback (11c) — the six media events fire from here.
                 &lw.media_player_manager,
+                // The system's style changed (`set_system_accessibility` and the like).
+                &lw.system_style_notice,
             ];
             azul_layout::event_determination::determine_all_events(
                 &self.window_state,
@@ -1249,6 +1251,7 @@ impl Runner {
         {
             let lw = &mut self.layout_window;
             lw.file_drop_manager.mark_events_delivered();
+            lw.system_style_notice.clear_pending_event();
             lw.sensor_manager.clear_pending_event();
             lw.gamepad_manager.clear_pending_event();
             lw.geolocation_manager.clear_pending_event();
@@ -3840,7 +3843,11 @@ impl Runner {
                 } else {
                     style.set_preferences(self.accessibility_override);
                     self.layout_window.set_system_style(Arc::new(style));
-                    ProcessEventResult::ShouldIncrementalRelayout
+                    // The pass the shell's next frame runs: the window event
+                    // `SystemStyleChanged` reaches the app's listeners now, and
+                    // the restyle follows whatever they asked for.
+                    self.process_window_events(0)
+                        .max(ProcessEventResult::ShouldIncrementalRelayout)
                 }
             }
             CallbackChange::SetTheme { theme } => {
@@ -8391,6 +8398,11 @@ mod window_leave_tests;
 #[cfg(test)]
 #[path = "hover_keys_tests.rs"]
 mod hover_keys_tests;
+
+// ==== the system's style changing is one window event ====
+#[cfg(test)]
+#[path = "system_style_event_tests.rs"]
+mod system_style_event_tests;
 
 // ==== what a plain mouse move over the text labels of a `VirtualView` costs ====
 #[cfg(test)]

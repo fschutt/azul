@@ -2161,7 +2161,7 @@ impl CallbackInfo {
     /// ... Every option may be `Unknown` (the platform has no such option, or did not answer);
     /// the engine treats it as the default look. The system changing one of them is a restyle
     /// of every window (no `layout()` run unless it declared it reads them, or the whole system
-    /// style): `On::SystemStyleChanged`. In `layout()`:
+    /// style): the window event `WindowEventFilter::SystemStyleChanged`. In `layout()`:
     /// `LayoutCallbackInfo::get_accessibility_preferences`.
     #[must_use]
     pub fn get_accessibility_preferences(&self) -> azul_css::accessibility::AccessibilityPreferences {

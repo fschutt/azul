@@ -12674,10 +12674,16 @@ pub trait PlatformWindow {
         let document_edit_provider = self
             .get_layout_window()
             .map(|w| w.document_edit_event_provider());
+        // The system's style changed since the last pass (an accessibility option, the accent, the
+        // fonts): a snapshot of the notice (it is `Copy`), cleared below once collected.
+        let system_style_provider = self.get_layout_window().map(|w| w.system_style_notice);
 
         // Build list of EventProvider managers
         let mut event_providers: Vec<&dyn azul_core::events::EventProvider> = Vec::new();
         if let Some(p) = document_edit_provider.as_ref() {
+            event_providers.push(p as &dyn azul_core::events::EventProvider);
+        }
+        if let Some(p) = system_style_provider.as_ref() {
             event_providers.push(p as &dyn azul_core::events::EventProvider);
         }
         if let Some((tm, sm, gm, geo, pm, bm, km, ed, scroll, te, dev, dial, media, player)) =
@@ -12828,6 +12834,9 @@ pub trait PlatformWindow {
             {
                 w.mark_document_edit_notified();
             }
+            // `SystemStyleChange` is one event per change: collected by this pass, so the next
+            // one starts silent.
+            w.system_style_notice.clear_pending_event();
             // A drag move, a drop and a cancelled drag are one event each: the
             // re-runs of this pass (a callback rebuilt the DOM) must not emit
             // them again. The dropped files stay readable for the callbacks.
