@@ -11862,6 +11862,22 @@ pub trait PlatformWindow {
         any_refresh
     }
 
+    /// Play the haptic requests the callbacks asked for (`CallbackInfo::play_haptic`).
+    ///
+    /// Called at the end of the OUTERMOST event pass and at the end of a timer / thread turn
+    /// ([`Self::process_timers_and_threads`]): a request made by a timer callback (a fling's
+    /// momentum, an animation) has no event pass after it, and waited for the next click.
+    fn drain_haptics(&mut self) {
+        let pending = self
+            .get_layout_window_mut()
+            .filter(|lw| lw.haptic_manager.has_pending())
+            .map(|lw| lw.haptic_manager.take_pending())
+            .unwrap_or_default();
+        for request in &pending {
+            play_haptic_native(request);
+        }
+    }
+
     /// Whether this window hands system sounds and haptics to the OS. A headless window only
     /// RECORDS them: its `SoundManager` holds what `assert_sound` reads, and nothing is played.
     fn plays_system_sounds(&self) -> bool {
@@ -12288,14 +12304,7 @@ pub trait PlatformWindow {
         // continuously instead of ticking once — the exact failure the
         // coalescing exists to prevent.
         if depth == 0 {
-            let pending = self
-                .get_layout_window_mut()
-                .filter(|lw| lw.haptic_manager.has_pending())
-                .map(|lw| lw.haptic_manager.take_pending())
-                .unwrap_or_default();
-            for request in &pending {
-                play_haptic_native(request);
-            }
+            self.drain_haptics();
         }
 
         // SYSTEM SOUNDS. `CallbackInfo::play_system_sound()` -> `CallbackChange::PlaySound` ->
@@ -15016,6 +15025,13 @@ pub trait PlatformWindow {
         // harness, an app timer editing text) and build the display list that
         // starts the tween — arm its driver here too, not only after input.
         self.arm_animation_drivers_if_needed();
+
+        // SOUNDS AND HAPTICS the callbacks of this turn asked for. The drains of the event pass
+        // (`process_window_events` at depth 0) never run for a timer: a fling's momentum is a
+        // timer, and the tick of every page it crosses would wait for the next click. This
+        // function runs at top level, never inside a pass, so it is the same moment.
+        self.drain_haptics();
+        self.drain_system_sounds();
 
         needs_redraw
     }
