@@ -425,6 +425,7 @@ impl FontContext {
             condemned_embedded_fonts: Arc::default(),
             font_hash_to_families: self.font_hash_to_families.clone(),
             registry: self.registry.clone(),
+            system_fonts_gate: None,
             last_resolved_font_stacks_sig: None,
             memory_families: HashMap::new(),
             loaded_fonts_memo: Arc::new(Mutex::new(None)),

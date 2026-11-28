@@ -172,6 +172,8 @@ def e2e_session(args):
             if args.platform == "android":
                 out = dev.adb("install", "-r", "-t", args.apk, timeout=240)
                 s.check("adb install succeeds", "Success" in out, out.strip()[-160:])
+                if qa_extra_env():
+                    dev.adb("logcat", "-G", "16M")     # the knobs asked for print more lines: the default buffer (256 KB) would wrap before the scenario ends
                 dev.adb("logcat", "-c")
                 dev.sh("settings put system accelerometer_rotation 0")
                 dev.sh("settings put secure show_ime_with_hard_keyboard 1")
@@ -192,10 +194,10 @@ def e2e_session(args):
     def s_start(s):
         if args.platform == "android":
             dev.adb("forward", f"tcp:{args.port}", f"tcp:{args.port}")
-            dev.sh(f"setprop debug.az.env 'AZ_DEBUG={args.port};AZ_LOG=info;AZ_DUMP_PRESENT=1'")
+            dev.sh(f"setprop debug.az.env '{android_env_property(args.port, qa_extra_env())}'")
             out = dev.launch(cold=True)
         else:
-            out = dev.launch(extra_env={"AZ_DEBUG": str(args.port), "AZ_DUMP_PRESENT": "1"}, cold=True)
+            out = dev.launch(extra_env=dict({"AZ_DEBUG": str(args.port), "AZ_DUMP_PRESENT": "1"}, **qa_extra_env()), cold=True)
             out = json.dumps({k: v for k, v in out.items() if k != "console"})
         s.note(f"launch: {str(out).strip()[:160]}")
         t = dev.wait_for_front(timeout=args.first_frame_timeout)
@@ -750,6 +752,14 @@ def e2e_session(args):
             # otherwise: a 70-step scenario on a software-GL window or a slow emulator took longer and answered "Timeout waiting for response")
             answer = srv.op("run_e2e_tests", timeout=240, timeout_secs=240, tests=tests)
             (run.logs_dir / f"scenario-{name}.json").write_text(json.dumps(answer, indent=2), encoding="utf-8")
+            # the pictures the take_screenshot steps answered with (base64 PNGs in the answer), as files in order
+            for k, png in enumerate(png_strings(answer)):
+                (run.logs_dir / f"scenario-{name}-shot-{k:03d}.png").write_bytes(base64.b64decode(png))
+            if qa_extra_env():
+                # the knobs asked for (AZ_QA_EXTRA_ENV) print lines: the log of the run, filtered to the [reconcile] lines on Android (iOS: console-N.err.txt holds them all)
+                if args.platform == "android":
+                    text = dev.adb("logcat", "-d", "-v", "threadtime", timeout=120)
+                    dev.save_log(f"reconcile-{name}.txt", "\n".join(l for l in text.splitlines() if "[reconcile]" in l))
             data = answer.get("data") if isinstance(answer, dict) else None
             results = (data or {}).get("results") if isinstance(data, dict) else None
             if results is None and isinstance(data, dict) and isinstance(data.get("value"), dict):
@@ -872,6 +882,41 @@ def e2e_session(args):
     run.step("e70-logs", "the log of the whole session", s_logs)
     run.write()
     return run
+
+
+def qa_extra_env(text=None):
+    """AZ_QA_EXTRA_ENV="KEY=VALUE;KEY=VALUE": more knobs for the app under test, handed to it at its start (TABS: AZ_RECONCILE_DEBUG=1 for the [reconcile] lines). -> a dict."""
+    text = os.environ.get("AZ_QA_EXTRA_ENV", "") if text is None else text
+    out = {}
+    for part in text.split(";"):
+        key, sep, value = part.partition("=")
+        if sep and key.strip():
+            out[key.strip()] = value.strip()
+    return out
+
+
+def android_env_property(port, extra=None):
+    """The value of the system property `debug.az.env` the engine reads its AZ_* knobs from: the debug server's port, the info log, the present dump and the extra knobs. A system property holds 91
+    characters at most: more raises ValueError (a silently cut property would drop a knob and the run would look fine)."""
+    value = f"AZ_DEBUG={port};AZ_LOG=info;AZ_DUMP_PRESENT=1" + "".join(f";{k}={v}" for k, v in (extra or {}).items())
+    if len(value) > 91:
+        raise ValueError(f"debug.az.env would be {len(value)} characters, a property holds 91: {value}")
+    return value
+
+
+def png_strings(obj, found=None):
+    """The base64 PNGs inside a JSON answer (a string that starts with iVBORw0KGgo), in the order they occur: what a take_screenshot step answers with when no path was given."""
+    found = [] if found is None else found
+    if isinstance(obj, str):
+        if obj.startswith("iVBORw0KGgo"):
+            found.append(obj)
+    elif isinstance(obj, dict):
+        for v in obj.values():
+            png_strings(v, found)
+    elif isinstance(obj, list):
+        for v in obj:
+            png_strings(v, found)
+    return found
 
 
 def main(argv):
