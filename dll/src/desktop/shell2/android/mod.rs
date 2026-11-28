@@ -1992,6 +1992,13 @@ fn drain_input(app: &AndroidApp, window: &mut AndroidWindow) {
                     return InputStatus::Handled;
                 }
 
+                // A game pad's sticks, triggers and hat are MotionEvents too, and carry no position: collected
+                // below they became a finger at (0, 0). Left unhandled, they reach `AzulGamepad.onMotion`
+                // through the activity's `dispatchGenericMotionEvent`, which is the pad's path.
+                if crate::desktop::shell2::android_core::touch::is_a_pad_stick(u32::from(m.source())) {
+                    return InputStatus::Unhandled;
+                }
+
                 let mut first_pos = LogicalPosition::new(0.0, 0.0);
                 let mut touch_points: Vec<azul_core::window::TouchPoint> = Vec::new();
                 let mut first_pointer = true;
@@ -3483,6 +3490,32 @@ fn play_via_vibrator(
             .unwrap_or(false);
         if !has {
             return Ok(true);
+        }
+
+        // The hardware may not play this primitive (an eccentric-motor phone plays none of them; the chirps need a
+        // linear resonant actuator): `vibrate` of an unsupported primitive is NOT an error, it plays nothing, and
+        // the caller answered Ok(true) and never fell back to `performHapticFeedback`. Ask first
+        // (`Vibrator.areAllPrimitivesSupported`, API 30), and let the caller fall back when the answer is no.
+        let ids = env
+            .new_int_array(1)
+            .map_err(|e| format!("new_int_array: {e:?}"))?;
+        env.set_int_array_region(&ids, 0, &[primitive])
+            .map_err(|e| format!("set_int_array_region: {e:?}"))?;
+        let supported = env
+            .call_method(
+                &vibrator,
+                "areAllPrimitivesSupported",
+                "([I)Z",
+                &[JValue::Object(&JObject::from(ids))],
+            )
+            .and_then(|v| v.z());
+        match supported {
+            Ok(true) => {}
+            Ok(false) => return Ok(false),
+            Err(_) => {
+                let _ = env.exception_clear();
+                return Ok(false);
+            }
         }
 
         // startComposition().addPrimitive(id, scale).compose()
