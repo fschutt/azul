@@ -3101,6 +3101,11 @@ pub(crate) const PILL_STRIP_CSS: &str = "--azul-material-tint: #e4e2dd; --azul-p
 /// cushion bevel.
 pub(crate) const PILL_RULE_CSS: &str = "--azul-material-tint: #e9c672; --azul-bevel: 1px; \
      --azul-bevel-depth: 2.5; --azul-bevel-softness: 1;";
+/// The height of the band under the tab row, in px: the ribbon's command band of EVERY tab and
+/// the location block of the first one (`RibbonTab::with_location`) are exactly this tall, on a
+/// desktop and on a phone, so a flip between two tabs never moves what lies below the band. One
+/// number for the whole tab widget, three rows of small commands clear of the group titles.
+pub const TAB_BAND_PX: isize = 106;
 /// The room between two tab buttons, in px.
 pub(crate) const PILL_GAP: isize = 6;
 /// The row the buttons stand in, in px: a title bar's height.

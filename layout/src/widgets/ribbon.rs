@@ -4559,9 +4559,9 @@ static CLS_RULE: &[IdOrClass] = &[Class(AzString::from_const_str(RIBBON_RULE_CLA
 
 /// The room between the buttons at the tab row's end, in px.
 const STRIP_END_GAP: isize = 4;
-/// The content band's height on the leather, in px: three rows of small
-/// commands clear of the group titles.
-const LEATHER_CONTENT_PX: isize = 106;
+/// The content band's height on the leather, in px: the one height of every tab's band
+/// ([`crate::widgets::tabs::TAB_BAND_PX`]).
+const LEATHER_CONTENT_PX: isize = crate::widgets::tabs::TAB_BAND_PX;
 
 /// What one build reads from the ribbon's reveal, once for both looks.
 #[derive(Clone)]
