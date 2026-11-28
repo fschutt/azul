@@ -170,3 +170,19 @@ fn a_ribbon_asks_for_nothing_by_default() {
     assert!(ribbon.status_bar.is_none());
     assert_eq!(ribbon.flip, TabFlip::AtEdges);
 }
+
+#[test]
+fn the_touch_ribbons_tab_row_listens_to_its_own_resize() {
+    use azul_core::dom::{ComponentEventFilter, EventFilter};
+
+    let dom = touch(4).with_active_tab(1).dom_desktop();
+    let bar = child_with(&dom, TAB_BAR);
+    let heard = bar
+        .root
+        .get_callbacks()
+        .as_ref()
+        .iter()
+        .filter(|cb| matches!(cb.event, EventFilter::Component(ComponentEventFilter::NodeResized)))
+        .count();
+    assert_eq!(heard, 1, "a turn of the phone moves the lanes: the row hears it");
+}

@@ -2106,11 +2106,18 @@ pub(crate) fn hit_extender() -> Dom {
     Dom::create_div().with_css("position: absolute; left: -4px; right: -4px; top: -8px; bottom: -8px;")
 }
 
+/// The class of the marker hung in the selected pill: what finds the selected pill again when the
+/// strip is resized (the marker's own `AfterMount` knows its pill by being in it).
+const SELECTED_MARKER_CLASS: &str = "__azul-tabs-selected-marker";
+
+static SELECTED_MARKER_CLASSES: &[IdOrClass] = &[Class(AzString::from_const_str(SELECTED_MARKER_CLASS))];
+
 /// The marker hung in the SELECTED pill, keyed by its tab: a new selection mounts a new marker,
 /// and its `AfterMount` scrolls the strip so that the selected pill stands whole in a lane -
 /// whoever changed the selection (a tap, an arrow key, a flip of the panel, the app).
 pub(crate) fn selected_marker(data: StripScrollData, tab: usize) -> Dom {
     Dom::create_div()
+        .with_ids_and_classes(IdOrClassVec::from_const_slice(SELECTED_MARKER_CLASSES))
         .with_css("position: absolute; left: 0px; top: 0px; width: 0px; height: 0px;")
         .with_key(("azul-tab-selected", tab))
         .with_callbacks(
@@ -2126,6 +2133,20 @@ pub(crate) fn selected_marker(data: StripScrollData, tab: usize) -> Dom {
         )
 }
 
+/// The strip's own `NodeResized`: a window of another width (the phone turned) moves the lanes of the
+/// band and the room of the row, so the selected pill is brought into a lane again.
+pub(crate) fn strip_resized_callbacks(data: StripScrollData) -> azul_core::callbacks::CoreCallbackDataVec {
+    vec![CoreCallbackData {
+        event: EventFilter::Component(azul_core::dom::ComponentEventFilter::NodeResized),
+        callback: CoreCallback {
+            cb: on_strip_resized as usize,
+            ctx: azul_core::refany::OptionRefAny::None,
+        },
+        refany: RefAny::new(data),
+    }]
+    .into()
+}
+
 /// A cover over a gap of the status bar's band: the window's background, over the pills, so
 /// that a pill sliding into the gap is hidden by it and never drawn under the camera.
 fn gap_cover(rect: &azul_core::geom::LogicalRect) -> Dom {
@@ -2139,6 +2160,30 @@ fn gap_cover(rect: &azul_core::geom::LogicalRect) -> Dom {
 /// `AfterMount` of the marker in the selected pill: scroll the strip so that the pill is whole
 /// in a lane ([`crate::widgets::tab_strip::scroll_for_pill`]).
 extern "C" fn on_selected_pill_mounted(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let marker = info.get_hit_node();
+    let Some(pill) = info.get_parent(marker) else {
+        return Update::DoNothing;
+    };
+    let Some(strip) = info.get_parent(pill) else {
+        return Update::DoNothing;
+    };
+    scroll_selected_into_lane(&mut data, &mut info, strip, Some(pill))
+}
+
+/// `NodeResized` of the strip: the same, for the pill that carries the marker.
+extern "C" fn on_strip_resized(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let strip = info.get_hit_node();
+    scroll_selected_into_lane(&mut data, &mut info, strip, None)
+}
+
+/// Scroll `strip` so that its selected pill stands whole in a lane: `pill` is the selected one when
+/// the caller knows it, else the one that carries the marker.
+fn scroll_selected_into_lane(
+    data: &mut RefAny,
+    info: &mut CallbackInfo,
+    strip: azul_core::dom::DomNodeId,
+    pill: Option<azul_core::dom::DomNodeId>,
+) -> Update {
     use azul_core::geom::LogicalPosition;
 
     use crate::widgets::{roving, tab_strip};
@@ -2149,21 +2194,21 @@ extern "C" fn on_selected_pill_mounted(mut data: RefAny, mut info: CallbackInfo)
     let data = (*guard).clone();
     drop(guard);
 
-    let marker = info.get_hit_node();
-    let Some(pill) = info.get_parent(marker) else {
-        return Update::DoNothing;
-    };
-    let Some(strip) = info.get_parent(pill) else {
-        return Update::DoNothing;
-    };
     let Some(strip_id) = strip.node.into_crate_internal() else {
         return Update::DoNothing;
     };
-    let tabs: Vec<azul_core::dom::DomNodeId> = roving::children_of(&info, strip)
+    let tabs: Vec<azul_core::dom::DomNodeId> = roving::children_of(info, strip)
         .into_iter()
-        .filter(|n| data.pill_classes.iter().any(|class| roving::has_class(&info, *n, class)))
+        .filter(|n| data.pill_classes.iter().any(|class| roving::has_class(info, *n, class)))
         .collect();
-    let Some(index) = tabs.iter().position(|n| *n == pill) else {
+    let selected = pill.or_else(|| {
+        tabs.iter().copied().find(|tab| {
+            roving::children_of(info, *tab)
+                .into_iter()
+                .any(|child| roving::has_class(info, child, SELECTED_MARKER_CLASS))
+        })
+    });
+    let Some(index) = selected.and_then(|pill| tabs.iter().position(|n| *n == pill)) else {
         return Update::DoNothing;
     };
     let Some(view) = info.get_node_size(strip).map(|size| size.width) else {
@@ -2328,6 +2373,8 @@ impl TabHeader {
                 role: AccessibilityRole::PageTabList,
                 ..Default::default()
             })
+            // A turn of the phone brings the selected pill into a lane of the new band.
+            .with_callbacks(strip_resized_callbacks(scroll.clone()))
             .with_children(DomVec::from_vec(nodes));
 
         let mut header_css = format!(
@@ -2770,9 +2817,9 @@ fn apply_flip_outcome(
 }
 
 /// The content shifted by `shift` px and the chip of `direction` shown at `progress` (0 to 1; `None`
-/// hides both chips). Nothing to show clears the overrides (`CssProperty::initial` removes one): the
-/// build's own style is the content at rest and the chips hidden, so the end of a pull, a flip and a
-/// rebuild all leave the panel as a build makes it.
+/// hides both chips). The content at rest is no transform (`CssProperty::initial`: the property's
+/// initial value, and a rebuild drops the override) and a chip that is not shown is `display: none`,
+/// as a build makes it, so the end of a pull, a flip and a rebuild all leave the panel as a build does.
 fn show_flip_pull(
     info: &mut CallbackInfo,
     panel: azul_core::dom::DomNodeId,
@@ -2810,7 +2857,10 @@ fn show_flip_pull(
                 }),
             );
         } else {
-            info.set_css_property(child, CssProperty::initial(CssPropertyType::Display));
+            // Hidden is a value, not "no override": `initial` is the property's initial value
+            // (a block, for an absolute box), and showed the chip of the other direction as a bar
+            // across the panel. A rebuild says `display: none` by itself, which is the same.
+            info.set_css_property(child, CssProperty::const_display(LayoutDisplay::None));
             info.set_css_property(child, CssProperty::initial(CssPropertyType::Opacity));
         }
     }

@@ -4197,8 +4197,11 @@ impl Ribbon {
             .with_children(DomVec::from_vec(bar_children));
         if touch {
             // Longer than the window: the row scrolls under a finger, with the wheel and the keys,
-            // and shows no scrollbar.
+            // and shows no scrollbar; a turn of the phone brings the selected pill into a lane.
             tab_bar.root.set_css("overflow-x: auto; overflow-y: hidden; scrollbar-width: none;");
+            tab_bar = tab_bar.with_callbacks(crate::widgets::tabs::strip_resized_callbacks(
+                strip_scroll.clone(),
+            ));
         }
 
         let mut group_doms: Vec<Dom> =

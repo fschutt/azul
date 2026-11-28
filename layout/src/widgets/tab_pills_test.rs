@@ -303,3 +303,37 @@ fn a_header_gets_no_band_by_default() {
     assert!(TabHeader::default().status_bar.is_none());
     assert!(TabHeader::create(labels(2)).status_bar.is_none());
 }
+
+#[test]
+fn the_selected_marker_names_itself_so_a_resize_finds_the_selected_pill_again() {
+    let dom = touch_header(5, 3).dom();
+    let strip = strip_of(&dom);
+    let pills = pills_of(strip);
+    for (i, pill) in pills.iter().enumerate() {
+        let marked = pill
+            .children
+            .as_ref()
+            .iter()
+            .any(|c| classes_of(c).iter().any(|c| c == "__azul-tabs-selected-marker"));
+        assert_eq!(marked, i == 3, "pill {i}: only the selected one carries the marker");
+    }
+}
+
+#[test]
+fn the_strip_listens_to_its_own_resize() {
+    use azul_core::{dom::ComponentEventFilter, dom::EventFilter};
+
+    let resize = |dom: &Dom| {
+        dom.root
+            .get_callbacks()
+            .as_ref()
+            .iter()
+            .filter(|cb| {
+                matches!(cb.event, EventFilter::Component(ComponentEventFilter::NodeResized))
+            })
+            .count()
+    };
+    let dom = touch_header(5, 1).dom();
+    assert_eq!(resize(strip_of(&dom)), 1, "a turn of the phone moves the lanes: the strip hears it");
+    assert_eq!(resize(&dom), 0, "the header around it is not the strip");
+}

@@ -90,6 +90,11 @@ mod display_ops_tests;
 #[cfg(test)]
 mod tab_flip_ops_tests;
 
+// The touch strip scrolls sideways without a scrollbar, and `scrollbar-width: none` as CSS text hides
+// the bar like the typed property does.
+#[cfg(test)]
+mod tab_strip_ops_tests;
+
 // The key names `key_down` / `key_up` accept: punctuation and the numeric
 // keypad, so a scenario can type an operator (`plus`, `numpad_multiply`).
 #[cfg(test)]
