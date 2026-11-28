@@ -31,6 +31,10 @@ pub mod system;
 /// needs a person.
 pub const FEEDABLE: &[&str] = &["security.biometric_prompt", "security.keyring_protected", "lifecycle.background"];
 
+/// How long an unattended row waits for the engine to read the system's permission state before it says the permission was never
+/// granted: the engine reads it quietly about once a second, so a permission granted with `pm grant` reads NotDetermined at first.
+pub const SETTLE_MS: u64 = 2_500;
+
 /// The harness's turn: prints the ONE line `AZ_SELFTEST_AWAIT <key>` the harness waits for before it feeds the
 /// platform (key `biometric.match`: Android `adb emu finger touch 1`, iOS Simulator
 /// `notifyutil -p com.apple.BiometricKit_Sim.pearl.match`). Call it once, right after the probe started what waits.

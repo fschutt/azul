@@ -128,6 +128,7 @@ fn geolocation(ctx: &mut Ctx<'_>) -> Step {
                     .into(),
             ));
         }
+        PermissionState::NotDetermined if ctx.unattended && ctx.elapsed_ms < super::SETTLE_MS => return Step::Wait,
         PermissionState::NotDetermined if ctx.unattended => {
             return Step::Done(Verdict::NeedsHuman(
                 "the location permission was never granted: grant it (adb shell pm grant <package> android.permission.ACCESS_FINE_LOCATION), or run this row by hand and answer the dialog"
