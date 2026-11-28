@@ -582,7 +582,10 @@ pub fn regenerate_layout(
         // keyboard. `layout_window` is the single authority; the shells write
         // it (Android from `WindowInsets`, iOS from `UIView.safeAreaInsets`,
         // macOS from `NSView`).
-        safe_area: layout_window.safe_area_insets,
+        safe_area: layout_window.effective_safe_area_insets(current_window_state),
+        // The shapes the insets are made of (the simulation of `WindowFlags::display_preset`
+        // included), for `LayoutCallbackInfo::get_display_features`.
+        display_features: layout_window.effective_display_features(current_window_state),
         // Where each global hotkey stood BEFORE this pass (owner relative to
         // this window): what `get_global_hotkey_status` answers from. A
         // status that moves because of this pass's own declarations is seen

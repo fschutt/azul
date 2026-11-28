@@ -3782,6 +3782,9 @@ pub fn parse_css_property(
         // so `overscroll-behavior-x: none` silently resolved to the default.
         CssPropertyType::OverscrollBehaviorX |
         CssPropertyType::OverscrollBehaviorY |
+        // scrollbar-width: auto / none / thin are the three typed values
+        // (LayoutScrollbarWidth::{Auto, None, Thin}); see the none list below.
+        CssPropertyType::ScrollbarWidth |
         // font-optical-sizing, font-kerning and the font-synthesis-* longhands
         // have `auto` in their grammar: the typed value, not the generic keyword.
         CssPropertyType::FontOpticalSizing |
@@ -3806,6 +3809,12 @@ pub fn parse_css_property(
         CssPropertyType::TextDecoration | // text-decoration: none is a typed value
         CssPropertyType::OverscrollBehaviorX | // see the auto list above
         CssPropertyType::OverscrollBehaviorY |
+        // scrollbar-width: none means LayoutScrollbarWidth::None: no bar and no gutter. As the
+        // CSS-wide keyword it read back as "no value" (the compact cache never flagged the node,
+        // the style stayed the UA's), so every `scrollbar-width: none` written as CSS text drew
+        // its scrollbar all the same - only the typed property (`CssProperty::ScrollbarWidth`
+        // with `Exact(None)`) hid it.
+        CssPropertyType::ScrollbarWidth |
         CssPropertyType::ObjectFit | // object-fit: none means StyleObjectFit::None
         // border-*-style: none is BorderStyle::None. As the CSS-wide keyword
         // it read back as "no value": the compact cache kept the style a
@@ -12790,3 +12799,7 @@ mod font_variant_caps_tests {
 #[cfg(test)]
 #[path = "property_font_test.rs"]
 mod property_font_test;
+
+#[cfg(test)]
+#[path = "property_scrollbar_test.rs"]
+mod property_scrollbar_test;

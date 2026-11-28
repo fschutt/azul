@@ -38,6 +38,17 @@ const MANIFEST_FN: &str = "pub(super) fn every_widget_dom()";
 /// re-checked by `the_exemption_list_has_no_stale_entries`.
 const EXEMPT: &[(&str, &str)] = &[
     (
+        "tab_flip",
+        "the rules of a vertical pull on a tab panel as plain numbers (TabFlip, the gesture, the rubber, \
+         the fling): no widget type and no dom() of its own; the panel that uses them is the \"tabs\" entry",
+    ),
+    (
+        "tab_strip",
+        "the geometry of a tab strip in the status bar's band (the lanes, where the selected pill \
+         stands): plain numbers, no widget type and no dom() of its own; the touch strip that uses \
+         it renders inside the \"tabs\" entries",
+    ),
+    (
         "tab_reveal",
         "the reveal machine a tab bar or a ribbon opens and locks its panel with: no widget type \
          with a dom() of its own; the \"tabs (buttons, revealing)\" entry renders it",

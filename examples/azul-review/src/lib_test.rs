@@ -59,21 +59,65 @@ pub(crate) fn app_with_file() -> AppState {
     AppState::create(PathBuf::new(), vec![file()], RefAny::new(0u8), PathBuf::new())
 }
 
-/// A folder of the disk with these files (under the system's temporary folder, one per test name, process and thread: tests
-/// that name the same folder and run at once do not remove each other's files).
-pub(crate) fn scratch_folder(name: &str, files: &[(&str, &str)]) -> PathBuf {
+/// The start of the name of every folder the harness makes directly under the system's temporary folder. (Spelled in two parts: the l10n
+/// check reads every `"azreview-..."` literal of a source file as the key of a message.)
+pub(crate) const SCRATCH_PREFIX: &str = concat!("azreview", "-test-");
+
+/// A folder of the disk for one test, removed when the guard is let go (at the end of the test, and when an assertion fails on the way):
+/// whatever the test wrote into it, a file of 64 MB included, does not stay under the system's temporary folder for the next run to add to.
+#[must_use]
+pub(crate) struct Scratch {
+    dir: PathBuf,
+}
+
+/// The start of the names of the folders this thread's harness makes: the prefix, the process, the thread.
+fn scratch_prefix_here() -> String {
     let thread = format!("{:?}", std::thread::current().id()).replace(|c: char| !c.is_ascii_alphanumeric(), "");
-    let dir = std::env::temp_dir().join(format!("azreview-test-{}-{thread}-{name}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).expect("a folder under the temporary one");
+    format!("{SCRATCH_PREFIX}{}-{thread}-", std::process::id())
+}
+
+impl Scratch {
+    /// The empty folder of `name`: one per test name, process and thread, so that tests that name the same folder and run at once do not
+    /// remove each other's files.
+    fn made(name: &str) -> Self {
+        let dir = std::env::temp_dir().join(format!("{}{name}", scratch_prefix_here()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("a folder under the temporary one");
+        Self { dir }
+    }
+}
+
+impl std::ops::Deref for Scratch {
+    type Target = std::path::Path;
+
+    fn deref(&self) -> &std::path::Path {
+        &self.dir
+    }
+}
+
+impl Drop for Scratch {
+    fn drop(&mut self) {
+        // only a folder this harness made, directly under the temporary one
+        let made_here = self.dir.parent() == Some(std::env::temp_dir().as_path())
+            && self.dir.file_name().and_then(|n| n.to_str()).is_some_and(|n| n.starts_with(SCRATCH_PREFIX));
+        if made_here {
+            let _ = std::fs::remove_dir_all(&self.dir);
+        }
+    }
+}
+
+/// A folder of the disk with these files, for one test: the guard is held for as long as the test uses the folder (`let _dir = ...`; a
+/// bare `_` lets it go at once).
+pub(crate) fn scratch_folder(name: &str, files: &[(&str, &str)]) -> Scratch {
+    let scratch = Scratch::made(name);
     for (rel, text) in files {
-        let path = dir.join(rel);
+        let path = scratch.join(rel);
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent).expect("a folder");
         }
         std::fs::write(&path, text).expect("a file");
     }
-    dir
+    scratch
 }
 
 /// A file whose line 12 has a word of ten characters where the fixtures' slash is drawn (column 33 of the page: x 301.8 to
@@ -230,9 +274,9 @@ fn opening_a_folder_replaces_the_files_and_starts_afresh() {
     s.panels.tree_open = false;
     let folder = scratch_folder("open-folder", &[("a.rs", "fn a() {}\n")]);
 
-    s.open_folder(folder.clone());
+    s.open_folder(folder.to_path_buf());
 
-    assert_eq!(s.root, folder);
+    assert_eq!(s.root, folder.to_path_buf());
     assert_eq!(s.tree.file_count(), 1);
     assert_eq!(s.file().map(|f| f.display.as_str()), Some("a.rs"), "its first file is open");
     assert!(s.strokes.is_empty() && s.notes.is_empty(), "nothing of the folder left behind");
@@ -245,7 +289,7 @@ fn opening_a_folder_replaces_the_files_and_starts_afresh() {
 fn a_folder_without_files_leaves_no_file_open() {
     let mut s = app_with_file();
     let folder = scratch_folder("empty", &[]);
-    s.open_folder(folder);
+    s.open_folder(folder.to_path_buf());
     assert_eq!(s.open_node, None);
     assert!(s.file().is_none());
     assert!(!s.has_entries(), "the empty page says there is nothing to review");
@@ -257,7 +301,8 @@ fn a_folder_without_files_leaves_no_file_open() {
 fn opening_a_folder_ends_the_dictation_that_listens() {
     let mut s = app_with_file();
     s.voice.running = Some(crate::voice::Running::for_test(1, 1));
-    s.open_folder(scratch_folder("listens", &[]));
+    let folder = scratch_folder("listens", &[]);
+    s.open_folder(folder.to_path_buf());
     assert!(
         s.voice.running.as_ref().is_some_and(|r| r.stopping.is_some()),
         "what listens writes into the file being left: it is asked to stop"
@@ -520,18 +565,21 @@ fn names(s: &AppState) -> Vec<String> {
     s.rows.iter().map(|r| r.name.clone()).collect()
 }
 
-fn on_disk(name: &str, files: &[(&str, &str)]) -> AppState {
-    AppState::on_disk(scratch_folder(name, files), RefAny::new(0u8), PathBuf::new())
+/// An app on a folder of the disk with these files, and the folder's guard: the test keeps it (`let (mut s, _dir) = ...`) for as long as the app
+/// is used, and the folder goes when both are let go.
+fn on_disk(name: &str, files: &[(&str, &str)]) -> (AppState, Scratch) {
+    let dir = scratch_folder(name, files);
+    (AppState::on_disk(dir.to_path_buf(), RefAny::new(0u8), PathBuf::new()), dir)
 }
 
 /// [`on_disk`] for the other test modules.
-pub(crate) fn on_disk_for_state(name: &str, files: &[(&str, &str)]) -> AppState {
+pub(crate) fn on_disk_for_state(name: &str, files: &[(&str, &str)]) -> (AppState, Scratch) {
     on_disk(name, files)
 }
 
 #[test]
 fn a_folder_of_a_disk_lists_its_root_only_and_opens_the_first_file_of_it() {
-    let s = on_disk(
+    let (s, _dir) = on_disk(
         "lazy",
         &[("README.md", "# hi\n"), ("src/lib.rs", "fn a() {}\n"), ("src/deep/b.rs", "fn b() {}\n")],
     );
@@ -545,7 +593,7 @@ fn a_folder_of_a_disk_lists_its_root_only_and_opens_the_first_file_of_it() {
 
 #[test]
 fn opening_a_folder_gives_the_job_that_lists_it_and_its_listing_fills_the_rows() {
-    let mut s = on_disk("open-dir", &[("README.md", "x\n"), ("src/lib.rs", "fn a() {}\n"), ("src/deep/b.rs", "fn b() {}\n")]);
+    let (mut s, _dir) = on_disk("open-dir", &[("README.md", "x\n"), ("src/lib.rs", "fn a() {}\n"), ("src/deep/b.rs", "fn b() {}\n")]);
     let src = s.tree.find("src").expect("src");
     let job = s.toggle_dir(src).expect("a folder that was never listed asks for it");
     assert_eq!((job.dir.as_str(), job.workspace), ("src", s.workspace));
@@ -565,11 +613,12 @@ fn opening_a_folder_gives_the_job_that_lists_it_and_its_listing_fills_the_rows()
 
 #[test]
 fn a_listing_that_comes_back_after_another_folder_was_chosen_is_not_taken() {
-    let mut s = on_disk("stale", &[("a.rs", "x\n"), ("src/lib.rs", "x\n")]);
+    let (mut s, _dir) = on_disk("stale", &[("a.rs", "x\n"), ("src/lib.rs", "x\n")]);
     let src = s.tree.find("src").expect("src");
     let job = s.toggle_dir(src).expect("job");
     let late = job.source.list("src").expect("listed");
-    s.open_folder(scratch_folder("stale-other", &[("b.rs", "x\n"), ("src/other.rs", "x\n")]));
+    let other = scratch_folder("stale-other", &[("b.rs", "x\n"), ("src/other.rs", "x\n")]);
+    s.open_folder(other.to_path_buf());
     assert_ne!(job.workspace, s.workspace);
     assert!(!s.take_listing(job.workspace, "src", Ok(late)));
     let src = s.tree.find("src").expect("the other folder's src");
@@ -578,7 +627,7 @@ fn a_listing_that_comes_back_after_another_folder_was_chosen_is_not_taken() {
 
 #[test]
 fn a_listing_that_failed_ends_the_wait_and_leaves_the_folder_open_and_empty() {
-    let mut s = on_disk("failed", &[("src/lib.rs", "x\n"), ("a.rs", "x\n")]);
+    let (mut s, _dir) = on_disk("failed", &[("src/lib.rs", "x\n"), ("a.rs", "x\n")]);
     let src = s.tree.find("src").expect("src");
     let job = s.toggle_dir(src).expect("job");
     assert!(s.take_listing(job.workspace, "src", Err(crate::symbols_source::ReadError::NotFound)));
@@ -589,7 +638,7 @@ fn a_listing_that_failed_ends_the_wait_and_leaves_the_folder_open_and_empty() {
 #[test]
 fn a_file_that_is_no_text_or_too_large_is_not_shown_and_the_window_says_why() {
     crate::l10n::in_english();
-    let mut s = on_disk("not-shown", &[("a.rs", "fn a() {}\n"), ("bin.rs", "")]);
+    let (mut s, _dir) = on_disk("not-shown", &[("a.rs", "fn a() {}\n"), ("bin.rs", "")]);
     std::fs::write(s.root.join("bin.rs"), b"\x7fELF\0\0\0").expect("write");
     let relist = s.source.list("").expect("list");
     s.take_listing(s.workspace, "", Ok(relist));
@@ -597,7 +646,11 @@ fn a_file_that_is_no_text_or_too_large_is_not_shown_and_the_window_says_why() {
     assert!(s.problem.as_deref().is_some_and(|p| p.contains("bin.rs") && p.contains("no text")), "{:?}", s.problem);
     assert_eq!(s.file().map(|f| f.display.as_str()), Some("a.rs"), "the file that was open stays open");
 
-    std::fs::write(s.root.join("big.rs"), vec![b'a'; code::MAX_OPEN_BYTES + 1]).expect("write");
+    // one byte over the limit, as a hole: the size is all that is looked at, and the disk keeps nothing of it (the 64 MB of 'a' that this
+    // wrote once stayed in the temporary folder, one copy for every run of the tests)
+    let big = std::fs::File::create(s.root.join("big.rs")).expect("create");
+    big.set_len(u64::try_from(code::MAX_OPEN_BYTES + 1).expect("a size")).expect("a file of that size");
+    drop(big);
     let relist = s.source.list("").expect("list");
     s.take_listing(s.workspace, "", Ok(relist));
     s.problem = None;
@@ -605,9 +658,54 @@ fn a_file_that_is_no_text_or_too_large_is_not_shown_and_the_window_says_why() {
     assert!(s.problem.as_deref().is_some_and(|p| p.contains("big.rs") && p.contains("MB")), "{:?}", s.problem);
 }
 
+/// The folders of the harness under the temporary folder that this thread made and that are still there.
+fn made_here() -> Vec<String> {
+    let mine = scratch_prefix_here();
+    let mut names: Vec<String> = std::fs::read_dir(std::env::temp_dir())
+        .into_iter()
+        .flatten()
+        .filter_map(Result::ok)
+        .filter_map(|entry| entry.file_name().into_string().ok())
+        .filter(|name| name.starts_with(&mine))
+        .collect();
+    names.sort();
+    names
+}
+
+#[test]
+fn a_run_of_the_harness_leaves_no_folder_behind_not_even_one_with_a_file_of_the_biggest_size_in_it() {
+    let before = made_here();
+    {
+        // what the biggest of the tests does: an app on a folder, and in it a file one byte over what the app opens (a hole: the disk holds
+        // none of it, and it was 64 MB of text in a folder that nothing removed: one for every run of the tests)
+        let (s, dir) = on_disk("leak-big", &[("a.rs", "fn a() {}\n")]);
+        let size = u64::try_from(code::MAX_OPEN_BYTES + 1).expect("a size");
+        let big = std::fs::File::create(dir.join("big.rs")).expect("create");
+        big.set_len(size).expect("a file of that size");
+        drop(big);
+        assert_eq!(std::fs::metadata(dir.join("big.rs")).map(|m| m.len()).ok(), Some(size));
+        assert!(s.file().is_some(), "the app is on the folder");
+        let other = scratch_folder("leak-other", &[("deep/b.rs", "x\n")]);
+        assert!(other.join("deep/b.rs").is_file());
+        let held = made_here();
+        assert_eq!(held.len(), before.len() + 2, "both folders are there while their guards are held: {held:?}");
+    }
+    assert_eq!(made_here(), before, "the harness left a folder under the temporary one");
+}
+
+#[test]
+fn a_guard_removes_only_a_folder_the_harness_made_directly_under_the_temporary_one() {
+    // a folder of another name is not its to remove, however it came to be held
+    let elsewhere = std::env::temp_dir().join(format!("azreview-not-the-harness-{}", std::process::id()));
+    std::fs::create_dir_all(&elsewhere).expect("a folder");
+    drop(Scratch { dir: elsewhere.clone() });
+    assert!(elsewhere.is_dir(), "a folder without the harness's prefix was removed");
+    std::fs::remove_dir(&elsewhere).expect("this test's own empty folder");
+}
+
 #[test]
 fn a_path_the_tree_does_not_know_opens_nothing() {
-    let mut s = on_disk("unknown", &[("a.rs", "x\n"), ("src/lib.rs", "x\n")]);
+    let (mut s, _dir) = on_disk("unknown", &[("a.rs", "x\n"), ("src/lib.rs", "x\n")]);
     assert!(!s.open_path("src/lib.rs"), "the folder was not listed: the tree does not know the file");
     assert!(!s.open_path("nothing.rs"));
     assert!(!s.open_path("src"), "a folder is not a file");
@@ -616,14 +714,14 @@ fn a_path_the_tree_does_not_know_opens_nothing() {
 
 #[test]
 fn the_lines_of_the_open_file_are_counted_in_the_tree() {
-    let s = on_disk("counted", &[("a.rs", "one\ntwo\nthree\n")]);
+    let (s, _dir) = on_disk("counted", &[("a.rs", "one\ntwo\nthree\n")]);
     let a = s.tree.find("a.rs").expect("a.rs");
     assert_eq!(s.tree.node(a).and_then(|n| n.lines), Some(3));
 }
 
 #[test]
 fn expanding_everything_lists_every_folder_down_to_its_files_and_says_how_much_it_read() {
-    let mut s = on_disk(
+    let (mut s, _dir) = on_disk(
         "expand-all",
         &[("README.md", "x\n"), ("src/lib.rs", "x\n"), ("src/deep/b.rs", "x\n"), ("src/deep/er/c.rs", "x\n"), ("tests/t.rs", "x\n")],
     );
@@ -642,7 +740,7 @@ fn expanding_everything_lists_every_folder_down_to_its_files_and_says_how_much_i
 fn a_first_file_that_cannot_be_shown_is_passed_over_at_the_start_without_a_word() {
     let folder = scratch_folder("first-bad", &[("a.rs", ""), ("b.rs", "fn b() {}\n")]);
     std::fs::write(folder.join("a.rs"), b"\x7fELF\0\0\0").expect("write");
-    let s = AppState::on_disk(folder, RefAny::new(0u8), PathBuf::new());
+    let s = AppState::on_disk(folder.to_path_buf(), RefAny::new(0u8), PathBuf::new());
     assert_eq!(s.file().map(|f| f.display.as_str()), Some("b.rs"));
     assert!(s.problem.is_none(), "the reviewer did not ask for a.rs: {:?}", s.problem);
 }
@@ -650,7 +748,7 @@ fn a_first_file_that_cannot_be_shown_is_passed_over_at_the_start_without_a_word(
 // ---- what has been looked at ----
 
 /// A folder of a disk with `a.rs` of 100 lines (three pages) and `b.rs` of 10, `a.rs` open.
-fn reviewing_two() -> AppState {
+fn reviewing_two() -> (AppState, Scratch) {
     let a: String = (0..100).map(|i| format!("fn a{i}() {{}}\n")).collect();
     let b: String = (0..10).map(|i| format!("fn b{i}() {{}}\n")).collect();
     on_disk("progress", &[("a.rs", a.as_str()), ("b.rs", b.as_str())])
@@ -669,7 +767,7 @@ fn id_of(s: &AppState, path: &str) -> crate::tree::NodeId {
 
 #[test]
 fn a_file_all_of_whose_pages_were_looked_at_is_reviewed_and_the_tree_marks_it_green() {
-    let mut s = reviewing_two();
+    let (mut s, _dir) = reviewing_two();
     let a = id_of(&s, "a.rs");
     read_page(&mut s, 0);
     read_page(&mut s, 1);
@@ -687,11 +785,11 @@ fn a_file_all_of_whose_pages_were_looked_at_is_reviewed_and_the_tree_marks_it_gr
 
 #[test]
 fn a_page_that_carries_ink_is_seen_without_being_looked_at() {
-    let mut s = reviewing_two();
+    let (mut s, _dir) = reviewing_two();
     s.keep(kept(1, 2));
     assert_eq!(s.progress.get("a.rs").map(|e| e.seen.ranges()), Some(vec![(2, 2)]));
     s.slashes.clear();
-    let mut t = reviewing_two();
+    let (mut t, _dir_t) = reviewing_two();
     t.keep(kept(1, 0));
     t.undo();
     assert!(t.progress.get("a.rs").is_some_and(|e| e.seen.is_seen(0)), "taking the ink back does not unsee the page");
@@ -699,7 +797,7 @@ fn a_page_that_carries_ink_is_seen_without_being_looked_at() {
 
 #[test]
 fn a_conversation_that_waits_or_works_keeps_a_file_from_being_reviewed_and_shows_its_own_colour() {
-    let mut s = reviewing_two();
+    let (mut s, _dir) = reviewing_two();
     for p in 0..3 {
         read_page(&mut s, p);
     }
@@ -720,7 +818,7 @@ fn a_conversation_that_waits_or_works_keeps_a_file_from_being_reviewed_and_shows
 
 #[test]
 fn conversations_all_done_are_not_green_while_a_page_was_never_seen() {
-    let mut s = reviewing_two();
+    let (mut s, _dir) = reviewing_two();
     read_page(&mut s, 0);
     s.chips.push(chips::Chip { id: 1, file: "a.rs".to_string(), page: 0, line: 3, state: chips::State::Done, title: "x".to_string() });
     s.refresh_rollup();
@@ -729,7 +827,7 @@ fn conversations_all_done_are_not_green_while_a_page_was_never_seen() {
 
 #[test]
 fn the_reviewer_can_hold_a_file_back_and_let_it_go_again() {
-    let mut s = reviewing_two();
+    let (mut s, _dir) = reviewing_two();
     for p in 0..3 {
         read_page(&mut s, p);
     }
@@ -745,7 +843,7 @@ fn the_reviewer_can_hold_a_file_back_and_let_it_go_again() {
 
 #[test]
 fn nothing_is_seen_while_the_window_is_not_the_one_the_reviewer_is_at() {
-    let mut s = reviewing_two();
+    let (mut s, _dir) = reviewing_two();
     s.window_active = false;
     for _ in 0..10 {
         assert!(!s.watch_pages(0.0, 1_200.0, 400));
@@ -766,7 +864,7 @@ fn a_file_that_is_not_open_is_not_looked_at() {
 
 #[test]
 fn the_totals_of_a_folder_follow_its_files_once_they_are_counted() {
-    let mut s = reviewing_two();
+    let (mut s, _dir) = reviewing_two();
     read_page(&mut s, 0);
     s.refresh_rollup();
     let root = s.totals_of(s.tree.root());
@@ -918,7 +1016,7 @@ fn the_zoom_the_callbacks_read_is_the_apps_and_one_where_there_is_no_app() {
 
 #[test]
 fn a_file_in_a_folder_the_tree_has_not_listed_is_opened_all_the_same_by_listing_the_way_to_it() {
-    let mut s = on_disk("listed-way", &[("a.rs", "x\n"), ("deep/er/b.rs", "fn b() {}\n")]);
+    let (mut s, _dir) = on_disk("listed-way", &[("a.rs", "x\n"), ("deep/er/b.rs", "fn b() {}\n")]);
     assert!(s.tree.find("deep/er/b.rs").is_none(), "the folders on the way are not listed yet");
     assert!(s.open_path_listed("deep/er/b.rs"));
     assert_eq!(s.file().map(|f| f.display.clone()), Some("deep/er/b.rs".to_string()));

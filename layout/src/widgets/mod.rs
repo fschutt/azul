@@ -384,6 +384,13 @@ pub mod pie_marker;
 /// with their count): rows to pick or close, a New tab row, the arrows,
 /// Return, Ctrl+W and Escape; see `tab_overview.rs`.
 pub mod tab_overview;
+/// What a vertical gesture on a tab panel does: scroll the content, pull towards the next or the
+/// previous tab, or flip to it.
+///
+/// `TabFlip` (off, at the edges, always), the rubber band, the hint and the pull gesture as plain
+/// numbers (`FlipGesture`, `WheelPush`) that the panel feeds from the touch and wheel events; see
+/// `tab_flip.rs`.
+pub mod tab_flip;
 /// How a tab strip shows its content.
 ///
 /// `TabClickBehaviour` (hover reveal with a double-click lock, open on a
@@ -391,6 +398,13 @@ pub mod tab_overview;
 /// app keeps between rebuilds so the content shows as it did; see
 /// `tab_reveal.rs`.
 pub mod tab_reveal;
+/// The geometry of a tab strip that scrolls sideways without a scrollbar and goes around the
+/// cutouts of a phone's display in the status bar's band.
+///
+/// `StatusBarBand` (the band and its lanes, made from what the shell reports), and the plain
+/// number rules: where the selected pill stands whole inside a lane, what a pill shows of itself,
+/// the covers over the gaps; see `tab_strip.rs`.
+pub mod tab_strip;
 /// Multi-line text input (text area) widget.
 ///
 /// See `text_area.rs`.

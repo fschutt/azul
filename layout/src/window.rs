@@ -1996,6 +1996,7 @@ const fn memory_walk_coverage_is_exhaustive(w: &LayoutWindow) {
         media_session_manager: _,
         form_validation_manager: _,
         safe_area_insets: _,
+        display_features: _,
         laid_out_env: _,
         laid_out_insets: _,
         frame_titlebar: _,
@@ -2869,6 +2870,14 @@ pub struct LayoutWindow {
     /// px. Set by the platform shell (macOS NSScreen.safeAreaInsets, iOS
     /// UIView.safeAreaInsets, Android `WindowInsets`); zero where none.
     pub safe_area_insets: azul_css::system::SafeAreaInsets,
+    /// The SHAPES the safe area is made of, as the platform shell reports them: the cutouts
+    /// (a punch-hole camera, a notch, the Dynamic Island), the rounded corners, the system bars'
+    /// rects and whether they are shown, the fingerprint sensor - in logical px of the window.
+    /// Written by the shell next to [`Self::safe_area_insets`] (Android from `WindowInsets`,
+    /// iOS from a table of the model); empty where there is none. READ it through
+    /// [`Self::effective_display_features`], which honours the simulation
+    /// (`WindowFlags::display_preset`).
+    pub display_features: azul_core::display_features::DisplayFeatures,
     /// The window environment the RETAINED layout tree in `layout_cache` was
     /// built with: the fingerprint of every value `env()` and the `system:`
     /// lengths resolve to (`DynamicSelectorContext::env_fingerprint`).
@@ -4755,6 +4764,7 @@ impl LayoutWindow {
             media_session_manager: azul_core::media_session::MediaSessionManager::new(),
             form_validation_manager: azul_core::form::FormValidationManager::new(),
             safe_area_insets: azul_css::system::SafeAreaInsets::default(),
+            display_features: azul_core::display_features::DisplayFeatures::none(),
             laid_out_env: 0,
             laid_out_insets: [0.0; 4],
             frame_titlebar: azul_css::system::TitlebarReport::Unmeasured,
@@ -9320,7 +9330,7 @@ impl LayoutWindow {
         let dims = window_state.size.dimensions;
         let mut ctx = base
             .with_viewport(dims.width, dims.height)
-            .with_safe_area(&self.safe_area_insets)
+            .with_safe_area(&self.effective_safe_area_insets(window_state))
             .with_titlebar_area(self.titlebar_area(window_state));
         // Both focus flags, read through the one helper: every backend
         // writes `window_focused`, only Win32 `flags.has_focus`.
@@ -9691,7 +9701,61 @@ impl LayoutWindow {
         if window_state.flags.extend_into_safe_area {
             [0.0; 4]
         } else {
-            Self::safe_area_px(&self.safe_area_insets)
+            Self::safe_area_px(&self.effective_safe_area_insets(window_state))
+        }
+    }
+
+    /// The safe-area insets a window in `window_state` stands on: those of the simulated device
+    /// when `WindowFlags::display_preset` names one (for the window's current size; the
+    /// keyboard's inset is always the real one), else what the shell reported
+    /// ([`Self::safe_area_insets`]). Every reader of the insets takes them from here.
+    #[must_use]
+    pub fn effective_safe_area_insets(
+        &self,
+        window_state: &FullWindowState,
+    ) -> azul_css::system::SafeAreaInsets {
+        let preset = window_state.flags.display_preset;
+        if !preset.is_simulated() {
+            return self.safe_area_insets;
+        }
+        let mut insets = preset.safe_area(window_state.size.dimensions);
+        insets.keyboard = self.safe_area_insets.keyboard;
+        insets
+    }
+
+    /// The shell's report of the display's cutouts, corners, bars and fingerprint sensor, in
+    /// logical px of the window (what it writes after each rotation, resize or change of the
+    /// insets, next to [`Self::safe_area_insets`]). `true` when they differ from the last
+    /// report: the layout of a window that reads them (a tab strip in the status bar's band)
+    /// is then stale, so the shell asks for a new layout pass as it does for a change of the
+    /// insets.
+    pub fn report_display_features(
+        &mut self,
+        features: azul_core::display_features::DisplayFeatures,
+    ) -> bool {
+        if self.display_features == features {
+            return false;
+        }
+        self.display_features = features;
+        true
+    }
+
+    /// The cutouts, corners, bars and fingerprint sensor a window in `window_state` has: those
+    /// of the simulated device when `WindowFlags::display_preset` names one, else what the shell
+    /// reported ([`Self::display_features`]).
+    #[must_use]
+    pub fn effective_display_features(
+        &self,
+        window_state: &FullWindowState,
+    ) -> azul_core::display_features::DisplayFeatures {
+        let preset = window_state.flags.display_preset;
+        if preset.is_simulated() {
+            azul_core::display_features::DisplayFeatures::simulate(
+                preset,
+                window_state.size.dimensions,
+            )
+        } else {
+            self.display_features.clone()
         }
     }
 
@@ -10117,7 +10181,7 @@ impl LayoutWindow {
             if root_insets == [0.0; 4] {
                 full
             } else {
-                Self::inset_by_safe_area(&full, &self.safe_area_insets)
+                Self::inset_by_safe_area(&full, &self.effective_safe_area_insets(window_state))
             }
         };
         // The canvas background is painted under the WHOLE window, safe area
@@ -35231,6 +35295,7 @@ impl LayoutWindow {
             #[cfg(feature = "pdf")]
                 fragmentation_context: _,
             safe_area_insets: _,
+            display_features: _,
             laid_out_env: _,
             laid_out_insets: _,
             frame_titlebar: _,
