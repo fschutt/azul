@@ -83,9 +83,10 @@ def parse_start(text):
     if written is None:
         written = table_detail(text, WRITTEN_MARK)
     waited_ms = re.search(r"waited ([\d.]+)\s*ms", wait or "")
+    reason = (wait or "").partition(":")[2].strip() or None       # `waited 489 ms: the stack of "X" opens with a system family` -> the part after the colon
     cache_word = (cache or "").strip().split(",")[0].split(" ")[0].lower()
     return {"first_present_ms": float(timeline["first_present_ms"]), "cache": cache, "cache_kind": cache_word or None, "wait": wait, "wait_kind": wait_kind(wait),
-            "wait_ms": float(waited_ms.group(1)) if waited_ms else None, "layout_ms": layout_total_ms(timeline, text), "written": written}
+            "wait_ms": float(waited_ms.group(1)) if waited_ms else None, "wait_reason": reason, "layout_ms": layout_total_ms(timeline, text), "written": written}
 
 
 def summarize(rows):
@@ -100,7 +101,12 @@ def summarize(rows):
             out[r.get(key)] = out.get(r.get(key), 0) + 1
         return out
 
-    return {"n": len(got), "asked": len(rows),
+    reasons = {}
+    for r in got:
+        if r.get("wait_reason"):
+            key = re.sub(r"U\+[0-9A-Fa-f]{4,6}", "U+XXXX", r["wait_reason"])        # one reason per kind of character, not one per character
+            reasons[key] = reasons.get(key, 0) + 1
+    return {"n": len(got), "asked": len(rows), "reasons": reasons,
             "median": round(statistics.median(values), 1) if values else None, "min": round(values[0], 1) if values else None, "max": round(values[-1], 1) if values else None,
             "layout_median": round(statistics.median(layouts), 1) if layouts else None, "waits": count("wait_kind"), "caches": count("cache_kind")}
 
@@ -135,18 +141,19 @@ def report_markdown(results, label=""):
     """results: [{variant, build, mode, summary, starts: [row]}] -> the markdown."""
     lines = [f"# Font wait, A against B{(' (' + label + ')') if label else ''}", "",
              "MISS = every start from an empty font cache; HIT = the cache filled by a start before. first_present_ms is the engine's own clock from the process start.", "",
-             "| app | build | cache | n | median first_present ms | min | max | first layout median ms | first-layout wait (skipped / waited / no mark) | cache marks seen |",
-             "|---|---|---|---|---|---|---|---|---|---|"]
+             "| app | build | cache | n | median first_present ms | min | max | first layout median ms | first-layout wait (skipped / waited / no mark) | cache marks seen | wait reasons |",
+             "|---|---|---|---|---|---|---|---|---|---|---|"]
     unclean = []
     for r in results:
         s = r["summary"]
         w = s["waits"]
         seen = ", ".join(f"{k} {v}" for k, v in sorted(s["caches"].items(), key=lambda kv: str(kv[0])))
+        why = "; ".join(f"{k[:70]} x{v}" for k, v in sorted(s.get("reasons", {}).items(), key=lambda kv: -kv[1])[:2])
         wanted = "miss" if r["mode"] == "miss" else "hit"
         if any(k != wanted for k in s["caches"]):
             unclean.append(f"{r['variant']} {r['build']} {r['mode']}: {seen}")
         lines.append(f"| {r['variant']} | {r['build']} | {r['mode']} | {s['n']} of {s['asked']} | {s['median']} | {s['min']} | {s['max']} | {s['layout_median']} | "
-                     f"{w.get('skipped', 0)} / {w.get('waited', 0)} / {w.get('none', 0)} | {seen} |")
+                     f"{w.get('skipped', 0)} / {w.get('waited', 0)} / {w.get('none', 0)} | {seen} | {why} |")
     if unclean:
         lines += ["", "NOT CLEAN (a MISS block must see only `miss` cache marks, a HIT block only `hit`): " + "; ".join(unclean)]
     lines += ["", "## Every start", ""]
