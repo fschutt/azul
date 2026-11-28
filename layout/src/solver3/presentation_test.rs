@@ -140,7 +140,8 @@ fn a_ring_is_seen_and_a_soft_shadow_stays() {
     let ring = get_box_shadows(&styled, OUTER, &state(&styled, OUTER))[0];
     assert!(ring.color.contrast_ratio(&surface_under(&styled, OUTER)) >= MORE_CONTRAST_EDGE, "{ring:?}");
     let soft = get_box_shadows(&styled, INNER, &state(&styled, INNER))[0];
-    assert_eq!(soft.color, ColorU { r: 0, g: 0, b: 0, a: 51 });
+    let written = get_box_shadows(&page(css, None), INNER, &state(&styled, INNER))[0];
+    assert_eq!(soft.color, written.color, "a soft shadow is decoration: as written");
 }
 
 /// A gradient is one flat colour a text can be read on - unless the subtree is exempt.
