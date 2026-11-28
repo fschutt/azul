@@ -607,6 +607,14 @@ impl Runner {
 
         self.run_frame(result);
 
+        // The system's style changed in this op (`set_system_accessibility`): the window's
+        // listeners (`WindowEventFilter::SystemStyleChanged`) hear it in a pass of their own,
+        // after the frame that carries the new style - what a shell does at its next turn.
+        if self.layout_window.system_style_notice.is_pending() {
+            let told = self.process_window_events(0);
+            self.run_frame(told);
+        }
+
         self.arm_tween_timer();
 
         // Keep servicing the redraws the frames themselves ask for, until the
@@ -3850,11 +3858,9 @@ impl Runner {
                 } else {
                     style.set_preferences(self.accessibility_override);
                     self.layout_window.set_system_style(Arc::new(style));
-                    // The pass the shell's next frame runs: the window event
-                    // `SystemStyleChanged` reaches the app's listeners now, and
-                    // the restyle follows whatever they asked for.
-                    self.process_window_events(0)
-                        .max(ProcessEventResult::ShouldIncrementalRelayout)
+                    // (The window event `SystemStyleChanged` is told by the pass `service` runs
+                    // after this op's frame, as a shell's next turn does.)
+                    ProcessEventResult::ShouldIncrementalRelayout
                 }
             }
             CallbackChange::SetTheme { theme } => {
