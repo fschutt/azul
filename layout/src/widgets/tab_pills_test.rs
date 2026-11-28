@@ -371,7 +371,7 @@ fn a_flora_pill_fades_its_face_together_and_its_label_steps_where_both_inks_read
     use crate::widgets::{button::ButtonType, themes::flora::FloraButtonKind};
     use azul_css::props::property::CssProperty;
     for button_type in [ButtonType::Default, ButtonType::Primary] {
-        let ink = FloraButtonKind::of(button_type).label_ink().expect("a pill's label has an ink");
+        let ink = FloraButtonKind::of(button_type).label_ink().expect("a pill's label has an ink").light_mode;
         for metrics in [&super::PILL_DESKTOP, &super::PILL_TOUCH] {
             let css = super::pill_sized(UiTheme::Flora, button_type, metrics);
             // The animation that governs the pill at rest: the last one declared with no condition.
@@ -395,7 +395,7 @@ fn a_flora_pill_fades_its_face_together_and_its_label_steps_where_both_inks_read
                     assert!(entry.duration.inner <= 5, "{button_type:?}: the label's colour steps: {} ms", entry.duration.inner);
                     assert_eq!(
                         entry.delay.inner,
-                        super::PILL_FADE_MS * ink.held_permille() / 1000,
+                        super::PILL_FADE_MS * crate::widgets::themes::flora::FLORA_LABEL_HOLD.permille(ink) / 1000,
                         "{button_type:?}: a {ink:?} label is held for its share of the face's time"
                     );
                 } else {

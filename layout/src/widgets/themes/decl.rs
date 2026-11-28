@@ -1114,6 +1114,164 @@ pub(crate) fn state_fade(props: &[&'static str], ms: u32) -> [CssPropertyWithCon
     ]
 }
 
+// ==== a label that does not fade with its face ====
+
+/// The ink of a command's label, for the one step it makes when its face changes.
+///
+/// It is what the ink is on a face of the command's own kind: a paper (or a metal-edged command) wears
+/// dark ink on a light face, a stone wears light ink on a dark one. The rule is shared by the themes:
+/// [`fade_switching_the_label`] builds the table, each theme gives its numbers ([`LabelHold`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum LabelInk {
+    /// Dark ink on a light face.
+    Dark,
+    /// Light ink on a dark face.
+    Light,
+}
+
+/// The ink of a command's label in the light mode and in the dark mode.
+///
+/// Most kinds wear the same ink in both (a stone's white, the black of a yellow face); a command on the
+/// neutral surface wears dark ink on its light face and light ink on its night face, and a table that is
+/// right for one is wrong for the other (a night face is the darkest a label is ever held on).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct LabelInks {
+    /// The ink in the light mode.
+    pub(crate) light_mode: LabelInk,
+    /// The ink in the dark mode.
+    pub(crate) dark_mode: LabelInk,
+}
+
+impl LabelInks {
+    /// The same ink in both modes.
+    #[must_use]
+    pub(crate) const fn same(ink: LabelInk) -> Self {
+        Self {
+            light_mode: ink,
+            dark_mode: ink,
+        }
+    }
+
+    /// `light_mode` ink by day, `dark_mode` ink by night.
+    #[must_use]
+    pub(crate) const fn themed(light_mode: LabelInk, dark_mode: LabelInk) -> Self {
+        Self {
+            light_mode,
+            dark_mode,
+        }
+    }
+}
+
+/// How far into the time of its face's change a label holds its old colour, per ink, in permille.
+///
+/// A rebuild reads the transitions from the node it REPLACES (`begin_reconciliation`), so the table of
+/// the old kind is the one in force when a button changes kind. The label must not fade with the face
+/// - dark to light ink under a face that goes light to dark crosses it at one frame, where the ink IS the
+/// colour of the face (1.08:1 in flora's paper to stone) - and must not snap at the first frame either (a
+/// white label on a face that is still cream). It holds its old colour and takes the new one at once where
+/// the old ink and the new one read equally well on the face as it is by then: a DARK label that becomes
+/// light is held until the face has gone most of its way (the face has to be dark before white can be
+/// read), a LIGHT one that becomes dark only a short while (the face lightens, and white loses its
+/// contrast first). The number is one per OLD ink, whatever the face becomes: it has to serve every kind
+/// the node can change to (the faces a LIGHT label can be held on run from a mid blue to the night's
+/// near-black, and the nearer to black the later the step: black ink reads from a tenth of luminance up).
+/// Each theme measures its own faces and curve:
+/// `layout/tests/a_buttons_label_never_loses_its_contrast_while_its_face_changes.rs` holds every frame
+/// of every change, kind to kind, light and dark, to 3:1.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct LabelHold {
+    /// The share of a DARK label (that becomes light), permille of its face's time.
+    pub(crate) dark: u32,
+    /// The share of a LIGHT label (that becomes dark), permille of its face's time.
+    pub(crate) light: u32,
+}
+
+impl LabelHold {
+    /// The share for `ink`.
+    #[must_use]
+    pub(crate) const fn permille(self, ink: LabelInk) -> u32 {
+        match ink {
+            LabelInk::Dark => self.dark,
+            LabelInk::Light => self.light,
+        }
+    }
+}
+
+/// The curve of the label's step, `cubic-bezier(1, 0, 1, 0)`: a transition has no duration of zero, so the
+/// step takes one millisecond, and this curve keeps the old colour for nearly all of it (a tenth of the way
+/// at nine tenths of the time, the new colour only in the last hundredth): a frame that falls inside it
+/// shows the old colour or the new one, not a grey between two inks.
+pub(crate) const LABEL_STEP: azul_css::props::basic::animation::AnimationTiming =
+    azul_css::props::basic::animation::AnimationTiming::CubicBezier(
+        azul_css::props::basic::animation::AnimationTimingBezier {
+            x1: 1000,
+            y1: 0,
+            x2: 1000,
+            y2: 0,
+        },
+    );
+
+/// A face's fade over `ms` whose LABEL changes colour with it: the `tweens` move the face, the label steps.
+///
+/// The label's `color` is not faded with the face: it has an entry of its own that holds the old colour for
+/// `hold`'s share of the face's time and then takes the new one at once. A `color` among `tweens` is
+/// dropped: the label has one entry, here. `pressed_ms` is the face's time while the control is pressed
+/// (the label's step with it, in the same proportion). The table is the one of `inks.light_mode` by day;
+/// where the ink is another by night it has a night twin.
+#[must_use]
+pub(crate) fn fade_switching_the_label(
+    tweens: &[(&'static str, azul_css::props::basic::animation::AnimationTiming)],
+    ms: u32,
+    pressed_ms: u32,
+    inks: LabelInks,
+    hold: LabelHold,
+) -> Vec<CssPropertyWithConditions> {
+    use azul_css::{
+        props::{
+            basic::{
+                animation::{AnimationIterationCount, StyleAnimation, StyleAnimationVec},
+                time::CssDuration,
+            },
+            property::StyleAnimationVecValue,
+        },
+        AzString,
+    };
+    let list = |duration: u32, ink: LabelInk| {
+        let mut entries: Vec<StyleAnimation> = tweens
+            .iter()
+            .filter(|&&(name, _)| name != "color")
+            .map(|&(name, timing)| StyleAnimation {
+                name: AzString::from_const_str(name),
+                duration: CssDuration::from_millis(duration),
+                delay: CssDuration::from_millis(0),
+                iterations: AnimationIterationCount::Count(1),
+                timing,
+                clip: true,
+            })
+            .collect();
+        // The step: a transition of one millisecond that starts when the label's time has come.
+        entries.push(StyleAnimation {
+            name: AzString::from_const_str("color"),
+            duration: CssDuration::from_millis(1),
+            delay: CssDuration::from_millis(duration * hold.permille(ink) / 1000),
+            iterations: AnimationIterationCount::Count(1),
+            timing: LABEL_STEP,
+            clip: true,
+        });
+        CssProperty::Animation(StyleAnimationVecValue::Exact(StyleAnimationVec::from_vec(entries)))
+    };
+    let mut table = vec![CssPropertyWithConditions::simple(list(ms, inks.light_mode))];
+    if inks.dark_mode != inks.light_mode {
+        table.push(CssPropertyWithConditions::dark_mode(list(ms, inks.dark_mode)));
+    }
+    // A press last: it wins in either mode (a dark twin matches in every pseudo-state).
+    table.push(CssPropertyWithConditions::on_active(list(pressed_ms, inks.light_mode)));
+    if inks.dark_mode != inks.light_mode {
+        table.push(CssPropertyWithConditions::dark_on_active(list(pressed_ms, inks.dark_mode)));
+    }
+    table
+}
+
 /// What a button's face is made of: the properties [`state_fade`] tweens for
 /// flat's Button and its toolbar keys (the fill and the four border colours;
 /// flora's commands name their shadows too - `flora::FLORA_FACE`,
