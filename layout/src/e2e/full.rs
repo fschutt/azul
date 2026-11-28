@@ -11691,6 +11691,14 @@ static UNOBSERVABLE_MANAGERS: &[(&str, &str)] = &[
          asserted here: an orphan leaves only once its worker THREAD has returned, which no \
          deterministic scenario step can wait for, so an invariant over it would be a race",
     ),
+    (
+        "stand_in_user",
+        "owns no window state: the scripted pretend user of the stand-in keyring and biometric gate \
+         is a handle of the APP (`AppServices::biometric.user`, shared by every window), filled by a \
+         test or by the engine op `standin_user` and consumed one outcome per sheet. Nothing in it \
+         is node-keyed and nothing in it latches between passes. What it answered is asserted by the \
+         ops `keyring` and `biometric_prompt` (`expect`)",
+    ),
 ];
 
 fn eval_assert_manager_invariants(
@@ -12856,6 +12864,13 @@ fn not_fingerprintable() -> Vec<(&'static str, &'static str)> {
              the next thread poll after its worker returned), not when the measured pass runs: a \
              fingerprint would report changes the scenario did not cause. Its node keys follow \
              `remap_node_ids`, which every other node-keyed manager's fingerprint already covers",
+        ),
+        (
+            "stand_in_user",
+            "nothing on the WINDOW to hash: the pretend user of the stand-ins is the app's \
+             (`AppServices::biometric.user`), scripted by `standin_user` and consumed one outcome \
+             per sheet, so a fingerprint of it would move with every scripted answer rather than \
+             with a leak. What it answered is asserted by `keyring` and `biometric_prompt`",
         ),
     ];
     #[cfg(not(feature = "a11y"))]
