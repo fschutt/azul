@@ -237,14 +237,18 @@ fn scrollbar_width_none_in_css_text_hides_the_bar_as_the_typed_property_does() {
 
 fn desktop_row(tabs: &[&str]) -> StyledDom {
     let labels = StringVec::from_vec(tabs.iter().map(|s| AzString::from(*s)).collect());
-    let mut dom = Dom::create_body().with_child(
+    // in a box with an id, as the AzWidgets page holds its row (its scenario finds the row by that id)
+    let mut dom = Dom::create_body().with_child(Dom::create_div().with_id(AzString::from("wide-pills")).with_child(
         TabHeader::create(labels)
             .with_active_tab(0)
             .with_theme(crate::widgets::themes::UiTheme::Flora)
             .with_style(TabStyle::Pills)
             .dom(),
+    ));
+    // 80 px a pill whatever the machine's fonts are (a runner without fonts measures no text at all)
+    let (css, _) = azul_css::parser2::new_from_str(
+        "* { margin: 0; padding: 0; } .__azul-native-tabs-tab-active, .__azul-native-tabs-tab-not-active { min-width: 80px; }",
     );
-    let (css, _) = azul_css::parser2::new_from_str("* { margin: 0; padding: 0; }");
     StyledDom::create(&mut dom, css)
 }
 
@@ -258,7 +262,7 @@ const LONG: [&str; 12] = [
 /// that does not fit scrolls sideways and shows no scrollbar, at rest and while it is scrolled.
 #[test]
 fn a_desktop_pill_row_scrolls_when_it_does_not_fit_and_shows_no_scrollbar() {
-    let strip = ".__azul-native-tabs-pill-strip";
+    let strip = "#wide-pills .__azul-native-tabs-pill-strip";
     for width in [1280, 700, 480] {
         // four tabs fit in all three
         assert_passes(&run_at(
@@ -304,7 +308,7 @@ fn a_desktop_pill_row_scrolls_when_it_does_not_fit_and_shows_no_scrollbar() {
 /// and the engine maps it): a notch of 200 px (the engine's sign: negative is "down") ends 200 px along.
 #[test]
 fn the_wheel_over_a_desktop_pill_row_moves_it_sideways() {
-    let strip = ".__azul-native-tabs-pill-strip";
+    let strip = "#wide-pills .__azul-native-tabs-pill-strip";
     assert_passes(&run_at(
         "desktop_row_wheel",
         desktop_row(&LONG),

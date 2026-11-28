@@ -450,9 +450,9 @@ fn auto_is_the_touch_pills_in_a_window_under_600_dp_that_sits_on_a_phone_and_the
 
 // ---- at rest, no pill stands under the camera: the marker's callback writes the room ----
 
-/// A header of long tab names in the Pixel 8's band, laid out in a phone's width with the system's fonts:
-/// the window, the strip's numbers as the build made them, and the node ids of the strip, the selected
-/// pill's marker and the pills.
+/// A header of four tabs in the Pixel 8's band, laid out in a phone's width: the window, the strip's
+/// numbers as the build made them, and the node ids of the strip, the selected pill's marker and the
+/// pills. The pills are 96 px wide whatever the machine's fonts are.
 struct BandStrip {
     window: crate::window::LayoutWindow,
     data: StripScrollData,
@@ -481,9 +481,11 @@ fn band_strip() -> BandStrip {
         .with_theme(UiTheme::Flat)
         .with_status_bar(band.clone());
     let mut dom = Dom::create_body().with_child(header.dom());
-    let (css, _) = azul_css::parser2::new_from_str("* { margin: 0; padding: 0; }");
+    let (css, _) = azul_css::parser2::new_from_str(
+        "* { margin: 0; padding: 0; } .__azul-native-tabs-touch-pill { min-width: 96px; }",
+    );
     let styled = StyledDom::create(&mut dom, css);
-    let mut window = LayoutWindow::new(FcFontCache::build()).expect("a layout window");
+    let mut window = LayoutWindow::new(FcFontCache::default()).expect("a layout window");
     let mut state = FullWindowState::default();
     state.size.dimensions = size;
     window.current_window_state = state.clone();
