@@ -1731,8 +1731,10 @@ fn has_readable_text_label(styled_dom: &StyledDom, node_id: NodeId) -> bool {
 /// How a finding names its node: its index, the azul widget it belongs to,
 /// its ids and classes (the selectors a developer searches the app for) and
 /// the start of its text. "node 40" alone is a puzzle; "node 40 (a Slider
-/// #volume .settings-row)" is a call site.
-fn describe_node(styled_dom: &StyledDom, node_id: NodeId) -> String {
+/// #volume .settings-row)" is a call site. The startup timeline names the node of
+/// the callback that asked for a layout pass the same way.
+#[must_use]
+pub fn describe_node(styled_dom: &StyledDom, node_id: NodeId) -> String {
     let nodes = styled_dom.node_data.as_container();
     let Some(node) = nodes.get(node_id) else {
         return format!("node {}", node_id.index());

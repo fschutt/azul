@@ -3208,19 +3208,69 @@ pub struct RegenerationState {
     /// `RefreshDom`, which every one of the 60-odd producers carries. `None` for the request a
     /// window is born with, and after a pass consumed what was asked.
     requested_at: Option<&'static core::panic::Location<'static>>,
+    /// WHOSE answer asked for the rebuild, when it was a callback's `Update::RefreshDom` (the first
+    /// such answer since the last layout pass): the node and event of an event callback, a timer, a
+    /// thread's write-back, a resumed request. Shown next to `requested_at` (`via=...`): the line
+    /// that raised the request is the same few lines for every callback of the app and of every widget.
+    asked_by: Option<RefreshAsker>,
 }
 
-/// What the startup timeline prints as the reason of a layout pass: the reason the request carries
-/// and, where it is known, the place that made the request (`RefreshDom by=<file>:<line>`).
-/// `RefreshDom` alone is the tag of most of the producers and does not say which one asked.
+/// Whose callback answered `Update::RefreshDom` and so asked for a rebuild of the DOM
+/// ([`CommonWindowState::note_refresh_asker`]): what the startup timeline prints as `via=...` for a
+/// layout pass that a callback, and not the shell, asked for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RefreshAsker {
+    /// A callback of `node`, run for `event`.
+    Event {
+        /// The event the callback ran for.
+        event: azul_core::events::EventType,
+        /// The node whose callback answered.
+        node: azul_core::dom::DomNodeId,
+    },
+    /// The timer with this id.
+    Timer(usize),
+    /// A thread's write-back.
+    ThreadWriteback,
+    /// The callback of a resumed request (a picker, a permission, a keyring answer).
+    ResumedRequest,
+}
+
+/// What the startup timeline prints as the reason of a layout pass: the reason the request carries,
+/// where it is known the place that made the request (`by=<file>:<line>`) and, when a callback's
+/// answer asked for it, whose (`via=<event> on <node>`). `RefreshDom` alone is the tag of most of
+/// the producers and does not say which one asked.
 #[must_use]
 pub fn layout_pass_reason(
     reason: azul_core::callbacks::RelayoutReason,
     requested_at: Option<&'static core::panic::Location<'static>>,
+    via: Option<&str>,
 ) -> String {
-    match requested_at {
-        Some(at) => format!("{reason:?} by={}:{}", at.file(), at.line()),
-        None => format!("{reason:?}"),
+    let by = requested_at.map_or_else(String::new, |at| format!(" by={}:{}", at.file(), at.line()));
+    let via = via.map_or_else(String::new, |via| format!(" via={via}"));
+    format!("{reason:?}{by}{via}")
+}
+
+/// How the timeline names the callback that asked for a rebuild: the event and the node of an event
+/// callback (`PermissionChanged on node 1234 (a Camera .photo)`: the node as the DOM lint names it),
+/// the timer's id, the thread's write-back.
+#[must_use]
+pub fn describe_refresh_asker(layout_window: Option<&LayoutWindow>, asker: RefreshAsker) -> String {
+    match asker {
+        RefreshAsker::Event { event, node } => {
+            let described = node.node.into_crate_internal().and_then(|node_id| {
+                layout_window?
+                    .layout_results
+                    .get(&node.dom)
+                    .map(|result| azul_layout::dom_lint::describe_node(&result.styled_dom, node_id))
+            });
+            match described {
+                Some(described) => format!("{event:?} on {described}"),
+                None => format!("{event:?} on {node:?}"),
+            }
+        }
+        RefreshAsker::Timer(id) => format!("timer {id}"),
+        RefreshAsker::ThreadWriteback => String::from("a thread's write-back"),
+        RefreshAsker::ResumedRequest => String::from("a resumed request"),
     }
 }
 
@@ -3237,6 +3287,7 @@ impl RegenerationState {
             rebuild_owed: true,
             rebuild_generation: 0,
             requested_at: None,
+            asked_by: None,
         }
     }
 
@@ -3254,6 +3305,7 @@ impl RegenerationState {
             rebuild_owed: false,
             rebuild_generation: 0,
             requested_at: None,
+            asked_by: None,
         }
     }
 }
@@ -3560,12 +3612,29 @@ impl CommonWindowState {
         self.regen.requested_at
     }
 
+    /// A callback answered `Update::RefreshDom`: remember whose answer it was, for the layout pass
+    /// that serves it. The first answer since the last pass is the one kept, as for
+    /// [`Self::regeneration_requested_at`]; a pass consumes it.
+    pub fn note_refresh_asker(&mut self, asker: RefreshAsker) {
+        if self.regen.asked_by.is_none() {
+            self.regen.asked_by = Some(asker);
+        }
+    }
+
+    /// Whose callback answered the `RefreshDom` the pending regeneration serves, without consuming
+    /// it; `None` when the shell asked for it itself.
+    #[must_use]
+    pub const fn regeneration_asker(&self) -> Option<RefreshAsker> {
+        self.regen.asked_by
+    }
+
     /// Consume the reason for the `regenerate_layout()` call about to run, and
     /// reset it to the implicit `RefreshDom` so a later untagged regeneration
     /// does not inherit a stale `Resize`/`RouteChange`.
     pub fn take_relayout_reason(&mut self) -> azul_core::callbacks::RelayoutReason {
         // The pass this serves has consumed what was asked: the next ask names its own producer.
         self.regen.requested_at = None;
+        self.regen.asked_by = None;
         std::mem::replace(
             &mut self.regen.reason,
             azul_core::callbacks::RelayoutReason::RefreshDom,
@@ -5356,12 +5425,17 @@ pub trait PlatformWindow {
         // the reason the pending request carries is the one this pass consumes.
         let startup = self.get_app_shared().startup_handle();
         let layout_no = if startup.enabled() {
-            let common = self.get_common_mut();
-            let reason = layout_pass_reason(
-                common.regeneration_reason(),
-                common.regeneration_requested_at(),
-            );
-            startup.layout_begin(&reason)
+            let (reason, requested_at, asker) = {
+                let common = self.get_common_mut();
+                (
+                    common.regeneration_reason(),
+                    common.regeneration_requested_at(),
+                    common.regeneration_asker(),
+                )
+            };
+            let via =
+                asker.map(|asker| describe_refresh_asker(self.get_layout_window(), asker));
+            startup.layout_begin(&layout_pass_reason(reason, requested_at, via.as_deref()))
         } else {
             0
         };
@@ -10802,6 +10876,8 @@ pub trait PlatformWindow {
         let mut propagation_stopped_node: Option<(DomId, NodeId)> = None;
         let mut immediately_stopped = false;
         let mut current_event: Option<usize> = None;
+        // The first callback of this dispatch that answered a refresh: the window's next layout pass names it.
+        let mut first_refresher: Option<RefreshAsker> = None;
 
         for planned in planned_callbacks {
             if current_event != Some(planned.event_index) {
@@ -10843,6 +10919,12 @@ pub trait PlatformWindow {
             );
 
             all_updates.push(update);
+            if first_refresher.is_none() && update != Update::DoNothing {
+                first_refresher = Some(RefreshAsker::Event {
+                    event: planned.event_type,
+                    node: hit_node,
+                });
+            }
 
             // Check propagation control in the changes
             let mut should_stop_immediate = false;
@@ -10915,6 +10997,9 @@ pub trait PlatformWindow {
 
         // Drop borrows before calling apply_user_change on self
         drop(borrows);
+        if let Some(asker) = first_refresher {
+            self.get_common_mut().note_refresh_asker(asker);
+        }
 
         // Apply all accumulated user changes, tracking max ProcessEventResult
         let mut changes_result = ProcessEventResult::DoNothing;
@@ -14953,6 +15038,8 @@ pub trait PlatformWindow {
                 Update::RefreshDom | Update::RefreshDomAllWindows => {
                     needs_redraw = true;
                     needs_layout_regeneration = true;
+                    self.get_common_mut()
+                        .note_refresh_asker(RefreshAsker::ThreadWriteback);
                 }
                 _ => {}
             }
@@ -14974,6 +15061,8 @@ pub trait PlatformWindow {
                 Update::RefreshDom | Update::RefreshDomAllWindows => {
                     needs_redraw = true;
                     needs_layout_regeneration = true;
+                    self.get_common_mut()
+                        .note_refresh_asker(RefreshAsker::ResumedRequest);
                 }
                 _ => {}
             }
@@ -15366,6 +15455,8 @@ pub trait PlatformWindow {
 
             // Mark frame for redraw if callback requested it
             if update == Update::RefreshDom || update == Update::RefreshDomAllWindows {
+                self.get_common_mut()
+                    .note_refresh_asker(RefreshAsker::Timer(timer_id.id));
                 self.request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
             }
 
@@ -15587,6 +15678,8 @@ pub trait PlatformWindow {
             azul_core::callbacks::Update::RefreshDom
                 | azul_core::callbacks::Update::RefreshDomAllWindows
         ) {
+            self.get_common_mut()
+                .note_refresh_asker(RefreshAsker::ResumedRequest);
             self.request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
             self.request_regeneration_all_windows();
         }
