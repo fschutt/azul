@@ -367,8 +367,9 @@ fn alarms_page(s: &ClockApp, app: &RefAny, now: DateTime<Utc>) -> Dom {
         );
     }
     if !s.os_rings.0 {
+        // Plain words; the platform's reason is on the settings page.
         list.add_child(line(
-            &t_args("azclock-ring-while-running", &[("why", Arg::from(&s.os_rings.1))]),
+            &t("azclock-ring-only-while-open"),
             "padding: 12px 8px; font-size: 12px; opacity: 0.7; @theme(flora) { opacity: 1; \
              color: system:secondary-text; }",
         ));
