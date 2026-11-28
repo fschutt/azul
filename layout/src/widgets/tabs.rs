@@ -1611,6 +1611,9 @@ pub struct TabHeader {
     /// (`with_flip`, then `TabContent::with_flip_of`): `AtEdges` (the default) flips with a finger
     /// that pulls past the end of the content, never with a wheel.
     pub flip: crate::widgets::tab_flip::TabFlip,
+    /// Whether this bar draws the window's chevron at the left end of its row (`with_content_toggle`).
+    /// APPENDED for ABI stability.
+    pub content_toggle: bool,
 }
 
 impl Default for TabHeader {
@@ -1624,6 +1627,7 @@ impl Default for TabHeader {
             reveal: crate::widgets::tab_reveal::OptionTabReveal::None,
             status_bar: crate::widgets::tab_strip::OptionStatusBarBand::None,
             flip: crate::widgets::tab_flip::TabFlip::AtEdges,
+            content_toggle: false,
         }
     }
 }
@@ -1671,7 +1675,25 @@ impl TabHeader {
             reveal: crate::widgets::tab_reveal::OptionTabReveal::None,
             status_bar: crate::widgets::tab_strip::OptionStatusBarBand::None,
             flip: crate::widgets::tab_flip::TabFlip::AtEdges,
+            content_toggle: false,
         }
+    }
+
+    /// Draw the window's ONE chevron at the left end of this bar's row: `^` while the content of the
+    /// tabs shows, `v` while it is folded away, a click (or Enter, or Space) folds or shows it. The state
+    /// is the window's (`WindowFlags::tab_content_hidden`): every `TabContent` with `with_content_toggle`
+    /// and every ribbon with it shows nothing while it is folded, and the list under the bar gets the room.
+    /// A window has exactly one chevron: when more than one bar asks for it, the first one built has it
+    /// and the others draw none.
+    pub const fn set_content_toggle(&mut self, content_toggle: bool) {
+        self.content_toggle = content_toggle;
+    }
+
+    /// [`Self::set_content_toggle`] for the builder chain.
+    #[must_use]
+    pub const fn with_content_toggle(mut self, content_toggle: bool) -> Self {
+        self.set_content_toggle(content_toggle);
+        self
     }
 
     /// Whether a vertical swipe on the panel flips to the previous / next tab: `Off`, `AtEdges`
@@ -1796,11 +1818,20 @@ impl TabHeader {
 
         // The touch pills have a DOM of their own: a strip that scrolls inside a header, pills with
         // a padded hit area, covers over the cutouts. `Auto` is them on a phone.
+        let content_toggle = self.content_toggle;
+        let mut chevron_row = 28.0_f32;
         {
             let live = crate::widgets::themes::theme_blocks::live_theme(self.theme);
             let phone = self.style == TabStyle::Auto && phone_build();
-            if self.style.resolved_for(live, phone) == TabStyle::TouchPills {
+            let resolved = self.style.resolved_for(live, phone);
+            if resolved == TabStyle::TouchPills {
                 return self.dom_touch(live);
+            }
+            if resolved == TabStyle::Pills {
+                #[allow(clippy::cast_precision_loss)] // a few px
+                {
+                    chevron_row = PILL_ROW as f32;
+                }
             }
         }
 
@@ -1894,6 +1925,13 @@ impl TabHeader {
                         )];
                         IdOrClassVec::from_const_slice(IDS_AND_CLASSES_8360971686689797550)
                     })];
+                // The window's one chevron, at the left end of the row (the arrow keys find the tabs
+                // by their classes, so a node before them does not move them).
+                if content_toggle {
+                    if let Some(chevron) = crate::widgets::tab_content_toggle::chevron_for_row(chevron_row) {
+                        tab_items.insert(0, chevron);
+                    }
+                }
 
                 let dataset = TabLocalDataset {
                     tab_idx: 0,
@@ -2357,10 +2395,19 @@ impl TabHeader {
         let row = band
             .as_ref()
             .map_or(tab_strip::TOUCH_ROW, |b| b.height.max(tab_strip::TOUCH_ROW));
-        let scroll = StripScrollData::for_band(
+        // The window's one chevron, at the left end of the first lane: the pills start after it.
+        let chevron = if self.content_toggle {
+            crate::widgets::tab_content_toggle::chevron_for_row(row)
+        } else {
+            None
+        };
+        let mut scroll = StripScrollData::for_band(
             band.as_ref(),
             vec![TAB_ACTIVE_CLASS_NAME.to_string(), TAB_NOT_ACTIVE_CLASS_NAME.to_string()],
         );
+        if chevron.is_some() {
+            scroll.lead += crate::widgets::tab_content_toggle::CONTENT_TOGGLE_PX;
+        }
         let (lead, trail) = (scroll.lead, scroll.trail);
 
         let dataset = TabLocalDataset {
@@ -2478,6 +2525,18 @@ impl TabHeader {
         children.push(strip);
         // The pills fade out at the ends of the lanes (over the pills, under the covers).
         children.extend(lane_fades(band.as_ref(), row));
+        // The window's one chevron at the first lane's left end, over the pills and their fade.
+        if let Some(chevron) = chevron {
+            let left = band
+                .as_ref()
+                .and_then(|b| b.lane_spans().first().map(|lane| lane.0))
+                .unwrap_or(0.0);
+            children.push(
+                Dom::create_div()
+                    .with_css(&format!("position: absolute; left: {left}px; top: 0px;"))
+                    .with_child(chevron),
+            );
+        }
         if let Some(band) = band.as_ref() {
             // The window's background under the band (where the cutouts are, the leather has a gap)
             // and over the pills there.
@@ -2638,6 +2697,7 @@ pub(crate) fn touch_header(
     strip: Dom,
     band: &crate::widgets::tab_strip::StatusBarBand,
     theme: crate::widgets::themes::UiTheme,
+    chevron: Option<Dom>,
 ) -> Dom {
     let row = band.height.max(crate::widgets::tab_strip::TOUCH_ROW);
     let mut strip = strip;
@@ -2646,6 +2706,15 @@ pub(crate) fn touch_header(
     let mut children = leather_under(&pill_look(theme, None), Some(band));
     children.push(strip);
     children.extend(lane_fades(Some(band), row));
+    // The window's one chevron at the first lane's left end, over the pills and their fade.
+    if let Some(chevron) = chevron {
+        let left = band.lane_spans().first().map_or(0.0, |lane| lane.0);
+        children.push(
+            Dom::create_div()
+                .with_css(&format!("position: absolute; left: {left}px; top: 0px;"))
+                .with_child(chevron),
+        );
+    }
     children.extend(crate::widgets::tab_strip::cover_rects(band).iter().map(gap_cover));
     Dom::create_div()
         .with_css(&format!(
@@ -3443,6 +3512,12 @@ pub struct TabContent {
     pub flip_tab: usize,
     /// Told of a flip as the bar's `on_click` is told of a tap, set with `flip`.
     pub on_flip: OptionTabOnClick,
+    /// The room the panel leaves at its left, px (`with_content_inset`): the tab row stays the whole width.
+    /// APPENDED for ABI stability.
+    pub content_inset: f32,
+    /// Whether the panel folds away with the window's chevron (`with_content_toggle`).
+    /// APPENDED for ABI stability.
+    pub content_toggle: bool,
 }
 
 impl Default for TabContent {
@@ -3458,6 +3533,8 @@ impl Default for TabContent {
             flip_tabs: StringVec::from_const_slice(&[]),
             flip_tab: 0,
             on_flip: OptionTabOnClick::None,
+            content_inset: 0.0,
+            content_toggle: false,
         }
     }
 }
@@ -3601,7 +3678,36 @@ impl TabContent {
             flip_tabs: StringVec::from_const_slice(&[]),
             flip_tab: 0,
             on_flip: OptionTabOnClick::None,
+            content_inset: 0.0,
+            content_toggle: false,
         }
+    }
+
+    /// Fold the panel away with the window's chevron (`TabHeader::with_content_toggle`,
+    /// `WindowFlags::tab_content_hidden`): while the content is folded the panel shows nothing, and
+    /// whatever lies under it gets the room.
+    pub const fn set_content_toggle(&mut self, content_toggle: bool) {
+        self.content_toggle = content_toggle;
+    }
+
+    /// [`Self::set_content_toggle`] for the builder chain.
+    #[must_use]
+    pub const fn with_content_toggle(mut self, content_toggle: bool) -> Self {
+        self.set_content_toggle(content_toggle);
+        self
+    }
+
+    /// Leave `px` of room at the panel's left (a rail beside the content, under the tab row): the panel's
+    /// box starts that far in while the tab row stays the whole width. Default `0`.
+    pub const fn set_content_inset(&mut self, px: f32) {
+        self.content_inset = px;
+    }
+
+    /// [`Self::set_content_inset`] for the builder chain.
+    #[must_use]
+    pub const fn with_content_inset(mut self, px: f32) -> Self {
+        self.set_content_inset(px);
+        self
     }
 
     /// Let a vertical swipe on the panel flip to the previous / next tab, as `header` says: its
@@ -3758,7 +3864,14 @@ impl TabContent {
                 panel.with_component_css(slide_keyframes())
             }
         };
-        let panel = panel.with_children(DomVec::from_vec(vec![group]));
+        let mut panel = panel.with_children(DomVec::from_vec(vec![group]));
+        if self.content_inset > 0.0 {
+            panel.root.set_css(&format!("margin-left: {}px;", self.content_inset));
+        }
+        // Folded away with the window's chevron: nothing, and the list under the panel gets the room.
+        if self.content_toggle && azul_core::callbacks::build_tab_content_hidden() {
+            panel.root.set_css("display: none;");
+        }
         match flip {
             None => panel,
             Some(flip) => attach_flip(panel, flip),

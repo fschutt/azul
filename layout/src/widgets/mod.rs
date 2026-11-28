@@ -384,6 +384,9 @@ pub mod pie_marker;
 /// with their count): rows to pick or close, a New tab row, the arrows,
 /// Return, Ctrl+W and Escape; see `tab_overview.rs`.
 pub mod tab_overview;
+/// The tab strip's chevron: one per window, at the top-left corner of the tab row, that folds the
+/// content of the tabs away (`WindowFlags::tab_content_hidden`); see `tab_content_toggle.rs`.
+pub mod tab_content_toggle;
 /// What a vertical gesture on a tab panel does: scroll the content, pull towards the next or the
 /// previous tab, or flip to it.
 ///

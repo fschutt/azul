@@ -3191,6 +3191,18 @@ pub enum DebugEvent {
     SetDisplayPreset {
         preset: String,
     },
+    /// Fold the window's tab content away or show it (`WindowFlags::tab_content_hidden`, what the tab
+    /// strip's chevron flips): `{"op":"toggle_tab_content"}` flips it, `{"op":"toggle_tab_content",
+    /// "hidden":true}` sets it. The layout is built again, and every `TabContent` and ribbon band with
+    /// `with_content_toggle` shows nothing while it is folded.
+    ToggleTabContent {
+        #[serde(default)]
+        hidden: Option<bool>,
+    },
+    /// Whether the window's tab content is folded away: `{"hidden":false}`.
+    ///
+    /// `curl -s -X POST localhost:8765/ -d '{"op":"get_tab_content"}'`
+    GetTabContent,
 
     // Queries
     GetState,
@@ -18192,6 +18204,24 @@ fn serve_debug_event(
                     send_ok(request, None, None);
                 }
             }
+        }
+
+        DebugEvent::ToggleTabContent { hidden } => {
+            let mut new_state = callback_info.get_current_window_state().clone();
+            new_state.flags.tab_content_hidden = hidden.unwrap_or(!new_state.flags.tab_content_hidden);
+            // A window flag like any other: the layout is built again for it.
+            callback_info.modify_window_state(new_state);
+            needs_update = true;
+            send_ok(request, None, None);
+        }
+
+        DebugEvent::GetTabContent => {
+            let hidden = callback_info.get_current_window_state().flags.tab_content_hidden;
+            send_ok(
+                request,
+                None,
+                Some(ResponseData::Json(serde_json::json!({ "hidden": hidden }))),
+            );
         }
 
         DebugEvent::MouseMove {

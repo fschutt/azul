@@ -1625,6 +1625,12 @@ pub struct WindowFlags {
     /// tests and screenshots of a desktop window show what a phone shows. `Off` (the default) leaves
     /// what the shell reports. APPENDED for ABI stability.
     pub display_preset: crate::display_features::DisplayPreset,
+    /// The content of the window's tabs is folded away: the tab strip's one chevron (`TabHeader::with_content_toggle`,
+    /// `Ribbon::with_content_toggle`) flips it, and every `TabContent` and every ribbon band built for the window
+    /// shows nothing while it is set (the list under the strip gets the room). Per window, and the app may start
+    /// the window with it set (`WindowCreateOptions`) or read it back from the window's state. Default: `false`.
+    /// APPENDED for ABI stability.
+    pub tab_content_hidden: bool,
 }
 
 impl_option!(
@@ -1746,6 +1752,7 @@ impl Default for WindowFlags {
                 draw_into_cutout: false,
             },
             display_preset: crate::display_features::DisplayPreset::Off,
+            tab_content_hidden: false,
         }
     }
 }

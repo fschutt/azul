@@ -82,6 +82,16 @@ api_functions=(
   Ribbon.with_status_bar
   Ribbon.set_flip
   Ribbon.with_flip
+  TabHeader.set_content_toggle
+  TabHeader.with_content_toggle
+  TabContent.set_content_toggle
+  TabContent.with_content_toggle
+  TabContent.set_content_inset
+  TabContent.with_content_inset
+  Ribbon.set_content_toggle
+  Ribbon.with_content_toggle
+  Ribbon.set_content_inset
+  Ribbon.with_content_inset
 )
 autofix_round() {
   # a critical FFI error does not stop the round: the patches were written anyway ("fix the errors before proceeding with
