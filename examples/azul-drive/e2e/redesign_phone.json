@@ -602,6 +602,9 @@
         "op": "wait_frame"
       },
       {
+        "op": "wait_frame"
+      },
+      {
         "op": "wait_settled"
       },
       {

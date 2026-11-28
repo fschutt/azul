@@ -67,7 +67,7 @@
       },
       {
         "op": "find_node_by_text",
-        "text": "6 items",
+        "text": "7 items",
         "dom_id": 0
       },
       {
@@ -320,7 +320,7 @@
       },
       {
         "op": "find_node_by_text",
-        "text": "6 items",
+        "text": "7 items",
         "dom_id": 0
       },
       {
@@ -350,12 +350,7 @@
         "key": "End"
       },
       {
-        "op": "key_down",
-        "key": "backspace"
-      },
-      {
-        "op": "key_up",
-        "key": "backspace"
+        "op": "wait_frame"
       },
       {
         "op": "key_down",
@@ -366,12 +361,7 @@
         "key": "backspace"
       },
       {
-        "op": "key_down",
-        "key": "backspace"
-      },
-      {
-        "op": "key_up",
-        "key": "backspace"
+        "op": "wait_frame"
       },
       {
         "op": "key_down",
@@ -380,6 +370,31 @@
       {
         "op": "key_up",
         "key": "backspace"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "key_down",
+        "key": "backspace"
+      },
+      {
+        "op": "key_up",
+        "key": "backspace"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "key_down",
+        "key": "backspace"
+      },
+      {
+        "op": "key_up",
+        "key": "backspace"
+      },
+      {
+        "op": "wait_frame"
       },
       {
         "op": "text_input",
@@ -422,12 +437,15 @@
         "op": "wait_frame"
       },
       {
+        "op": "wait_frame"
+      },
+      {
         "op": "assert_not_exists",
         "selector": ".__azul-native-location-edit"
       },
       {
         "op": "find_node_by_text",
-        "text": "6 items",
+        "text": "7 items",
         "dom_id": 0
       },
       {
@@ -457,12 +475,7 @@
         "key": "End"
       },
       {
-        "op": "key_down",
-        "key": "backspace"
-      },
-      {
-        "op": "key_up",
-        "key": "backspace"
+        "op": "wait_frame"
       },
       {
         "op": "key_down",
@@ -473,12 +486,7 @@
         "key": "backspace"
       },
       {
-        "op": "key_down",
-        "key": "backspace"
-      },
-      {
-        "op": "key_up",
-        "key": "backspace"
+        "op": "wait_frame"
       },
       {
         "op": "key_down",
@@ -487,6 +495,31 @@
       {
         "op": "key_up",
         "key": "backspace"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "key_down",
+        "key": "backspace"
+      },
+      {
+        "op": "key_up",
+        "key": "backspace"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "key_down",
+        "key": "backspace"
+      },
+      {
+        "op": "key_up",
+        "key": "backspace"
+      },
+      {
+        "op": "wait_frame"
       },
       {
         "op": "text_input",
@@ -505,6 +538,9 @@
       {
         "op": "key_up",
         "key": "Return"
+      },
+      {
+        "op": "wait_frame"
       },
       {
         "op": "wait_frame"
@@ -670,12 +706,18 @@
         "op": "wait_frame"
       },
       {
+        "op": "wait_frame"
+      },
+      {
         "op": "key_down",
         "key": "Escape"
       },
       {
         "op": "key_up",
         "key": "Escape"
+      },
+      {
+        "op": "wait_frame"
       },
       {
         "op": "wait_frame"
@@ -704,7 +746,7 @@
       },
       {
         "op": "find_node_by_text",
-        "text": "6 items",
+        "text": "7 items",
         "dom_id": 0
       },
       {
@@ -799,12 +841,7 @@
         "key": "End"
       },
       {
-        "op": "key_down",
-        "key": "backspace"
-      },
-      {
-        "op": "key_up",
-        "key": "backspace"
+        "op": "wait_frame"
       },
       {
         "op": "key_down",
@@ -815,12 +852,7 @@
         "key": "backspace"
       },
       {
-        "op": "key_down",
-        "key": "backspace"
-      },
-      {
-        "op": "key_up",
-        "key": "backspace"
+        "op": "wait_frame"
       },
       {
         "op": "key_down",
@@ -831,12 +863,7 @@
         "key": "backspace"
       },
       {
-        "op": "key_down",
-        "key": "backspace"
-      },
-      {
-        "op": "key_up",
-        "key": "backspace"
+        "op": "wait_frame"
       },
       {
         "op": "key_down",
@@ -847,12 +874,7 @@
         "key": "backspace"
       },
       {
-        "op": "key_down",
-        "key": "backspace"
-      },
-      {
-        "op": "key_up",
-        "key": "backspace"
+        "op": "wait_frame"
       },
       {
         "op": "key_down",
@@ -863,12 +885,62 @@
         "key": "backspace"
       },
       {
+        "op": "wait_frame"
+      },
+      {
         "op": "key_down",
         "key": "backspace"
       },
       {
         "op": "key_up",
         "key": "backspace"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "key_down",
+        "key": "backspace"
+      },
+      {
+        "op": "key_up",
+        "key": "backspace"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "key_down",
+        "key": "backspace"
+      },
+      {
+        "op": "key_up",
+        "key": "backspace"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "key_down",
+        "key": "backspace"
+      },
+      {
+        "op": "key_up",
+        "key": "backspace"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "key_down",
+        "key": "backspace"
+      },
+      {
+        "op": "key_up",
+        "key": "backspace"
+      },
+      {
+        "op": "wait_frame"
       },
       {
         "op": "text_input",
@@ -887,6 +959,9 @@
       {
         "op": "key_up",
         "key": "Return"
+      },
+      {
+        "op": "wait_frame"
       },
       {
         "op": "wait_frame"
@@ -966,12 +1041,7 @@
         "key": "End"
       },
       {
-        "op": "key_down",
-        "key": "backspace"
-      },
-      {
-        "op": "key_up",
-        "key": "backspace"
+        "op": "wait_frame"
       },
       {
         "op": "key_down",
@@ -982,12 +1052,7 @@
         "key": "backspace"
       },
       {
-        "op": "key_down",
-        "key": "backspace"
-      },
-      {
-        "op": "key_up",
-        "key": "backspace"
+        "op": "wait_frame"
       },
       {
         "op": "key_down",
@@ -998,12 +1063,7 @@
         "key": "backspace"
       },
       {
-        "op": "key_down",
-        "key": "backspace"
-      },
-      {
-        "op": "key_up",
-        "key": "backspace"
+        "op": "wait_frame"
       },
       {
         "op": "key_down",
@@ -1014,12 +1074,7 @@
         "key": "backspace"
       },
       {
-        "op": "key_down",
-        "key": "backspace"
-      },
-      {
-        "op": "key_up",
-        "key": "backspace"
+        "op": "wait_frame"
       },
       {
         "op": "key_down",
@@ -1030,12 +1085,62 @@
         "key": "backspace"
       },
       {
+        "op": "wait_frame"
+      },
+      {
         "op": "key_down",
         "key": "backspace"
       },
       {
         "op": "key_up",
         "key": "backspace"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "key_down",
+        "key": "backspace"
+      },
+      {
+        "op": "key_up",
+        "key": "backspace"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "key_down",
+        "key": "backspace"
+      },
+      {
+        "op": "key_up",
+        "key": "backspace"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "key_down",
+        "key": "backspace"
+      },
+      {
+        "op": "key_up",
+        "key": "backspace"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "key_down",
+        "key": "backspace"
+      },
+      {
+        "op": "key_up",
+        "key": "backspace"
+      },
+      {
+        "op": "wait_frame"
       },
       {
         "op": "text_input",
@@ -1054,6 +1159,9 @@
       {
         "op": "key_up",
         "key": "Return"
+      },
+      {
+        "op": "wait_frame"
       },
       {
         "op": "wait_frame"
@@ -1195,12 +1303,7 @@
         "key": "End"
       },
       {
-        "op": "key_down",
-        "key": "backspace"
-      },
-      {
-        "op": "key_up",
-        "key": "backspace"
+        "op": "wait_frame"
       },
       {
         "op": "key_down",
@@ -1211,12 +1314,7 @@
         "key": "backspace"
       },
       {
-        "op": "key_down",
-        "key": "backspace"
-      },
-      {
-        "op": "key_up",
-        "key": "backspace"
+        "op": "wait_frame"
       },
       {
         "op": "key_down",
@@ -1227,12 +1325,7 @@
         "key": "backspace"
       },
       {
-        "op": "key_down",
-        "key": "backspace"
-      },
-      {
-        "op": "key_up",
-        "key": "backspace"
+        "op": "wait_frame"
       },
       {
         "op": "key_down",
@@ -1243,12 +1336,7 @@
         "key": "backspace"
       },
       {
-        "op": "key_down",
-        "key": "backspace"
-      },
-      {
-        "op": "key_up",
-        "key": "backspace"
+        "op": "wait_frame"
       },
       {
         "op": "key_down",
@@ -1259,12 +1347,62 @@
         "key": "backspace"
       },
       {
+        "op": "wait_frame"
+      },
+      {
         "op": "key_down",
         "key": "backspace"
       },
       {
         "op": "key_up",
         "key": "backspace"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "key_down",
+        "key": "backspace"
+      },
+      {
+        "op": "key_up",
+        "key": "backspace"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "key_down",
+        "key": "backspace"
+      },
+      {
+        "op": "key_up",
+        "key": "backspace"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "key_down",
+        "key": "backspace"
+      },
+      {
+        "op": "key_up",
+        "key": "backspace"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "key_down",
+        "key": "backspace"
+      },
+      {
+        "op": "key_up",
+        "key": "backspace"
+      },
+      {
+        "op": "wait_frame"
       },
       {
         "op": "text_input",
@@ -1283,6 +1421,9 @@
       {
         "op": "key_up",
         "key": "Return"
+      },
+      {
+        "op": "wait_frame"
       },
       {
         "op": "wait_frame"
@@ -1348,6 +1489,9 @@
       {
         "op": "key_up",
         "key": "Escape"
+      },
+      {
+        "op": "wait_frame"
       },
       {
         "op": "wait_frame"
@@ -1536,12 +1680,7 @@
         "key": "End"
       },
       {
-        "op": "key_down",
-        "key": "backspace"
-      },
-      {
-        "op": "key_up",
-        "key": "backspace"
+        "op": "wait_frame"
       },
       {
         "op": "key_down",
@@ -1552,12 +1691,7 @@
         "key": "backspace"
       },
       {
-        "op": "key_down",
-        "key": "backspace"
-      },
-      {
-        "op": "key_up",
-        "key": "backspace"
+        "op": "wait_frame"
       },
       {
         "op": "key_down",
@@ -1566,6 +1700,31 @@
       {
         "op": "key_up",
         "key": "backspace"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "key_down",
+        "key": "backspace"
+      },
+      {
+        "op": "key_up",
+        "key": "backspace"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "key_down",
+        "key": "backspace"
+      },
+      {
+        "op": "key_up",
+        "key": "backspace"
+      },
+      {
+        "op": "wait_frame"
       },
       {
         "op": "text_input",
@@ -1584,6 +1743,9 @@
       {
         "op": "key_up",
         "key": "Return"
+      },
+      {
+        "op": "wait_frame"
       },
       {
         "op": "wait_frame"
@@ -1654,12 +1816,7 @@
         "key": "End"
       },
       {
-        "op": "key_down",
-        "key": "backspace"
-      },
-      {
-        "op": "key_up",
-        "key": "backspace"
+        "op": "wait_frame"
       },
       {
         "op": "key_down",
@@ -1670,12 +1827,7 @@
         "key": "backspace"
       },
       {
-        "op": "key_down",
-        "key": "backspace"
-      },
-      {
-        "op": "key_up",
-        "key": "backspace"
+        "op": "wait_frame"
       },
       {
         "op": "key_down",
@@ -1684,6 +1836,31 @@
       {
         "op": "key_up",
         "key": "backspace"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "key_down",
+        "key": "backspace"
+      },
+      {
+        "op": "key_up",
+        "key": "backspace"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "key_down",
+        "key": "backspace"
+      },
+      {
+        "op": "key_up",
+        "key": "backspace"
+      },
+      {
+        "op": "wait_frame"
       },
       {
         "op": "text_input",
@@ -1702,6 +1879,9 @@
       {
         "op": "key_up",
         "key": "Return"
+      },
+      {
+        "op": "wait_frame"
       },
       {
         "op": "wait_frame"
@@ -1813,6 +1993,9 @@
       {
         "op": "key_up",
         "key": "Escape"
+      },
+      {
+        "op": "wait_frame"
       },
       {
         "op": "wait_frame"
