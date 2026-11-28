@@ -588,3 +588,16 @@ fn the_gesture_numbers_are_those_uikit_uses_and_live_in_one_table() {
     );
     assert!(UIKIT_GESTURES.deceleration_fast < UIKIT_GESTURES.deceleration_normal, "fast decelerates sooner");
 }
+
+/// The engine's own iOS scroll physics (the preset a phone's window gets) and the table are one number, not two that
+/// can drift: `ScrollPhysics::ios()` decelerates at UIKit's normal rate.
+#[test]
+fn the_ios_scroll_physics_of_the_engine_decelerates_at_the_rate_of_the_table() {
+    let physics = azul_css::props::style::scrollbar::ScrollPhysics::ios();
+    assert!(
+        (physics.deceleration_rate - UIKIT_GESTURES.deceleration_normal).abs() < f32::EPSILON,
+        "ScrollPhysics::ios() = {}, UIKIT_GESTURES.deceleration_normal = {}",
+        physics.deceleration_rate,
+        UIKIT_GESTURES.deceleration_normal
+    );
+}

@@ -101,6 +101,19 @@ class FlagTests(unittest.TestCase):
         flagged = f.flag_frames([PAGE, almost, BLACK, BLACK, almost, PAGE])
         self.assertEqual([(x["index"], x["frames"]) for x in flagged if x["kind"] == "flat"], [(1, 4)])
 
+    def test_a_black_run_over_the_limit_fails_and_a_shorter_one_is_only_told(self):
+        """the user's rule: no all-black frame between two normal frames longer than N ms (100 ms by default)"""
+        long_black = f.flag_frames([PAGE, PAGE] + [BLACK] * 4 + [PAGE, PAGE])            # 4 frames at 30 fps = 133 ms
+        self.assertEqual([(x["kind"], x["black"], x["fail"], x["ms"]) for x in long_black], [("flat", True, True, 133)])
+        short_black = f.flag_frames([PAGE, PAGE] + [BLACK] * 3 + [PAGE, PAGE])           # 100 ms: at the limit
+        self.assertEqual([(x["black"], x["fail"], x["ms"]) for x in short_black], [(True, False, 100)])
+        self.assertTrue(f.flag_frames([PAGE, PAGE, BLACK, PAGE, PAGE], max_black_ms=20)[0]["fail"], "the limit is a parameter")
+
+    def test_a_flat_run_of_another_colour_fails_whatever_its_length(self):
+        white = sig((255, 255, 255))
+        flagged = f.flag_frames([PAGE, PAGE, white, PAGE, PAGE])
+        self.assertEqual([(x["kind"], x["black"], x["fail"]) for x in flagged], [("flat", False, True)])
+
     def test_a_flat_run_that_never_ends_is_not_between_two_normal_frames(self):
         self.assertEqual([x for x in f.flag_frames([PAGE, PAGE, BLACK, BLACK, BLACK]) if x["kind"] == "flat"], [])
 
