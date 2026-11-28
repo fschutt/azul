@@ -751,6 +751,13 @@ fn a_finger_past_its_slop_scrolls_by_whole_rows_and_is_no_tap() {
     // the lift of a pan is no tap, whatever the shell's mouse does with it; the next finger starts clean
     assert_eq!(finger.lifted(), None);
     assert!(!finger.panned);
+    // a pan the shell cancelled never lifts as a release: the next contact's press must still be a tap
+    finger.touch_start((100.0, 500.0));
+    assert_eq!(finger.dragged((100.0, 300.0), 20.0, 10.0), (10, 0));
+    assert!(finger.panned);
+    finger.press(true, (1.0, 1.0));
+    assert!(!finger.panned);
+    assert_eq!(finger.lifted(), Some((1.0, 1.0)));
     // a view whose cell size is not measured yet scrolls nothing
     finger.touch_start((0.0, 0.0));
     assert_eq!(finger.dragged((0.0, 100.0), 0.0, 0.0), (0, 0));

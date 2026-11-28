@@ -2500,14 +2500,15 @@ pub(crate) struct Finger {
 }
 
 impl Finger {
-    /// A press: a finger's lands (`touch`), a mouse's clears what a finger left. What the touch points told
-    /// (where the finger is, whether it panned) is kept: they may arrive before the press does.
+    /// A press: a finger's lands (`touch`), a mouse's clears what a finger left. A press is a new contact: a pan
+    /// the shell cancelled (its lift never reaches the view as a release) must not take this tap away; where the
+    /// finger is (`last`, `start`) is kept, the touch points may arrive before the press does.
     pub(crate) const fn press(&mut self, touch: bool, at: (f32, f32)) {
         self.touch = touch;
         self.landed = if touch { Some(at) } else { None };
+        self.panned = false;
         if !touch {
             self.last = None;
-            self.panned = false;
         }
     }
 
