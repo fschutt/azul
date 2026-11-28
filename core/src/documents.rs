@@ -33,12 +33,12 @@ pub struct DocumentEntry {
     pub name: AzString,
     /// The MIME type (`application/pdf`, `inode/directory` for a folder); `application/octet-stream` when the platform does not know.
     pub mime: AzString,
-    /// A folder.
-    pub is_dir: bool,
     /// Bytes of a file where the platform says; `None` for a folder and for a file whose size it does not know.
     pub size: OptionU64,
     /// When it was last changed, in milliseconds since the Unix epoch, where the platform says.
     pub modified_ms: OptionU64,
+    /// A folder.
+    pub is_dir: bool,
     /// The app may write the file (replace its content) or, for a folder, create entries in it.
     pub can_write: bool,
     /// The app may delete it.
@@ -164,12 +164,12 @@ pub struct Place {
     pub uri: AzString,
     /// What the person sees ("Downloads", "Documents", "Camera").
     pub name: AzString,
-    /// The app may write into it (the grant includes writing).
-    pub writable: bool,
     /// When the grant was given, in milliseconds since the Unix epoch; `None` when the platform does not say.
     pub granted_ms: OptionU64,
     /// What kind of place it is.
     pub kind: PlaceKind,
+    /// The app may write into it (the grant includes writing).
+    pub writable: bool,
 }
 
 /// Where a [`Place`] comes from.
