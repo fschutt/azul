@@ -102,7 +102,8 @@ def desktop_steps():
     s += click("#__azmaps_back") + click("#__azmaps_back") + [op("assert_exists", selector="#__azmaps_chips")]
     s += click("#__azmaps_chip-0") + results_in() + [op("assert_exists", selector="#__azmaps_results")] + shot()   # 5 a chip's search
     s += [op("set_mode", mode="dark")] + map_redrawn() + shot()   # 6 dark
-    s += [op("set_mode", mode="light")] + click("#__azmaps_panel-toggle") + [op("assert_exists", selector="#__azmaps_panel-show")] + shot()  # 7 folded
+    # the map is drawn in the light style again (its tiles are fetched in it, a gray ground until they are in): wait, then fold the panel
+    s += [op("set_mode", mode="light")] + tiles() + click("#__azmaps_panel-toggle") + [op("assert_exists", selector="#__azmaps_panel-show")] + shot()  # 7 folded
     s += click("#__azmaps_panel-show") + [op("assert_exists", selector="#__azmaps_panel")]
     return s
 

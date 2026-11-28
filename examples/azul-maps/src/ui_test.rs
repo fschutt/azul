@@ -31,6 +31,22 @@ fn what_floats_stands_under_the_window_controls_on_a_desktop_and_the_status_bar_
 }
 
 #[test]
+fn the_notice_is_a_short_bar_beside_the_panel_and_a_full_bar_above_a_phones_sheet() {
+    // a desktop: 360 px wide, centred on the map between the panel and the keys (the panel and its gap cover 362 px, the keys 84)
+    let room = 1280.0 - PANEL_COVER - KEYS_COVER;
+    assert_eq!(toast_place(true, PANEL_COVER, 1280.0, 0.0), format!("left: {:.0}px; width: 360px; bottom: 70px;", PANEL_COVER + (room - 360.0) / 2.0));
+    // the panel folded away: centred on the map that is free (the keys at the right keep their strip)
+    assert_eq!(toast_place(true, 0.0, 1280.0, 0.0), format!("left: {:.0}px; width: 360px; bottom: 70px;", (1280.0 - KEYS_COVER - 360.0) / 2.0));
+    // a window with little room beside the panel: the notice is no wider than the room
+    assert_eq!(
+        toast_place(true, PANEL_COVER, 560.0, 0.0),
+        format!("left: {:.0}px; width: {:.0}px; bottom: 70px;", PANEL_COVER, 560.0 - PANEL_COVER - KEYS_COVER)
+    );
+    // a phone: between the map's sides, 70 px above the sheet
+    assert_eq!(toast_place(false, 0.0, 411.0, 168.0), "left: 12px; right: 84px; bottom: 238px;");
+}
+
+#[test]
 fn the_sheets_heights_are_the_peek_half_the_screen_and_the_screen_less_the_bar() {
     let f = frame(411.0, 914.0, 48.0, 0.0);
     assert_eq!(sheet_height(SheetDetent::Peek, &f), PEEK_HEIGHT);

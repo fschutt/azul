@@ -354,6 +354,20 @@
         "mode": "light"
       },
       {
+        "op": "wait",
+        "ms": 3000,
+        "real": true
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
         "op": "click",
         "selector": "#__azmaps_panel-toggle"
       },

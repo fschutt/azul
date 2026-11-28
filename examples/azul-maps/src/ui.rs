@@ -102,8 +102,8 @@ const CONTROLS: &str = "position: absolute; right: 12px; display: flex; flex-dir
 const GROUP: &str = "display: flex; flex-direction: column; border-radius: 8px;";
 /// The styles' menu, the content of the popover the layers key opens.
 const LAYERS_MENU: &str = "display: flex; flex-direction: column; gap: 4px; min-width: 180px;";
-/// The little notice that says a link was copied.
-const TOAST: &str = "position: absolute; left: 12px; right: 84px; display: flex; flex-direction: row; \
+/// The little notice that says a link was copied; [`toast_place`] says where it stands.
+const TOAST: &str = "position: absolute; display: flex; flex-direction: row; \
                      justify-content: center; text-align: center; font-size: 13px; color: #ffffff; \
                      background: rgba(32, 33, 36, 0.92); padding: 8px 12px; border-radius: 8px; \
                      @theme(flora) { color: #F4F2EA; background: rgba(48, 45, 38, 0.94); border-radius: 3px; }";
@@ -183,14 +183,35 @@ pub fn floating(s: &MapState, app: &RefAny, frame: &Frame) -> Vec<Dom> {
     }
     if !s.toast.0.is_empty() {
         let above = if frame.wide() { 0.0 } else { sheet_height(s.sheet, frame) + frame.insets.lift() };
+        let panel = if frame.wide() && !s.flow.collapsed { PANEL_COVER } else { 0.0 };
         out.push(
             Dom::create_div()
-                .with_css(format!("{TOAST} bottom: {:.0}px;", above + 70.0).as_str())
+                .with_css(format!("{TOAST} {}", toast_place(frame.wide(), panel, frame.size.0, above)).as_str())
                 .with_id(ids::LINK_COPIED)
                 .with_child(Dom::create_span_with_text(s.toast.0.as_str())),
         );
     }
     out
+}
+
+/// The notice's width beside the panel, px.
+const TOAST_WIDTH: f32 = 360.0;
+/// What the floating keys at the right keep of the map's width (their gap, their side, a gap), px: the notice stays clear of them.
+const KEYS_COVER: f32 = 84.0;
+/// How far above the map's lower edge (or the sheet's top) the notice stands, px: clear of the credit line.
+const TOAST_ABOVE: f32 = 70.0;
+
+/// Where the notice stands: between the map's sides, above the sheet, on a phone; as wide as its words need, centred on the map beside the
+/// panel (not across it and the keys), on a window with a panel. `panel`: what the panel covers at the left (0 when it is folded away);
+/// `above`: what the sheet and the keyboard take of the lower edge.
+fn toast_place(wide: bool, panel: f32, window_width: f32, above: f32) -> String {
+    if wide {
+        let room = (window_width - panel - KEYS_COVER).max(0.0);
+        let width = room.min(TOAST_WIDTH);
+        format!("left: {:.0}px; width: {:.0}px; bottom: {TOAST_ABOVE:.0}px;", panel + (room - width) / 2.0, width)
+    } else {
+        format!("left: 12px; right: {KEYS_COVER:.0}px; bottom: {:.0}px;", above + TOAST_ABOVE)
+    }
 }
 
 // ==== The search bar and the chips ====
