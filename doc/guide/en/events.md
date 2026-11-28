@@ -144,6 +144,7 @@ WindowEventFilter::Resized           // window dimensions changed
 WindowEventFilter::Moved             // window position changed
 WindowEventFilter::CloseRequested    // user clicked the close button
 WindowEventFilter::ThemeChanged      // OS switched light/dark mode
+WindowEventFilter::SystemStyleChanged // the system's style changed: an accessibility setting (text size, contrast, motion), the accent, the fonts; the window is restyled already
 WindowEventFilter::DpiChanged        // window moved to monitor with different DPI
 WindowEventFilter::VirtualKeyDown    // any keypress in the window
 ```
