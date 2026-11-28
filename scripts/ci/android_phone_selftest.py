@@ -3,12 +3,14 @@
 fingerprint sensor, the haptic motor, the proximity sensor, a real camera, GPS, the soft keyboard of the phone's own IME)
 (standard library only).
 
-    python3 scripts/ci/android_phone_selftest.py --apk AzSelfTest-android-arm64.apk [--serial <adb serial>] [--grant] [--out android-phone-selftest]
+    python3 scripts/ci/android_phone_selftest.py --apk AzSelfTest-e2e-android-arm64.apk [--serial <adb serial>] [--grant] [--out android-phone-selftest]
+    python3 scripts/ci/android_phone_selftest.py --no-install --rows sensors.geolocation,system.haptics     # only these rows
 
 The phone must be connected by USB with USB debugging on (Settings > Developer options) and trusted for this computer (accept the
 "Allow USB debugging?" question on the phone once). `adb` is taken from PATH or from $ANDROID_HOME/platform-tools. The APK is the
-QA build of the demos run (artifact `AzSelfTest-android-arm64.apk` of a `demos` run that asked for the QA variants:
-`gh run download <run id> -n <artifact name>`); `--no-install` runs the app that is already installed.
+QA build `AzSelfTest-e2e-android-arm64.apk`: `scripts/remote.sh run <ref> ubuntu-22.04 'bash scripts/ci/android_build_app.sh AzSelfTest aarch64-linux-android'
+--codegen --artifacts 'demo-out/apps/*'` builds just that one (about 30 minutes on a runner), `gh run download <run id>` fetches it; the `demos` runs that
+ask for the QA variants build it too. `--no-install` runs the app that is already installed.
 
 What it does, in this order, telling you what to do:
 
