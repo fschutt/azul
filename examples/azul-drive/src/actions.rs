@@ -1550,6 +1550,7 @@ pub(crate) fn run_command(
                 crate::ui_tabs::toggle_overview(s);
             } else if s.editing_path {
                 s.editing_path = false;
+                s.location_text.clear();
             } else if s.search_open || !s.search.is_empty() || s.find.is_some() {
                 escape_search(info, app, s);
             } else if s.picker.is_some() {
