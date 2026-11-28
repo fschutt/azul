@@ -11,6 +11,7 @@ const IOS_CLIPBOARD_RS: &str = include_str!("ios/clipboard.rs");
 const IOS_WEBVIEW_RS: &str = include_str!("ios/webview.rs");
 const IOS_SYSTEM_FONT_RS: &str = include_str!("ios/system_font.rs");
 const IOS_OPEN_URL_RS: &str = include_str!("ios/open_url.rs");
+const NOTIFICATIONS_APPLE_RS: &str = include_str!("../notifications/apple.rs");
 const AUTH_APPLE_RS: &str = include_str!("../extra/auth_session/apple.rs");
 const PERMISSION_IOS_RS: &str = include_str!("../extra/permission/ios.rs");
 const GAMEPAD_APPLE_RS: &str = include_str!("../extra/gamepad/apple.rs");
@@ -891,4 +892,39 @@ fn the_ios_window_feeds_the_engines_gesture_config_from_uikits_numbers() {
     let touch = body(IOS_MOD_RS, "fn handle_touch(");
     at(touch, "UIKIT_GESTURES.pan_threshold_points", "handle_touch");
     assert!(!code_of(touch).contains("10.0"), "the slop is the table's, not a literal");
+}
+
+/// "The permission dialog appears only when needed" has to be checkable from a console: every place that asks the system
+/// for a grant says so in the log, right before it asks, in words the Simulator driver
+/// (`scripts/ci/ios_sim_selftest.py`) looks for ("OS prompt"). A fresh install that asked for nothing has none of those
+/// lines; a dialog nobody explained would have one.
+#[test]
+fn every_place_the_ios_shell_asks_the_system_for_a_permission_says_so_in_the_log_first() {
+    for (file, source, asks) in [
+        (
+            "extra/geolocation/ios.rs",
+            GEOLOCATION_IOS_RS,
+            &["requestWhenInUseAuthorization", "requestAlwaysAuthorization"][..],
+        ),
+        ("notifications/apple.rs", NOTIFICATIONS_APPLE_RS, &["requestAuthorizationWithOptions"][..]),
+        ("extra/speech/apple.rs", SPEECH_APPLE_RS, &["requestAuthorization:"][..]),
+    ] {
+        let code = code_of(source);
+        for ask in asks {
+            let mut found = 0;
+            for (at_byte, _) in code.match_indices("msg_send![") {
+                let call: String = code[at_byte..].chars().take(160).collect();
+                if !call.contains(ask) {
+                    continue;
+                }
+                found += 1;
+                let before: String = code[..at_byte].chars().rev().take(900).collect::<Vec<_>>().into_iter().rev().collect();
+                assert!(
+                    before.contains("OS prompt"),
+                    "{file}: the call that asks with `{ask}` is not preceded by a log line that says so (\"OS prompt\")"
+                );
+            }
+            assert!(found > 0, "{file}: no call with `{ask}` found - was it renamed? (this pin has to follow it)");
+        }
+    }
 }
