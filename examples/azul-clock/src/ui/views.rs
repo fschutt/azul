@@ -92,7 +92,6 @@ fn row_css(gap: u32) -> String {
 // flora's Garamond (its figures are tabular and lining - they keep their width as they tick),
 // secondary text is the label ink rather than a faded ink, the rules are the grid's.
 const COLUMN: &str = "display: flex; flex-direction: column;";
-const SPACER: &str = "flex-grow: 1;";
 /// A column that takes what its parent leaves.
 const FILL: &str = "display: flex; flex-direction: column; flex-grow: 1; min-height: 0px; min-width: 0px;";
 const SECONDARY: &str = "font-size: 13px; opacity: 0.7; @theme(flora) { opacity: 1; color: \
