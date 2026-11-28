@@ -269,6 +269,56 @@ class ScrollCheckTests(unittest.TestCase):
         self.assertIn("NOT VERIFIED", lines[0])
 
 
+class IosAuditTests(unittest.TestCase):
+    """ios_audit on a fake simulator and no ffmpeg: the idle verdict is made from pictures, the flash audit says why it did not run, the pan is not verified"""
+
+    class FakeIOS:
+        def __init__(self, run, udid, bundle, exe, app_dir=None):
+            self.base_env, self.calls = {}, []
+
+        def simctl(self, *a, **k):
+            self.calls.append(a)
+            return 0, "", ""
+
+        def launch(self, extra_env=None, cold=True):
+            return {}
+
+        def wait_for_front(self, timeout=45):
+            return 1.0
+
+        def settle(self, s):
+            pass
+
+        def capture(self, name, keep=True):
+            return PAGE, 1206, 2622, ""
+
+    def run_audit(self, picture):
+        import tempfile
+        import time as _t
+        out = tempfile.mkdtemp(prefix="flicker-ios-test-")
+        real_ios, real_ffmpeg, real_sleep = f.q.IOS, f.ensure_ffmpeg, _t.sleep
+        f.q.IOS = type("IOS", (self.FakeIOS,), {"capture": lambda s, name, keep=True: (picture, 1206, 2622, "")})
+        f.ensure_ffmpeg = lambda: None
+        _t.sleep = lambda s: None
+        try:
+            args = type("A", (), {"out": out, "udid": "U", "bundle": "com.x.App", "exe": "", "app": "", "backend": "", "first_frame_timeout": 60.0})()
+            self.assertEqual(f.ios_audit(args), 0)
+        finally:
+            f.q.IOS, f.ensure_ffmpeg, _t.sleep = real_ios, real_ffmpeg, real_sleep
+        return Path(out)
+
+    def test_an_idle_app_passes_and_the_rest_says_what_was_not_run(self):
+        out = self.run_audit(PAGE)
+        text = (out / "flicker.md").read_text()
+        self.assertIn("PASS", text)
+        self.assertIn("ffmpeg is not installed", text)
+        self.assertIn("NOT VERIFIED on iOS", text)
+        import json
+        report = json.loads((out / "flicker.json").read_text())
+        self.assertTrue(report["idle"]["ok"])
+        self.assertIsNone(report["flash"]["ok"])
+
+
 class MonotonicTests(unittest.TestCase):
     def test_an_offset_that_advances_is_fine(self):
         self.assertEqual(f.monotonic([0, 30, 90, 200, 360, 420, 430]), (True, 0.0))
