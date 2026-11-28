@@ -110,6 +110,8 @@ public class AzulActivity extends NativeActivity {
         super.onCreate(savedInstanceState);
         // The window's first draw waits for the engine's first picture: the system's starting window stays until then.
         holdFirstDraw();
+        // The insets of the window's FIRST dispatch (before its surface exists) are kept for the engine's first layout.
+        NativeTextBridge.installEarlyInsetsListener(this);
         // A tap on a notification of an app that was not running started
         // this activity: its intent carries the notification. Forwarded now
         // (Rust queues it until android_main's loop routes it to the

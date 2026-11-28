@@ -1,7 +1,7 @@
 //! What the display of a phone has built in, as the Java side reports it: the cutouts, the rounded corners, the system bars
 //! and the kind of fingerprint sensor, in PHYSICAL px of the window (Android's insets and rects always are).
 //!
-//! `NativeTextBridge.dispatchDisplayFeatures` flattens `WindowInsets` into ONE `int[]`, and this module reads it back: pure
+//! `NativeTextBridge.featuresArray` flattens `WindowInsets` into ONE `int[]`, and this module reads it back: pure
 //! std, so the contract between the two halves is tested on every host (the Java half is checked by
 //! `dll/tests/android_display_features_contract.rs`). The shell turns the result into the engine's `DisplayFeatures`
 //! (logical px, origin top left) with [`Px::to_logical`].
@@ -115,7 +115,16 @@ fn bar(flat: &[i32], at: usize) -> Option<Option<Bar>> {
     Some(Some(Bar { rect, visible: b[5] != 0 }))
 }
 
-/// Read the array of `NativeTextBridge.dispatchDisplayFeatures`. `None` for a version this code does not know or an array that is
+/// What `NativeTextBridge.insetsSnapshot` hands the engine when its surface is created, before its first layout: the insets of the window's
+/// first dispatch (five ints: top, bottom, left, right, the keyboard, physical px) followed by its display features (the array
+/// [`decode`] reads, absent when the platform refused them). `None` for an array too short to hold the insets.
+#[must_use]
+pub fn split_snapshot(snapshot: &[i32]) -> Option<([i32; 5], &[i32])> {
+    let head = snapshot.get(..5)?;
+    Some(([head[0], head[1], head[2], head[3], head[4]], &snapshot[5..]))
+}
+
+/// Read the array of `NativeTextBridge.featuresArray`. `None` for a version this code does not know or an array that is
 /// cut short (a half-written report is no report). A cutout without an area is dropped (the platform reports empty rects for
 /// edges that have none).
 #[must_use]

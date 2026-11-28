@@ -31,21 +31,9 @@ if [ "${GITHUB_ACTIONS:-}" = "true" ]; then
   sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/.ghcup /opt/hostedtoolcache/CodeQL 2>/dev/null || true
   command -v ffmpeg >/dev/null 2>&1 || sudo apt-get install -y ffmpeg >/dev/null 2>&1 || echo "ffmpeg could not be installed"
 fi
-: "${ANDROID_HOME:=${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
-export ANDROID_HOME ANDROID_SDK_ROOT="$ANDROID_HOME"
-sdk="$ANDROID_HOME/cmdline-tools/latest/bin"
-[ -x "$sdk/sdkmanager" ] || sdk="$(dirname "$(ls "$ANDROID_HOME"/cmdline-tools/*/bin/sdkmanager | tail -n 1)")"
-export PATH="$sdk:$ANDROID_HOME/platform-tools:$ANDROID_HOME/emulator:$PATH"
-export JAVA_HOME="${JAVA_HOME_17_X64:-${JAVA_HOME:-}}"
-image="${AZ_ANDROID_IMAGE:-system-images;android-34;default;x86_64}"
-device="${AZ_ANDROID_DEVICE:-pixel_6}"
-gpu="${AZ_LAB_GPU:-swiftshader_indirect}"
-
-yes | sdkmanager --licenses >/dev/null 2>&1 || true
-sdkmanager --install "emulator" "platform-tools" "build-tools;34.0.0" "platforms;android-34" "ndk;27.0.12077973" "$image" >"$out/sdkmanager.log" 2>&1 \
-  || { echo "sdkmanager failed:"; tail -n 20 "$out/sdkmanager.log"; exit 2; }
-export ANDROID_NDK_HOME="$ANDROID_HOME/ndk/27.0.12077973"
-emulator -version 2>&1 | head -n 3 | tee "$out/emulator-version.txt"
+# shellcheck source=scripts/ci/android_lab_common.sh
+. "$here/android_lab_common.sh"
+lab_sdk "$out" || exit 2
 
 # ---- the control APKs
 build() {   # build <name> <extra build.sh options...>
@@ -77,35 +65,12 @@ fi
 [ "${#apks[@]}" -gt 0 ] || { echo "no control APK built"; exit 3; }
 
 # ---- the emulator
-echo no | avdmanager create avd --force -n qa_lab -k "$image" -d "$device" >"$out/avd.log" 2>&1 || { cat "$out/avd.log"; exit 4; }
-cfg="$HOME/.android/avd/qa_lab.avd/config.ini"
-{ echo "hw.keyboard=no"; echo "hw.ramSize=3072"; echo "disk.dataPartition.size=4G"; } >>"$cfg" 2>/dev/null || true
-if [ -e /dev/kvm ]; then
-  echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules >/dev/null
-  sudo udevadm control --reload-rules && sudo udevadm trigger --name-match=kvm || true
-fi
-adb kill-server >/dev/null 2>&1 || true
-nohup emulator -avd qa_lab -no-window -no-audio -no-boot-anim -no-snapshot -gpu "$gpu" -accel on -memory 3072 -cores 3 -no-metrics >"$out/emulator.log" 2>&1 &
-emu=$!
-adb start-server >/dev/null 2>&1
-adb wait-for-device
-booted=0
-for _ in $(seq 1 150); do
-  if [ "$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" = "1" ]; then booted=1; break; fi
-  kill -0 "$emu" 2>/dev/null || break
-  sleep 5
-done
-[ "$booted" = 1 ] || { echo "the emulator did not boot"; tail -n 30 "$out/emulator.log"; exit 5; }
-sleep 20
-{ adb shell getprop ro.build.fingerprint; adb shell getprop ro.build.version.sdk; adb shell dumpsys window displays | grep -E "init=|cur=" | head -n 3; } | tr -d '\r' | tee "$out/device.txt"
+lab_emulator_up "$out" || exit 5
 
 # ---- the lab
 only=()
 for o in ${AZ_LAB_ONLY:-}; do only+=(--only "$o"); done
 python3 "$here/startup_lab.py" run --out "$out" "${apks[@]}" --starts "$starts" ${AZ_LAB_ROWS:+--rows "$AZ_LAB_ROWS"} ${only[@]+"${only[@]}"} 2>&1 | tee "$out/lab.log"
 
-adb emu kill >/dev/null 2>&1 || true
-sleep 3
-kill "$emu" 2>/dev/null || true
-wait "$emu" 2>/dev/null || true
+lab_emulator_down
 exit 0

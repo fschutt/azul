@@ -151,6 +151,14 @@ impl PresentState {
         self.geometry_px = None;
     }
 
+    /// A flat frame of `frame_px` pixels (the window's canvas colour, [`fill_flat`]) was posted to the surface the moment it was
+    /// created: the surface was told its geometry, and nothing of OUR frame is on it, so the first real present is whole.
+    pub fn flat_posted(&mut self, frame_px: (u32, u32)) {
+        self.geometry_px = Some(frame_px);
+        self.posted_px = None;
+        self.pending = RowDamage::Full;
+    }
+
     /// The system wants the window's content again (`RedrawNeeded`: a resume, a compositor that lost
     /// its state), whatever changed.
     pub fn redraw_needed(&mut self) {
@@ -197,6 +205,20 @@ impl PresentState {
     /// The geometry of `plan` could not be set: the surface has none of ours, and nothing was posted.
     pub fn geometry_failed(&mut self) {
         self.geometry_px = None;
+    }
+}
+
+/// What a surface shows before the shell has posted a frame to it: nothing, which is black. A NativeActivity's window is a surface the
+/// view system never draws, so the system's starting window is taken away when the window has "drawn" (at once) and the screen shows the
+/// empty surface for as long as the first layout takes (ledger E46); a surface made by a rotation shows it for the length of the layout at
+/// the new size. A frame of ONE colour, the window's canvas colour, goes on the surface the moment it exists, before any layout, so that a
+/// gap between two pictures is that colour and never black. This writes it: every byte of the buffer the lock returned, the stride's
+/// padding included (nothing of a buffer is left as it was), `rgba` repeated.
+pub fn fill_flat(buffer: &mut [core::mem::MaybeUninit<u8>], rgba: [u8; 4]) {
+    for pixel in buffer.chunks_mut(4) {
+        for (byte, value) in pixel.iter_mut().zip(rgba) {
+            byte.write(value);
+        }
     }
 }
 

@@ -79,3 +79,24 @@ fn logical_px_and_the_shape_of_a_hole() {
     assert_eq!(guess_shape(hole), ShapeGuess::Circle);
     assert_eq!(guess_shape(Px { left: 400, top: 0, right: 680, bottom: 90 }), ShapeGuess::RoundedRect);
 }
+
+/// The engine asks Java for the window's first insets when its surface is created: five insets, then the features array. The split gives
+/// back what [`decode`] reads, and a snapshot with no features (a platform that refused them) is the insets alone.
+///
+/// Mutation: the split taken at 4 (the keyboard's inset read as the version of the features).
+#[test]
+fn the_first_insets_snapshot_is_five_insets_then_the_features_array() {
+    let mut snapshot = vec![128, 126, 0, 0, 0];
+    snapshot.extend(pixel_8());
+    let (insets, features) = split_snapshot(&snapshot).expect("a snapshot");
+    assert_eq!(insets, [128, 126, 0, 0, 0]);
+    assert_eq!(features, pixel_8().as_slice());
+    assert!(decode(features).is_some(), "the rest is the array the decoder reads");
+
+    let (insets, features) = split_snapshot(&[48, 126, 0, 0, 0]).expect("insets alone");
+    assert_eq!(insets, [48, 126, 0, 0, 0]);
+    assert!(features.is_empty());
+
+    assert!(split_snapshot(&[1, 2, 3, 4]).is_none(), "too short to hold the insets");
+    assert!(split_snapshot(&[]).is_none());
+}

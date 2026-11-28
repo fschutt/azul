@@ -495,3 +495,46 @@ fn the_retained_frame_is_shown_early_only_on_a_surface_of_its_size() {
     assert!(!retained_frame_fits(Some((0, 0)), (0, 0)), "an empty frame is no frame");
 }
 
+
+/// The surface of a cold start has no frame until the first layout is done: the system took its starting window away when the
+/// window "drew" (at once, a NativeActivity's window is never drawn by the view system) and the screen showed an empty surface,
+/// black, for as long as the layout took (E46: 0.4 s for the smallest app, 1.1 s for the widget gallery). A flat frame goes on the
+/// surface the moment it exists; every byte of the buffer is written, the stride's padding included, and the first real present
+/// that follows is whole (nothing of OUR frame is on the surface) and does not tell the geometry again.
+///
+/// Mutation: a buffer whose padding is left as it was; a flat frame that leaves the first real present a partial one.
+#[test]
+fn a_flat_frame_fills_the_whole_buffer_and_leaves_the_first_real_present_whole() {
+    use core::mem::MaybeUninit;
+    // a buffer of 3 rows whose stride is 5 pixels for a frame 4 pixels wide: 60 bytes, none of them set
+    let mut buffer = [MaybeUninit::<u8>::uninit(); 60];
+    fill_flat(&mut buffer, [0xEE, 0xE9, 0xDC, 0xFF]);
+    let bytes: Vec<u8> = buffer.iter().map(|b| unsafe { b.assume_init() }).collect();
+    assert_eq!(bytes.len(), 60);
+    assert!(bytes.chunks(4).all(|p| p == [0xEE, 0xE9, 0xDC, 0xFF]), "every pixel, the padding's too");
+    // a length that is not a multiple of four still writes every byte
+    let mut odd = [MaybeUninit::<u8>::uninit(); 6];
+    fill_flat(&mut odd, [1, 2, 3, 4]);
+    let bytes: Vec<u8> = odd.iter().map(|b| unsafe { b.assume_init() }).collect();
+    assert_eq!(bytes, [1, 2, 3, 4, 1, 2]);
+
+    // the state: after the flat frame the first real frame is posted whole, with the geometry already told
+    let mut state = PresentState::new();
+    state.flat_posted(SIZE);
+    state.note_render(SIZE, RowDamage::from_rects(&[(0, 100, SIZE.0, 40)]));
+    let plan = state.plan().expect("the real frame has to be posted");
+    assert_eq!(plan.dirty, None, "no frame of ours is on the surface: the whole buffer is written");
+    assert!(!plan.set_geometry, "the surface was told the size with the flat frame");
+    state.posted(&plan);
+    assert!(state.plan().is_none(), "and it is the frame on the surface now");
+}
+
+/// A flat frame of another size than the frame that follows (a surface whose size the density rounds differently) tells the
+/// geometry again: the buffers are re-made at the frame's size.
+#[test]
+fn a_flat_frame_of_another_size_than_the_first_real_frame_tells_the_geometry_again() {
+    let mut state = PresentState::new();
+    state.flat_posted((1080, 2316));
+    state.note_render(SIZE, RowDamage::Full);
+    assert!(state.plan().expect("a frame to post").set_geometry);
+}

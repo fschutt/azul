@@ -57,6 +57,17 @@ DEFAULT_ROWS = [
 ]
 
 
+def real_rows(apps):
+    """The rows of the real apps (the engine and its Java side, no stand-in): every app in the light mode and in the night mode, the engine's
+    startup timeline and its info log on (`AZ_LOG=info` shows the shell's own lines), the first app's light row also home and back."""
+    rows = []
+    for app in apps:
+        for night in (False, True):
+            rows.append({"name": f"{app}-{'dark' if night else 'light'}", "apk": app, "props": {}, "env": "AZ_LOG=info", "startup": True,
+                         "night": night, "resume": not night, "settle": 6.0})
+    return rows
+
+
 # ---- pure analysis ---------------------------------------------------------------------------------------------------------------------
 
 def label_frames(sigs):
@@ -139,8 +150,12 @@ EVENTS = [
     ("page2 posted", re.compile(r"\[azctl\] POSTED page2")),
     ("redraw needed", re.compile(r"\[azctl\] RedrawNeeded")),
     ("retained posted", re.compile(r"\[azctl\] POSTED retained")),
-    ("insets", re.compile(r"\[Android\] insets top=")),
-    ("resize layout", re.compile(r"layout_begin .*reason=Resize")),
+    ("insets applied", re.compile(r"\[Android\] insets top=")),
+    ("insets known at the surface", re.compile(r"the window's first insets are known at the surface")),
+    ("no insets at the surface", re.compile(r"no insets yet at the surface")),
+    ("layout 1 begins", re.compile(r"layout_begin\b.*#1\b")),
+    ("layout 2 begins", re.compile(r"layout_begin\b.*#2\b")),
+    ("layout 3 begins", re.compile(r"layout_begin\b.*#3\b")),
 ]
 
 
@@ -253,9 +268,13 @@ class Device:
         self.adb("pull", remote, str(local), timeout=120)
 
 
-def set_props(dev, props):
+def set_props(dev, row):
+    """The stand-in's knobs (`debug.azctl.*`) of a control row, and the engine's own (`debug.az.env`, the startup timeline) of a real app's."""
+    props = row.get("props", {})
     for key in ("p1", "p2", "flat", "geom", "sig", "shift", "dark"):
         dev.sh(f"setprop debug.azctl.{key} ''" if key not in props else f"setprop debug.azctl.{key} {props[key]}")
+    dev.sh(f"setprop debug.az.env '{row.get('env', '')}'")
+    dev.sh(f"setprop debug.az.startup {1 if row.get('startup') else 0}")
 
 
 def one_start(dev, package, activity, row, out_dir, keep_video):
@@ -263,7 +282,7 @@ def one_start(dev, package, activity, row, out_dir, keep_video):
     out_dir.mkdir(parents=True, exist_ok=True)
     dev.sh(f"am force-stop {package}")
     dev.sh("input keyevent KEYCODE_HOME")
-    set_props(dev, row.get("props", {}))
+    set_props(dev, row)
     dev.sh(f"cmd uimode night {'yes' if row.get('night') else 'no'}")
     time.sleep(2.0)
     dev.adb("logcat", "-c")
@@ -318,7 +337,7 @@ def run(args):
     out.mkdir(parents=True, exist_ok=True)
     dev = Device(args.serial)
     apks = dict(spec.split("=", 1) for spec in args.apk)
-    rows = json.loads(Path(args.rows).read_text()) if args.rows else DEFAULT_ROWS
+    rows = json.loads(Path(args.rows).read_text()) if args.rows else (real_rows(list(apks)) if args.real else DEFAULT_ROWS)
     if args.only:
         rows = [r for r in rows if any(o in r["name"] for o in args.only)]
     installed = set()
@@ -328,12 +347,13 @@ def run(args):
         if name not in apks:
             print(f"row {row['name']}: no APK named {name}, skipped")
             continue
-        package = f"com.azul.startctl.{name}"
+        package, activity = fa.apk_identity(apks[name])
+        package = package or f"com.azul.startctl.{name}"
+        activity = activity or "com.azul.app.AzulActivity"
         if name not in installed:
             print(dev.adb("install", "-r", "-t", apks[name], timeout=300).strip())
             dev.sh("settings put system accelerometer_rotation 0")
             installed.add(name)
-        activity = "com.azul.app.AzulActivity"
         starts = []
         for i in range(args.starts if not row.get("starts") else row["starts"]):
             rec = one_start(dev, package, activity, row, out / row["name"] / f"start{i + 1}", keep_video=(i == 0))
@@ -364,6 +384,7 @@ def main(argv):
     r.add_argument("--serial", default="")
     r.add_argument("--apk", action="append", required=True, help="NAME=PATH, NAME is the row's `apk`")
     r.add_argument("--rows", default="")
+    r.add_argument("--real", action="store_true", help="the rows of the real apps named by --apk (light and night), not DEFAULT_ROWS")
     r.add_argument("--starts", type=int, default=4)
     r.add_argument("--only", action="append", default=[], help="only the rows whose name holds this text")
     r.set_defaults(func=run)

@@ -87,6 +87,41 @@ class LogTests(unittest.TestCase):
         self.assertIsNone(lab.logcat_ms("--------- beginning of main"))
 
 
+class RealRowsTests(unittest.TestCase):
+    def test_every_real_app_is_started_in_the_light_mode_and_in_the_night_mode(self):
+        rows = lab.real_rows(["AzWidgets", "AzWriter"])
+        self.assertEqual([r["name"] for r in rows], ["AzWidgets-light", "AzWidgets-dark", "AzWriter-light", "AzWriter-dark"])
+        self.assertEqual([r["night"] for r in rows], [False, True, False, True])
+        self.assertTrue(all(r["startup"] and r["env"] == "AZ_LOG=info" for r in rows), "the engine's timeline and its info log are on")
+
+    def test_home_and_back_is_recorded_once_per_app_in_the_light_mode(self):
+        rows = lab.real_rows(["AzWidgets"])
+        self.assertEqual([r["resume"] for r in rows], [True, False])
+
+
+class EngineEventsTests(unittest.TestCase):
+    LOG = "\n".join([
+        "11-28 03:12:26.410   525  2222 I ActivityTaskManager: START u0 {flg=0x10000000 cmp=com.azul.AzWidgets/com.azul.app.AzulActivity}",
+        "11-28 03:12:26.800  2691  2716 I RustStdoutStderr: [startup]  24    67.251     0.625  ThreadId(7)            layout_begin #1 reason=Initial",
+        "11-28 03:12:26.801  2691  2716 I RustStdoutStderr: [Android] the window's first insets are known at the surface: top=128 bottom=126 left=0 right=0",
+        "11-28 03:12:27.257  2691  2716 I RustStdoutStderr: [startup]  28    529.225    51.772  ThreadId(7)            first_present android cpu full",
+        "11-28 03:12:27.264  2691  2716 I RustStdoutStderr: [Android] insets top=128 bottom=126 left=0 right=0 ime=0 (physical px)",
+        "11-28 03:12:27.265  2691  2716 I RustStdoutStderr: [startup] late: layout_begin at 532.119 ms (+0.006 ms, ThreadId(7)) #2 reason=Resize",
+    ])
+
+    def test_the_engines_own_marks_are_events_of_the_start(self):
+        ev = {label: ms for label, ms, _ in lab.log_events(self.LOG)}
+        self.assertEqual(ev["layout 1 begins"], 390)
+        self.assertEqual(ev["insets known at the surface"], 391)
+        self.assertEqual(ev["page1 posted"], 847)
+        self.assertEqual(ev["insets applied"], 854)
+        self.assertEqual(ev["layout 2 begins"], 855)
+
+    def test_a_second_layout_after_the_first_picture_is_the_jump(self):
+        order = [label for label, _ms, _l in lab.log_events(self.LOG)]
+        self.assertLess(order.index("page1 posted"), order.index("layout 2 begins"))
+
+
 class VerdictTests(unittest.TestCase):
     def test_the_row_verdict_takes_medians_and_the_worst_black(self):
         starts = [{"summary": {"splash": 14, "black": b, "first": 3, "settled": 20, "jump": True}} for b in (10, 12, 30)]
