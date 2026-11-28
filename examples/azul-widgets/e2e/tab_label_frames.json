@@ -1,0 +1,93 @@
+[
+  {
+    "name": "azul_widgets_a_button_that_changes_kind_reads_at_every_frame_of_the_change",
+    "description": "QA's phone frames (Android 2026-11-28: shot 000 of tab_touch_phone) show the NEW label colour on the OLD face right after a click on 'Pixel 8': 'No phone' (a stone becoming paper) a dark label on navy, 'Pixel 8' (paper becoming a stone) a white label on cream. Every step runs whatever the one before said; the pictures (AZ_E2E_SHOT_DIR) are, in order: at rest before, the first frame after the click, +100 ms, +250 ms, +550 ms, +1350 ms, at rest after.",
+    "config": {
+      "continue_on_failure": true
+    },
+    "steps": [
+      {
+        "op": "set_theme",
+        "theme": "flora"
+      },
+      {
+        "op": "set_mode",
+        "mode": "light"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "scroll_into_view",
+        "text": "A phone to try it on",
+        "block": "center",
+        "behavior": "instant"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_settled"
+      },
+      {
+        "op": "take_screenshot"
+      },
+      {
+        "op": "click",
+        "text": "Pixel 8"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "take_screenshot"
+      },
+      {
+        "op": "tick_ms",
+        "ms": 100
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "take_screenshot"
+      },
+      {
+        "op": "tick_ms",
+        "ms": 150
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "take_screenshot"
+      },
+      {
+        "op": "tick_ms",
+        "ms": 300
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "take_screenshot"
+      },
+      {
+        "op": "tick_ms",
+        "ms": 800
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "take_screenshot"
+      },
+      {
+        "op": "wait_settled"
+      },
+      {
+        "op": "take_screenshot"
+      }
+    ]
+  }
+]
