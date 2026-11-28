@@ -263,6 +263,55 @@ fn a_dialog_is_a_sheet_at_the_bottom_of_a_narrow_window() {
     );
 }
 
+/// The soft keyboard is up: the sheet stands ON it. The scrim stays the whole window (it reaches under the keyboard); its
+/// bottom padding is the keyboard's height, so the field the keyboard was asked for is above it.
+#[test]
+fn a_dialog_stands_on_the_soft_keyboard() {
+    use azul_css::{
+        props::basic::pixel::{OptionPixelValue, PixelValue},
+        system::SafeAreaInsets,
+    };
+
+    let (mut lw, ws) = window(PHONE, true);
+    lw.safe_area_insets = SafeAreaInsets {
+        keyboard: OptionPixelValue::Some(PixelValue::px(300.0)),
+        ..SafeAreaInsets::default()
+    };
+    let dom = page(popup(TransientAnchor::Dialog, true, Some("Sign in"), vec![panel(280.0, 120.0)]));
+    show(&mut lw, &ws, &dom);
+
+    assert_eq!(rect_of(&lw, popup_node(&lw)), Some(rect(0.0, 0.0, 412.0, 915.0)), "the scrim is still the window");
+    let sheet = rect_of(&lw, node_with_class(&lw, "__azul-overlay-sheet")).expect("the sheet is laid out");
+    assert!(
+        (sheet.origin.y + sheet.size.height - (915.0 - 300.0)).abs() < 1.0,
+        "the sheet's bottom edge is the keyboard's top edge (615): {sheet:?}"
+    );
+}
+
+/// The home indicator is the window's bottom edge, not the sheet's: the card keeps its content clear of it.
+#[test]
+fn a_sheet_keeps_its_content_clear_of_the_home_indicator() {
+    use azul_css::{
+        props::basic::pixel::{OptionPixelValue, PixelValue},
+        system::SafeAreaInsets,
+    };
+
+    let (mut lw, ws) = window(PHONE, true);
+    lw.safe_area_insets = SafeAreaInsets {
+        bottom: OptionPixelValue::Some(PixelValue::px(34.0)),
+        ..SafeAreaInsets::default()
+    };
+    let dom = page(popup(TransientAnchor::Dialog, true, Some("Sign in"), vec![panel(280.0, 120.0)]));
+    show(&mut lw, &ws, &dom);
+
+    let sheet = rect_of(&lw, node_with_class(&lw, "__azul-overlay-sheet")).expect("the sheet is laid out");
+    let content = rect_of(&lw, node_with_class(&lw, "panel")).expect("the content");
+    assert!(
+        content.origin.y + content.size.height <= sheet.origin.y + sheet.size.height - 34.0 + 1.0,
+        "the content ends 34 px above the sheet's bottom edge: {content:?} in {sheet:?}"
+    );
+}
+
 /// From 600 px of width a dialog is a centred card, not a sheet.
 #[test]
 fn a_dialog_is_a_centred_card_on_a_wide_window() {
