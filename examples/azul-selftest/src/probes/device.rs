@@ -47,9 +47,14 @@ fn capabilities(_ctx: &mut Ctx<'_>) -> Step {
     Step::Done(Verdict::Pass(format!("{available} of {} available: {text}", rows.len())))
 }
 
-fn battery(_ctx: &mut Ctx<'_>) -> Step {
+fn battery(ctx: &mut Ctx<'_>) -> Step {
     let state = BatteryState::query();
     if !state.present {
+        // The first query of a process answers before the monitor thread's first reading (a few milliseconds later): the emulator of
+        // the first Android run, which has a battery, read "a desktop on mains power". A device is without one only after it had time.
+        if ctx.elapsed_ms < super::SETTLE_MS {
+            return Step::Wait;
+        }
         return Step::Done(Verdict::Unavailable("no battery (a desktop on mains power)".into()));
     }
     Step::Done(Verdict::Pass(format!(

@@ -7,11 +7,11 @@ Run through the QA's emulator tool (it boots the emulator and calls this script 
 
 What it proves, each with the evidence it prints and writes to <out>/permission-proof.md and permission-proof.json:
 
-  1. ASK ONCE, START AT THE GRANT. Nothing is granted (pm clear + pm revoke). The app starts with the row sensors.geolocation only
-     (`debug.az.selftest_rows`). A tap on the window is the person's first gesture. The system's permission dialog comes ONCE, the script
+  1. ASK ONCE, START AT THE GRANT. Nothing is granted (the app is uninstalled and installed again). The app starts with the row sensors.geolocation only
+     (`debug.az.selftest_rows`; the app was installed again: nothing is remembered, nothing granted). A tap on the window is the person's first gesture. The system's permission dialog comes ONCE, the script
      answers "While using the app", sends a location (`adb emu geo fix`) and the row must PASS with that fix: before the fix of
      2026-11-28 a subscription made before the answer never started and no fix came until the app was started a second time.
-  2. A DENIAL IS REMEMBERED. pm clear again, the same start, the dialog is answered "Don't allow": the row says DENIED. The app is started
+  2. A DENIAL IS REMEMBERED. The app is installed again, the same start, the dialog is answered "Don't allow": the row says DENIED. The app is started
      a second time: NO dialog comes (the denial is remembered by the app, the engine does not ask behind the user's back) and the row
      says DENIED at once.
 
@@ -60,8 +60,8 @@ def tap_any(dev, xml, ids):
 
 
 class Scenario:
-    def __init__(self, dev, package, activity, out):
-        self.dev, self.package, self.activity, self.out = dev, package, activity, Path(out)
+    def __init__(self, dev, package, activity, out, apk=""):
+        self.dev, self.package, self.activity, self.out, self.apk = dev, package, activity, Path(out), apk
         self.lines = []
         self.ok = True
 
@@ -74,11 +74,17 @@ class Scenario:
         self.ok = self.ok and bool(condition)
 
     def fresh(self):
-        """No memory of any earlier answer: the app's data cleared, the location permission revoked."""
+        """A first start: no answer remembered anywhere. The app is installed again (with the APK the script was given): `pm clear` keeps the
+        permission's flags and `pm revoke` marks the permission as REFUSED BY THE USER, which the app rightly reads as a denial and never asks
+        about again (the first emulator run showed DENIED with no dialog after a `pm revoke`: the engine was right, the script was not)."""
         self.dev.sh(f"am force-stop {self.package}")
-        self.dev.sh(f"pm clear {self.package}")
-        for perm in LOCATION:
-            self.dev.sh(f"pm revoke {self.package} {perm}")
+        if self.apk:
+            self.dev.adb("uninstall", self.package, timeout=60)
+            text = self.dev.adb("install", "-t", str(self.apk), timeout=300)
+            if "Success" not in text:
+                self.say(f"  the app could not be installed again: {text.strip()[:200]}")
+        else:
+            self.dev.sh(f"pm clear {self.package}")
         self.dev.sh("setprop debug.az.selftest 0")
         self.dev.sh(f"setprop debug.az.selftest_rows {ROW}")
 
@@ -184,7 +190,7 @@ def main(argv):
     if not package or not activity:
         print("no package and activity: give --package and --activity, or an APK whose manifest names them")
         return 2
-    scenario = Scenario(dev, package, activity, out)
+    scenario = Scenario(dev, package, activity, out, apk=args.apk)
     ok = scenario.run()
     # the font cache on the same emulator: miss, hit, damaged, hit (scripts/ci/android_font_cache_proof.py)
     fonts.run_font_scenarios(dev, package, activity, scenario.say, scenario.expect)
