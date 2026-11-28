@@ -14,6 +14,8 @@
 #                  a_second_frame_shows_its_own_page_and_nothing_of_the_first"
 set -uo pipefail
 
+# SwiftShader's EGL opens an X display for its default display, headless or not: a virtual one
+sudo apt-get install -y xvfb >/dev/null 2>&1 || true
 export ANDROID_HOME="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
 SDKM="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
 yes | "$SDKM" --licenses >/dev/null 2>&1 || true
@@ -63,8 +65,8 @@ for entry in $stacks; do
     if [ -e "$dir/$target" ]; then ln -sf "$dir/$target" "$shim/$link"; fi
   done
   ls -la "$shim"
-  ldd "$dir/libEGL.so" 2>&1 | head -n 12
-  export LD_LIBRARY_PATH="$shim:$dir:$emu/lib64:$emu/lib64/vulkan:${LD_LIBRARY_PATH:-}"
+  LD_LIBRARY_PATH="$ld" ldd "$dir/libEGL.so" 2>&1 | head -n 12
+  ld="$shim:$dir:$emu/lib64:$emu/lib64/vulkan"
   for t in $tests; do
     echo "=== $name / $t"
     case "$t" in
@@ -73,14 +75,14 @@ for entry in $stacks; do
       *) filter="desktop::shell2::common::gles_host_test::$t" ;;
     esac
     mkdir -p "$PWD/$out/pixels-$name"
+    runner=""; command -v xvfb-run >/dev/null 2>&1 && runner="xvfb-run -a"
     env -u EGL_PLATFORM AZ_REQUIRE_GLES=1 AZ_GLES_HOST_TESTS=1 AZ_GPU_PIXELS_DIR="$PWD/$out/pixels-$name" AZ_GL_TRACE="2:$PWD/$out/gltrace-$name-$t.txt" \
-      timeout 900 "$bin" "$filter" --test-threads=1 --nocapture >"$out/$name-$t.log" 2>&1
+      timeout 900 $runner env LD_LIBRARY_PATH="$ld" "$bin" "$filter" --test-threads=1 --nocapture >"$out/$name-$t.log" 2>&1
     status=$?
     echo "exit $status"
     grep -E "control \(split|test result|panicked|FAILED|SKIPPED|differ|% of|mean |GL_RENDERER|renderer|llvmpipe|SwiftShader|Mesa|ES 3" "$out/$name-$t.log" | cut -c1-300 | head -n 60
     [ -s "$out/gltrace-$name-$t.txt" ] && gzip -f "$out/gltrace-$name-$t.txt"
   done
-  unset LD_LIBRARY_PATH
 done
 ls -la "$out" | head -n 60
 echo "gpu swiftshader host: done"
