@@ -1010,7 +1010,12 @@ impl Renderer {
 
     /// EXPERIMENT (the Android GPU root-cause hunt, never for master): WebRender's own `composite` program, vertex array and draw call on a
     /// synthetic tile: a 64 x 64 RGBA8 texture of opaque red is composited into the middle of a 128 x 128 RGBA8 target, the way a picture
-    /// cache tile is composited into the window. Says what the target holds inside the quad and outside it.
+    /// cache tile is composited into the window. Several ways of the same draw, each read back inside the quad and outside it:
+    /// A. the renderer's own (`draw_instanced_batch`: the texture bound by the texture resolver);
+    /// B. the same instanced draw with the texture bound by hand to unit 0 (no resolver, no device bookkeeping);
+    /// C. a plain program of the device's own (full-screen triangle, `texture()`), the texture bound by hand: no WebRender shader or vertex array;
+    /// D. the composite of a solid colour: the dummy texture and a green colour in the instance (`composite_TEXTURE_2D`).
+    /// Besides: the tile's own pixels, and what the context says is current (unit, texture, program, the unit the sampler reads).
     pub fn debug_composite_probe(&mut self) -> String {
         let _ = self.device.begin_frame();
         let tile_id = CacheTextureId(u32::MAX - 1);
@@ -1024,6 +1029,16 @@ impl Renderer {
         );
         let red: Vec<u8> = (0..64 * 64).flat_map(|_| [255_u8, 0, 0, 255]).collect();
         self.device.upload_texture_immediate(&tile, &red);
+        let tile_pixels = self.device.debug_read_texture_rgba8(&tile);
+        let at = (32 * 64 + 32) * 4;
+        let tile_content = format!(
+            "#{:02x}{:02x}{:02x}{:02x}",
+            tile_pixels[at],
+            tile_pixels[at + 1],
+            tile_pixels[at + 2],
+            tile_pixels[at + 3]
+        );
+        let tile_gl_id = tile.debug_id();
         let target = self.device.create_texture(
             ImageBufferKind::Texture2D,
             ImageFormat::RGBA8,
@@ -1072,9 +1087,91 @@ impl Renderer {
         );
         let textures = BatchTextures::composite_rgb(TextureSource::TextureCache(tile_id, Swizzle::default()));
         let mut stats = RendererStats::default();
-        self.draw_instanced_batch(&[instance], VertexArrayKind::Composite, &textures, &mut stats);
+
+        // A. the renderer's own draw.
+        self.draw_instanced_batch(&[instance.clone()], VertexArrayKind::Composite, &textures, &mut stats);
+        let program_id = self
+            .shaders
+            .borrow_mut()
+            .get_composite_shader(CompositeSurfaceFormat::Rgba, ImageBufferKind::Texture2D, features)
+            .debug_program_id()
+            .unwrap_or(0);
+        let state_after_a = self.device.debug_sampler_state(program_id, "sColor0");
+        let a = self.probe_composite_pixels(&target);
+
+        // B. the same instanced draw, the texture bound by hand.
+        self.device.bind_draw_target(DrawTarget::from_texture(&target, false));
+        self.device.clear_target(Some([0.0, 0.0, 0.0, 0.0]), None, None);
+        {
+            let ctx = self.device.gl();
+            ctx.active_texture(gl::TEXTURE0);
+            ctx.bind_texture(gl::TEXTURE_2D, tile_gl_id);
+        }
+        {
+            let vao = &self.vaos[VertexArrayKind::Composite];
+            self.device.bind_vao(vao);
+            self.device
+                .update_vao_instances(vao, &[instance.clone()], ONE_TIME_USAGE_HINT, None);
+            self.device.draw_indexed_triangles_instanced_u16(6, 1);
+        }
+        let b = self.probe_composite_pixels(&target);
+
+        // C. a plain program of the device's own.
+        self.device.bind_draw_target(DrawTarget::from_texture(&target, false));
+        self.device.clear_target(Some([0.0, 0.0, 0.0, 0.0]), None, None);
+        let raw = match self.texture_resolver.texture_cache_map.get(&tile_id) {
+            Some(entry) => self.device.debug_raw_texture_sample(&entry.texture, 128, 128),
+            None => Err("the tile is gone".to_owned()),
+        };
+        let c = match &raw {
+            Ok(()) => self.probe_composite_pixels(&target),
+            Err(why) => format!("did not run: {why}"),
+        };
+
+        // D. a solid colour: the dummy texture and green in the instance.
+        self.device.bind_draw_target(DrawTarget::from_texture(&target, false));
+        self.device.clear_target(Some([0.0, 0.0, 0.0, 0.0]), None, None);
+        let green = CompositeInstance::new(
+            DeviceRect::from_origin_and_size(DevicePoint::new(32.0, 32.0), DeviceSize::new(64.0, 64.0)),
+            DeviceRect::from_origin_and_size(DevicePoint::new(0.0, 0.0), DeviceSize::new(128.0, 128.0)),
+            PremultipliedColorF {
+                r: 0.0,
+                g: 1.0,
+                b: 0.0,
+                a: 1.0,
+            },
+            (false, false),
+        );
+        let green_features = green.get_rgb_features();
+        self.shaders
+            .borrow_mut()
+            .get_composite_shader(CompositeSurfaceFormat::Rgba, ImageBufferKind::Texture2D, green_features)
+            .bind(
+                &mut self.device,
+                &projection,
+                None,
+                &mut self.renderer_errors,
+                &mut self.profile,
+            );
+        let dummy = BatchTextures::composite_rgb(TextureSource::Dummy);
+        self.draw_instanced_batch(&[green], VertexArrayKind::Composite, &dummy, &mut stats);
+        let d = self.probe_composite_pixels(&target);
+
+        if let Some(entry) = self.texture_resolver.texture_cache_map.remove(&tile_id) {
+            self.device.delete_texture(entry.texture);
+        }
+        self.device.delete_texture(target);
+        self.device.end_frame();
+        format!(
+            "composite probe: the tile holds {tile_content} at its centre (expect #ff0000ff); A. WebRender's own draw: {a}; {state_after_a}; B. the same draw, the texture bound by hand: {b}; C. a plain program of the device's own: {c}; D. solid green over the dummy texture (expect #00ff00ff inside): {d}; draw calls {}",
+            stats.total_draw_calls
+        )
+    }
+
+    /// EXPERIMENT: three pixels of the 128 x 128 target of `debug_composite_probe`: inside the quad (centre, a corner) and outside it.
+    fn probe_composite_pixels(&mut self, target: &Texture) -> String {
         self.device
-            .bind_read_target(crate::device::ReadTarget::from_texture(&target));
+            .bind_read_target(crate::device::ReadTarget::from_texture(target));
         let mut read = |x: i32, y: i32| {
             let mut pixel = [0_u8; 4];
             let rect = FramebufferIntRect::from_origin_and_size(
@@ -1087,15 +1184,7 @@ impl Renderer {
         let inside = read(64, 64);
         let corner = read(40, 40);
         let outside = read(8, 8);
-        if let Some(entry) = self.texture_resolver.texture_cache_map.remove(&tile_id) {
-            self.device.delete_texture(entry.texture);
-        }
-        self.device.delete_texture(target);
-        self.device.end_frame();
-        format!(
-            "composite of a synthetic red tile into the middle of a 128 x 128 target: draw calls {}, inside the quad {} and {} (expect #ff0000ff), outside {} (expect #00000000)",
-            stats.total_draw_calls, inside, corner, outside
-        )
+        format!("inside {inside} {corner}, outside {outside}")
     }
 
     /// EXPERIMENT (the Android GPU root-cause hunt, never for master): what the GPU cache texture holds, as one line: its size, how many

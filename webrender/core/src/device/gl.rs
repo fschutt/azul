@@ -494,6 +494,11 @@ pub struct Texture {
 }
 
 impl Texture {
+    /// EXPERIMENT (the Android GPU root-cause hunt, never for master): the GL name.
+    pub fn debug_id(&self) -> u32 {
+        self.id
+    }
+
     pub fn get_dimensions(&self) -> DeviceIntSize {
         self.size
     }
@@ -582,6 +587,11 @@ pub struct Program {
 impl Program {
     pub fn is_initialized(&self) -> bool {
         self.is_initialized
+    }
+
+    /// EXPERIMENT (the Android GPU root-cause hunt, never for master): the GL name.
+    pub fn debug_id(&self) -> u32 {
+        self.id
     }
 }
 
@@ -3766,6 +3776,90 @@ impl Device {
             (indices.len() * size_of::<I>()) as _,
             indices.as_ptr() as *const _,
             usage_hint.to_gl(),
+        )
+    }
+
+    /// EXPERIMENT (the Android GPU root-cause hunt, never for master): draws `texture` over the bound draw target with a plain full-screen-triangle
+    /// program of this function's own (no WebRender shader, vertex array or state helper), the texture bound by hand to unit 0. The device's record of
+    /// the bound program, vertex array and texture of unit 0 is set to what the context has afterwards.
+    pub fn debug_raw_texture_sample(&mut self, texture: &Texture, width: i32, height: i32) -> Result<(), String> {
+        const VS: &str = "#version 300 es\nout vec2 vUv;\nvoid main() {\n    vec2 p = vec2(float((gl_VertexID << 1) & 2), float(gl_VertexID & 2));\n    vUv = p;\n    gl_Position = vec4(p * 2.0 - 1.0, 0.0, 1.0);\n}\n";
+        const FS: &str = "#version 300 es\nprecision mediump float;\nuniform sampler2D sTex;\nin vec2 vUv;\nout vec4 oColour;\nvoid main() {\n    oColour = texture(sTex, vUv);\n}\n";
+        let ctx = &self.gl;
+        let compile = |kind: gl::GLenum, source: &str| -> Result<gl::GLuint, String> {
+            let mut bytes = source.as_bytes().to_vec();
+            bytes.push(0);
+            let shader = ctx.create_shader(kind);
+            ctx.shader_source(shader, &[bytes.as_slice()]);
+            ctx.compile_shader(shader);
+            let mut status = [0_i32];
+            unsafe { ctx.get_shader_iv(shader, gl::COMPILE_STATUS, &mut status) };
+            if status[0] == 0 {
+                let log = ctx.get_shader_info_log(shader);
+                ctx.delete_shader(shader);
+                return Err(log);
+            }
+            Ok(shader)
+        };
+        let vertex = compile(gl::VERTEX_SHADER, VS)?;
+        let fragment = match compile(gl::FRAGMENT_SHADER, FS) {
+            Ok(fragment) => fragment,
+            Err(e) => {
+                ctx.delete_shader(vertex);
+                return Err(e);
+            }
+        };
+        let program = ctx.create_program();
+        ctx.attach_shader(program, vertex);
+        ctx.attach_shader(program, fragment);
+        ctx.link_program(program);
+        ctx.delete_shader(vertex);
+        ctx.delete_shader(fragment);
+        let mut status = [0_i32];
+        unsafe { ctx.get_program_iv(program, gl::LINK_STATUS, &mut status) };
+        if status[0] == 0 {
+            let log = ctx.get_program_info_log(program);
+            ctx.delete_program(program);
+            return Err(log);
+        }
+        ctx.disable(gl::BLEND);
+        ctx.disable(gl::DEPTH_TEST);
+        ctx.disable(gl::SCISSOR_TEST);
+        ctx.viewport(0, 0, width, height);
+        ctx.active_texture(gl::TEXTURE0);
+        ctx.bind_texture(gl::TEXTURE_2D, texture.id);
+        ctx.bind_vertex_array(0);
+        ctx.use_program(program);
+        let location = ctx.get_uniform_location(program, "sTex");
+        ctx.uniform_1i(location, 0);
+        ctx.draw_arrays(gl::TRIANGLES, 0, 3);
+        ctx.use_program(0);
+        ctx.delete_program(program);
+        self.bound_program = 0;
+        self.bound_vao = 0;
+        self.bound_textures[0] = texture.id;
+        Ok(())
+    }
+
+    /// EXPERIMENT (the Android GPU root-cause hunt, never for master): what the context says is current: the active texture unit, the 2D texture of
+    /// unit 0, the current program, and the value of the integer uniform `name` of `program` (the unit a sampler reads).
+    pub fn debug_sampler_state(&self, program: u32, name: &str) -> String {
+        let mut active = [0_i32];
+        let mut bound = [0_i32];
+        let mut current = [0_i32];
+        let mut unit = [-1_i32];
+        let location = self.gl.get_uniform_location(program, name);
+        unsafe {
+            self.gl.get_integer_v(gl::ACTIVE_TEXTURE, &mut active);
+            self.gl.get_integer_v(gl::TEXTURE_BINDING_2D, &mut bound);
+            self.gl.get_integer_v(gl::CURRENT_PROGRAM, &mut current);
+            if location != -1 {
+                self.gl.get_uniform_iv(program, location, &mut unit);
+            }
+        }
+        format!(
+            "active unit 0x{:x}, 2D texture bound to the active unit {}, current program {} (the probe's: {}), {} at location {} reads unit {}",
+            active[0], bound[0], current[0], program, name, location, unit[0]
         )
     }
 

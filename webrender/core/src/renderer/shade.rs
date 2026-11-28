@@ -101,6 +101,11 @@ pub struct LazilyCompiledShader {
 }
 
 impl LazilyCompiledShader {
+    /// EXPERIMENT (the Android GPU root-cause hunt, never for master): the GL name of the program, once it is built.
+    pub fn debug_program_id(&self) -> Option<u32> {
+        self.program.as_ref().map(|program| program.debug_id())
+    }
+
     pub fn new(
         kind: ShaderKind,
         name: &'static str,
