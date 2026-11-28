@@ -19,7 +19,7 @@ fn a_window_narrower_than_600_or_shorter_than_500_is_a_phones() {
 #[test]
 fn the_drawer_is_most_of_the_width_between_its_limits_and_leaves_scrim_to_tap() {
     assert!((drawer_width(411.0) - 345.24).abs() < 0.1, "84 percent of a Pixel 8");
-    assert_eq!(drawer_width(360.0), 302.4_f32.max(DRAWER_MIN).min(320.0));
+    assert_eq!(drawer_width(360.0), 302.4_f32.clamp(DRAWER_MIN, 320.0));
     assert_eq!(drawer_width(914.0), DRAWER_MAX, "never wider than the limit");
     assert_eq!(drawer_width(300.0), 260.0, "a window of 300 keeps 40 px of scrim: below the minimum, the scrim wins");
     assert_eq!(drawer_width(0.0), 0.0);
@@ -51,8 +51,11 @@ fn opening_the_drawer_leaves_the_editor_and_closing_it_does_not_bring_the_row_ba
 #[test]
 fn the_sheet_starts_at_half_and_the_numbers_are_finger_sized() {
     assert_eq!(PhoneState::default().sheet, Detent::Half);
-    assert!(TOUCH >= 48.0 && TOP_BAR >= TOUCH && KEY_ROW >= TOUCH);
-    assert!(DRAWER_MIN < DRAWER_MAX && STATUS_BAR >= TOUCH);
+    // numbers of the constants: checked when the crate is compiled
+    const {
+        assert!(TOUCH >= 48.0 && TOP_BAR >= TOUCH && KEY_ROW >= TOUCH);
+        assert!(DRAWER_MIN < DRAWER_MAX && STATUS_BAR >= TOUCH);
+    }
 }
 
 #[test]

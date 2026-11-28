@@ -15,7 +15,7 @@ use azul::{
     str::String as AzString,
     widgets::{BottomSheet, BottomSheetEvent, BottomSheetEventKind, Button, SheetDetent},
 };
-use azul_appkit::l10n::{self, t, t_args, Arg};
+use azul_appkit::l10n::{self, t_args, Arg};
 
 use crate::{
     app::{AppState, Doc, PanelTab, Side},
