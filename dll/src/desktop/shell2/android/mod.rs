@@ -1859,9 +1859,9 @@ fn has_surface(window: &AndroidWindow) -> bool {
 /// 45797870060, ledger A-36). A rotation, a split screen and a soft keyboard that resizes the window
 /// are each a relayout anyway, so the full frame costs next to nothing.
 #[cfg(all(target_os = "android", feature = "android-activity", feature = "ndk"))]
-fn apply_surface_size(window: &mut AndroidWindow, (logical_w, logical_h): (f32, f32)) {
-    let now = window.common.current_window_state().size.dimensions;
-    if now.width.to_bits() != logical_w.to_bits() || now.height.to_bits() != logical_h.to_bits() {
+fn apply_surface_size(window: &mut AndroidWindow, logical: (f32, f32)) {
+    let (logical_w, logical_h) = logical;
+    if surface_size_differs(window, logical) {
         window.cpu_backend.force_full_repaint = true;
     }
     window
@@ -1870,6 +1870,14 @@ fn apply_surface_size(window: &mut AndroidWindow, (logical_w, logical_h): (f32, 
             ws.size.dimensions.width = logical_w;
             ws.size.dimensions.height = logical_h;
         });
+}
+
+/// Whether `logical` is another size than the window has now (bit for bit: the size comes from the surface's pixels by one function, so the same
+/// surface gives the same bits).
+#[cfg(all(target_os = "android", feature = "android-activity", feature = "ndk"))]
+fn surface_size_differs(window: &AndroidWindow, (logical_w, logical_h): (f32, f32)) -> bool {
+    let now = window.common.current_window_state().size.dimensions;
+    now.width.to_bits() != logical_w.to_bits() || now.height.to_bits() != logical_h.to_bits()
 }
 
 /// The reason tag for a geometry/density-driven regeneration.
@@ -2129,31 +2137,49 @@ fn handle_poll_event(app: &AndroidApp, window: &mut AndroidWindow, event: PollEv
                 window.present.surface_changed();
             }
             MainEvent::WindowResized { .. } => {
-                // Contract shape (snapshot → mutate → pass) — see InitWindow.
-                window.snapshot_window_state_baseline("android.main_event.window_resized");
+                // The system says "resized" at every relayout of the window that touches its surface (the first draw going ahead after the hold, a
+                // system bar's appearance, the keyboard), most of them with the size the window already has. A layout for each of those cost 0.3 to
+                // 1.2 s of the engine's time right after the first picture and changed nothing (the startup timeline's `reason=Resize` passes after
+                // `first_present`, the size on the record below). Only another size is a layout.
                 #[cfg(feature = "ndk")]
-                {
-                    if let Some(nw) = window.native_window.as_ref() {
-                        // A resize is a layout (the startup timeline's `reason=Resize`): the size it came with is on the record.
+                let owed = match window.native_window.as_ref() {
+                    Some(nw) => {
+                        let (px_w, px_h) = (nw.width(), nw.height());
+                        let logical = logical_size(px_w, px_h, window.common.current_window_state().size.dpi);
+                        let differs = surface_size_differs(window, logical);
                         log_info!(
                             LogCategory::Window,
-                            "[Android] WindowResized: the surface is {}x{} px",
-                            nw.width(),
-                            nw.height()
+                            "[Android] WindowResized: the surface is {}x{} px{}",
+                            px_w,
+                            px_h,
+                            if differs { "" } else { ", the size the window has: nothing to lay out" }
                         );
-                        let logical = logical_size(
-                            nw.width(),
-                            nw.height(),
-                            window.common.current_window_state().size.dpi,
-                        );
-                        apply_surface_size(window, logical);
+                        differs
                     }
-                    // The GPU path's frame follows the surface's size.
-                    window.gpu_resized();
+                    None => true,
+                };
+                #[cfg(not(feature = "ndk"))]
+                let owed = true;
+                if owed {
+                    // Contract shape (snapshot → mutate → pass) — see InitWindow.
+                    window.snapshot_window_state_baseline("android.main_event.window_resized");
+                    #[cfg(feature = "ndk")]
+                    {
+                        if let Some(nw) = window.native_window.as_ref() {
+                            let logical = logical_size(
+                                nw.width(),
+                                nw.height(),
+                                window.common.current_window_state().size.dpi,
+                            );
+                            apply_surface_size(window, logical);
+                        }
+                        // The GPU path's frame follows the surface's size.
+                        window.gpu_resized();
+                    }
+                    let reason = resize_reason(window);
+                    window.common.request_regeneration(reason);
+                    let _ = window.process_window_events(0);
                 }
-                let reason = resize_reason(window);
-                window.common.request_regeneration(reason);
-                let _ = window.process_window_events(0);
             }
             MainEvent::ConfigChanged { .. } => {
                 // The language can change while running (Settings > System > Languages; the
