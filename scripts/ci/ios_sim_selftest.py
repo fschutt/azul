@@ -325,10 +325,17 @@ def run_once(udid, bundle, name, out, seconds, touch):
     if p.returncode != 0:
         return {"console": launched, "report": None, "asked": [], "why": f"launch failed: {launched}"}
     seen, fed_keys, shot = {}, [], False
+    refeed = []  # [commands, last fed at, times] of a face that matches: it is shown again while the run goes on
     t0 = time.time()
     text, report, why = "", None, ""
     while time.time() - t0 < seconds:
         time.sleep(0.5)
+        # A match shown to a sheet that is not up yet is dropped by the Simulator: a face that matches is shown again, twice, a few seconds
+        # apart (a sheet that is already answered ignores it)
+        for item in refeed:
+            if item[2] < 3 and time.time() - item[1] >= 4.0:
+                feed.run(item[0])
+                item[1], item[2] = time.time(), item[2] + 1
         text = stdout.read_text(encoding="utf-8", errors="replace") + "\n" + stderr.read_text(encoding="utf-8", errors="replace")
         if not shot and time.time() - t0 > 4:
             screenshot(udid, out / f"{name}-4s.png")
@@ -341,6 +348,8 @@ def run_once(udid, bundle, name, out, seconds, touch):
                 continue
             ok, log = feed.run(commands)
             fed_keys.append(f"{key}: {'fed' if ok else 'FEED FAILED ' + str(log[-1][1:])}")
+            if ok and key.endswith(".match"):
+                refeed.append([commands, time.time(), 1])
         reports = parse_reports(text)
         if reports:
             report = reports[-1]
