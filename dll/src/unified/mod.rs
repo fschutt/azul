@@ -30,6 +30,8 @@ pub mod sensors;
 /// The system's speech (said aloud, heard): api.json's `speech` module.
 pub mod speech;
 pub mod sqlite;
+/// `Url::open` through the platform's opener where core has none (Android): api.json's `url` module.
+pub mod url_opener;
 pub mod video_codec;
 pub mod webtransport;
 pub mod zip;

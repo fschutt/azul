@@ -309,11 +309,10 @@ impl PlatformCapability {
         } else if cfg!(target_os = "ios") {
             cap(true, "CoreMotion", "")
         } else if cfg!(target_os = "android") {
-            cap(
-                false,
-                "SensorManager (JNI)",
-                "Rust path ready; AzulSensors.java helper pending",
-            )
+            // AzulSensors.java ships (one listener per kind, started while a node listens for SensorChanged): the
+            // probe said "helper pending" and false, and an app that gated its compass on it never started.
+            // Which KINDS a phone has is the sensor manager's answer: `get_sensor_reading` is None for the others.
+            cap(true, "SensorManager (JNI)", "")
         } else if cfg!(target_os = "macos") {
             // MWA-C-sensors: REAL probe (was hardcoded false, hiding working
             // sensors on IMU-equipped hardware from AzCapability gates).
@@ -363,7 +362,12 @@ impl PlatformCapability {
             // never receive input. Flips back with the real backend.
             cap(false, "GCController", "backend not implemented yet")
         } else if cfg!(target_os = "android") {
-            cap(false, "InputDevice (JNI)", "backend not implemented yet")
+            // AzulGamepad.java + extra/gamepad/android.rs ship (InputDevice listener, buttons, sticks, triggers).
+            cap(
+                true,
+                "InputDevice (JNI)",
+                "a controller is detected when one is connected (none may be)",
+            )
         } else {
             cap(false, "none", "no gamepad backend on this target")
         }
@@ -371,8 +375,7 @@ impl PlatformCapability {
 
     /// Probe geolocation. Real backends: geoclue D-Bus loop (Linux),
     /// CLLocationManager (macOS/iOS), classic COM Location API (Windows,
-    /// MWA-C-geolocation). Android's Rust/JNI path is wired but the
-    /// `AzulGeolocation.java` helper hasn't shipped.
+    /// MWA-C-geolocation), the platform `LocationManager` through `AzulGeolocation.java` (Android).
     pub fn geolocation() -> PlatformCapability {
         if cfg!(target_os = "linux") {
             cap(
@@ -393,10 +396,11 @@ impl PlatformCapability {
                 "needs the location consent switch; fix delivered async",
             )
         } else if cfg!(target_os = "android") {
+            // AzulGeolocation.java ships: the platform LocationManager (no Play services needed).
             cap(
-                false,
-                "FusedLocationProvider (JNI)",
-                "Rust path ready; AzulGeolocation.java helper pending",
+                true,
+                "LocationManager (JNI)",
+                "needs location permission; fix delivered async",
             )
         } else {
             cap(false, "none", "no geolocation backend on this target")

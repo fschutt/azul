@@ -8,13 +8,16 @@
 # ones that name an engine type). The dll/tests/android_*.rs files read the Java glue and the Rust sources as text and
 # need nothing built, but cargo builds the crate they belong to first.
 set -euo pipefail
-cargo test -p azul-dll --features build-dll --lib -- android_core android_table touch_selection create_callback keyring::android biometric::android
+cargo test -p azul-dll --features build-dll --lib -- android_core android_table aaudio_read touch_selection create_callback keyring::android biometric::android
 cargo test -p azul-dll --features build-dll \
   --test android_jni_symbols_match_the_java_glue \
   --test android_jni_scopes_release_their_local_references \
   --test android_ui_thread_entry_points_never_touch_the_window \
   --test android_activity_lifecycle_contract \
   --test android_extras_java_glue_contract \
+  --test android_permission_flow_contract \
+  --test android_capability_glue_contract \
+  --test android_manifest_contract \
   --test android_language_contract \
   --test android_touch_slop_contract \
   --test android_surface_resize_repaints_in_full_contract \

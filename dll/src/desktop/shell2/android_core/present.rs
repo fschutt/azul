@@ -200,6 +200,19 @@ impl PresentState {
     }
 }
 
+/// Whether the CPU frame the shell still holds (`frame_px`, device pixels) can go on a surface of `surface_px` at once:
+/// only when it is exactly that size. The surface of a resume (home and back) is a new one with the same size and
+/// showed black until the layout and the render of the new pass were done (about 130 ms on the emulator, ledger E47):
+/// the frame that was on the screen a moment ago is the right picture to show meanwhile. After a rotation (or any other
+/// size) it is the wrong one, and a frame of another size would be stretched over the surface: nothing is shown early.
+#[must_use]
+pub const fn retained_frame_fits(frame_px: Option<(u32, u32)>, surface_px: (u32, u32)) -> bool {
+    match frame_px {
+        Some((w, h)) => w == surface_px.0 && h == surface_px.1 && w > 0 && h > 0,
+        None => false,
+    }
+}
+
 /// The rows to write after the lock answered: the region it returned (it may be larger than the one
 /// asked for, and is the whole buffer when it could not carry the last frame over), or every row when
 /// none was asked for. Clamped to the buffer's `buffer_height` rows.

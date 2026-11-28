@@ -481,3 +481,17 @@ fn a_long_random_run_never_leaves_a_stale_row_on_screen() {
         }
     }
 }
+
+/// The frame that was on the screen is shown on the new surface of a resume at once, when the surface is the size of
+/// that frame; never when the size changed (a rotation), and never when there is no frame.
+///
+/// Mutation: `retained_frame_fits` answering true for any size (a portrait frame stretched over the landscape surface).
+#[test]
+fn the_retained_frame_is_shown_early_only_on_a_surface_of_its_size() {
+    assert!(retained_frame_fits(Some((1080, 2400)), (1080, 2400)), "home and back: the same surface size");
+    assert!(!retained_frame_fits(Some((1080, 2400)), (2400, 1080)), "a rotation: the old picture is the wrong one");
+    assert!(!retained_frame_fits(Some((1080, 2400)), (1080, 2316)), "a new inset: not the same frame");
+    assert!(!retained_frame_fits(None, (1080, 2400)), "nothing was rendered yet");
+    assert!(!retained_frame_fits(Some((0, 0)), (0, 0)), "an empty frame is no frame");
+}
+

@@ -52,6 +52,13 @@ the text of the error (it never blocks AzReview from starting). Relay servers ar
 internet; the engine's local-network discovery is on (the engine announces the Mac's key on the local network, and a phone that
 dials the key finds the Mac at its current address).
 
+WHEN TO BIND. A bind starts the engine's local-network discovery (the Mac announces its key, and looks for the phone), and on macOS and iOS
+the system asks the person about the local network the first time that happens. So bind when the person turns the companion on (a switch in
+AzReview's settings, or "Pair a phone"), and when AzReview starts only if the person left it on; a Mac that never uses a phone never binds.
+`IrohOptions::local_discovery` is on in this crate's defaults and is always handed to the engine explicitly, so it does not change when the
+engine's own default changes (it is going to be off: a discovery is an opt-in). The phone app does the same: a phone that was never paired
+binds when the person pastes a pairing code, and a phone that was paired binds at its start (`AzCompanion`: `net::has_saved_mac`).
+
 `IrohOptions::advertised` is the short text the endpoint announces on the local network (`advert.rs` encodes the project and the display
 name; at most 245 bytes; never a secret): a phone that is paired with this Mac sees it appear there and dials it by its key at once,
 also after the Mac's address changed. An app that needs more of the engine's config (a port) takes it from `IrohLink::config(&options)`,
