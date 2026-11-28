@@ -10,7 +10,7 @@
 #   demo-out/results/*
 #   demo-out/plan.txt'
 # AZ_TABS_FLICKER=1 adds, AFTER the tab strip session, the plain AzWidgets (the phone library without the QA hooks, built here too) and the flicker and
-# jitter audit of it with the QA APK for the pan (scripts/ci/qa_android_flicker.sh; add 'demo-out/qa-flicker/**' to the artifacts): the black screens
+# jitter audit of it with the QA APK for the pan (scripts/ci/qa_android_flicker.sh; add 'demo-out/qa-flicker*/**' to the artifacts): the black screens
 # at the start and on resume (E46, E47), idle redraws, the pan of the page.
 set -uxo pipefail
 target=x86_64-linux-android
@@ -62,18 +62,23 @@ fi
 [ -e "demo-out/apps/AzWriter-e2e-$col.apk" ] && export AZ_QA_TABS_EXTRA_APKS="demo-out/apps/AzWriter-e2e-$col.apk"
 
 # the emulator: Pixel 8 (its profile), the hole overlay; portrait and landscape inside the session
-AZ_ANDROID_DEVICE=pixel_8 AZ_ANDROID_OVERLAYS=com.android.internal.emulation.pixel_8 \
+AZ_ANDROID_DEVICE=pixel_8 AZ_ANDROID_OVERLAYS="com.android.internal.emulation.pixel_8 com.android.systemui.emulation.pixel_8" \
   timeout 4500 bash scripts/ci/android_qa.sh demo-out/qa-tabs "$apk" swiftshader_indirect "AzWidgets tabs" tabs
 echo "SESSION tabs: exit $?"
 if [ "${AZ_TABS_FLICKER:-}" = 1 ]; then
   plain_features="$(python3 scripts/demo_apps.py features "$col" mobile)"
   start=$(date +%s)
   if bash scripts/demo_lib.sh android "$target" "$plain_features" "demo-out/libs/demolib-$col-mobile" \
-     && python3 scripts/demo_build.py android --target "$target" --apps AzWidgets --libs demo-out/libs --out demo-out/apps --results demo-out/results --variant ""; then
+     && python3 scripts/demo_build.py android --target "$target" --apps "AzWidgets AzWriter" --libs demo-out/libs --out demo-out/apps --results demo-out/results --variant ""; then
     echo "PLAIN SECONDS: $(( $(date +%s) - start ))"
     mkdir -p flick && cp "demo-out/apps/AzWidgets-$col.apk" "$apk" flick/
     timeout 2400 bash scripts/ci/qa_android_flicker.sh flick
     echo "SESSION flicker: exit $?"
+    # E46 once more for AzWriter: the flash audit (cold start, rotation, dark mode, home and back) of its plain APK on its own boot, its own folder
+    if [ -e "demo-out/apps/AzWriter-$col.apk" ]; then
+      AZ_QA_OUT=demo-out/qa-flicker-azwriter timeout 1500 bash scripts/ci/qa_android_flicker.sh "demo-out/apps/AzWriter-$col.apk"
+      echo "SESSION flicker azwriter: exit $?"
+    fi
   else
     echo "the plain AzWidgets did not build: no flicker audit"
   fi
