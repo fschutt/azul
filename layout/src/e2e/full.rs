@@ -886,6 +886,14 @@ pub struct FrameReportResponse {
     pub accumulated_paint_damage_rects: Vec<DamageRectJson>,
     pub accumulated_present_damage_kind: String,
     pub frames_since_reset: u32,
+    /// A counter that moves whenever this window presents a frame, on EVERY backend
+    /// (`LayoutWindow::presented_frame_generation`: the frames recorded with their damage plus the ones
+    /// counted where a frame goes to its renderer). `frames_since_reset` counts only the frames a shell
+    /// recorded (macOS, the headless window, the runner), so on the other shells it stays 0 however much is
+    /// drawn. Monotonic and never reset; its steps are not exact frame counts (a CPU frame that is both
+    /// recorded and counted moves it twice). The idle-redraw audit reads it twice with nothing happening in
+    /// between: if it moved, the window drew a frame nobody asked for.
+    pub presented_frames: u64,
     /// EVENT passes (`process_window_events` depth), not layout passes.
     pub relayout_iterations: u32,
     pub dom_regenerations: u32,
@@ -9018,6 +9026,7 @@ const fn damage_kind_str(d: &azul_layout::window::FrameDamage) -> &'static str {
 fn build_frame_report_response(
     report: &azul_layout::window::FrameReport,
     window_area: f32,
+    presented_frames: u64,
 ) -> FrameReportResponse {
     let to_json = |d: &azul_layout::window::FrameDamage| {
         d.rects()
@@ -9056,6 +9065,7 @@ fn build_frame_report_response(
         accumulated_present_damage_kind: damage_kind_str(&report.accumulated_present_damage)
             .to_string(),
         frames_since_reset: report.frames_since_reset,
+        presented_frames,
         relayout_iterations: report.relayout_iterations,
         dom_regenerations: report.dom_regenerations,
         layout_passes: report.layout_passes,
@@ -9081,7 +9091,7 @@ mod audit_a9_report_tests {
     #[test]
     fn a9_07_frame_report_carries_resident_memory() {
         let report = azul_layout::window::FrameReport::default();
-        let response = build_frame_report_response(&report, 100.0);
+        let response = build_frame_report_response(&report, 100.0, 0);
         #[cfg(all(
             feature = "probe",
             not(feature = "web_lift"),
@@ -9096,6 +9106,20 @@ mod audit_a9_report_tests {
         // It is in the JSON the runner hands out.
         let json = serde_json::to_value(&response).expect("serialisable");
         assert!(json.get("rss_bytes").is_some() && json.get("peak_rss_bytes").is_some());
+    }
+
+    /// The idle-redraw audit reads how many frames the window presented, on any shell: the frame report
+    /// carries the window's presented-frame counter, in its JSON as `presented_frames`.
+    #[test]
+    fn the_frame_report_carries_the_presented_frame_counter() {
+        let report = azul_layout::window::FrameReport::default();
+        let response = build_frame_report_response(&report, 100.0, 7);
+        assert_eq!(response.presented_frames, 7);
+        let json = serde_json::to_value(&response).expect("serialisable");
+        assert_eq!(
+            json.get("presented_frames").and_then(serde_json::Value::as_u64),
+            Some(7)
+        );
     }
 }
 
@@ -18400,6 +18424,7 @@ fn serve_debug_event(
                 Some(ResponseData::FrameReport(Box::new(build_frame_report_response(
                     &report,
                     window_logical_area(callback_info),
+                    callback_info.get_layout_window().presented_frame_generation(),
                 )))),
             );
         }

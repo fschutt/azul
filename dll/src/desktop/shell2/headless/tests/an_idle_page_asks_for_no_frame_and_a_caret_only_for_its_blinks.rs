@@ -50,6 +50,16 @@ fn blink_period_ms(window: &HeadlessWindow) -> u64 {
     }
 }
 
+/// The counter of presented frames the debug server's frame report carries (`presented_frames`).
+fn presented(window: &HeadlessWindow) -> u64 {
+    window
+        .common
+        .layout_window
+        .as_ref()
+        .expect("layout window")
+        .presented_frame_generation()
+}
+
 /// Run `periods` driver periods on the frozen test clock; how many of them asked for a frame.
 fn frames_asked_for_over(window: &mut HeadlessWindow, periods: usize) -> usize {
     (0..periods)
@@ -79,7 +89,9 @@ fn a_static_page_asks_for_no_frame_in_ten_seconds() {
     window.arm_animation_drivers_if_needed();
 
     let timers = timer_ids(&window);
+    let before = presented(&window);
     let asked = frames_asked_for_over(&mut window, TEN_SECONDS);
+    let after = presented(&window);
     azul_core::task::reset_test_clock();
 
     assert!(
@@ -89,6 +101,10 @@ fn a_static_page_asks_for_no_frame_in_ten_seconds() {
     assert_eq!(
         asked, 0,
         "an idle window asked for {asked} frames in ten seconds"
+    );
+    assert_eq!(
+        before, after,
+        "the counter of presented frames (the debug server's `presented_frames`) moved in an idle window"
     );
 }
 
