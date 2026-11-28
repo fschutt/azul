@@ -535,6 +535,24 @@ plain text (a placeholder, an accessible name, a label a widget measures) are sa
 localizer, `info.get_fluent_localizer()`: do not keep a localizer in a thread-local of your own, the app starts on
 one thread and its loop may run on another one (it does on Android).
 
+**Popups, dialogs, menus and a second window.** A phone has one surface and cannot open another window, so the
+engine shows what a desktop would open as a window INSIDE yours, over the page, and your code does not change.
+Every `<transient-window>` (the `Popover`, `Dialog`, `Modal` and `AboutDialog` widgets, a drop-down's list) is laid out
+`position: fixed` at a box the engine places: below its anchor, flipped above it and slid back inside the window where
+there is no room, shortened to scroll where it is taller than the room (the window less the safe areas and the soft
+keyboard), always over everything the page has, whatever stacking contexts it stands in. A dialog with a title is a bottom
+sheet under 600 dp of width and a centred card above it, over a scrim; it stands on the keyboard, the page under it
+takes no touch and is hidden from the screen reader (`aria-modal`). A tap outside a popup, Escape and the system's BACK
+close the top one (the press is not spent: a tap on another invoker opens its popover), and a menu you open with
+`info.open_menu(...)` (a `DropDown`, a toolbar's menu, a context menu on a long press) is such a popup with finger-high rows,
+its submenus unfolding under their item. A second window of the app (`info.create_window`) is a VIEW that fills the
+screen over the first, with its own state, callbacks and timers; BACK, the back swipe on iOS, or its own
+`close_window()` pops it, and its `CloseRequested` callbacks may veto as for any window. The engine decides this from
+what the shell reports (`WindowPresentation::OneSurface`), or from a display preset on a desktop window
+(`set_display_preset`), so a test on a desktop shows what a phone shows; `list_popups` tells where each popup is. An app
+that draws its own popup windows (`WindowType::Menu`, `Tooltip`) should use `<transient-window>` and `open_menu` instead:
+such a window is not opened on a phone.
+
 **Narrow windows.** Decide a phone layout from the window's width with `info.window_width_less_than(px)`: the
 layout is built again only when the width crosses `px`, not on every pixel of a resize or a rotation. The demos use
 560 to 600 dp as the phone's edge (AzMaps' sidebar becomes a sheet over the map, AzPaint's menu commands become keys
