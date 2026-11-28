@@ -9812,9 +9812,8 @@ fn match_sound_records(
     }
     let sound = match params.get("sound").and_then(serde_json::Value::as_str) {
         None => None,
-        Some(name) => match azul_core::sound::SystemSound::from_name(name) {
-            Some(sound) => Some(sound),
-            None => {
+        Some(name) => {
+            let Some(sound) = azul_core::sound::SystemSound::from_name(name) else {
                 let known: Vec<&str> = azul_core::sound::ALL_SYSTEM_SOUNDS
                     .iter()
                     .map(|sound| sound.name())
@@ -9823,8 +9822,9 @@ fn match_sound_records(
                     "{op}: `sound` {name:?} is not a system sound (known: {})",
                     known.join(", ")
                 )));
-            }
-        },
+            };
+            Some(sound)
+        }
     };
     let class = params.get("class").and_then(serde_json::Value::as_str);
     if let Some(class) = class {
