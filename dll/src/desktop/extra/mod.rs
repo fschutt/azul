@@ -92,6 +92,8 @@ pub mod session;
 /// speech-dispatcher) and what the user says heard (SFSpeechRecognizer, WinRT); logged, not
 /// spoken, in a headless run. See `speech/mod.rs`.
 pub mod speech;
+/// Opening a URL where the platform has no opener process (Android starts an activity). See `url_opener.rs`.
+pub mod url_opener;
 /// SQLite-backed `Db` engine (P4.3). The `Db` handle is always present
 /// (so it flows through the normal api.json codegen with no feature
 /// gating); the bundled-SQLite `rusqlite` engine behind it is opt-in via

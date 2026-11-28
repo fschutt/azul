@@ -245,6 +245,9 @@ fn opener_command<'a>(
         // iOS starts no process: the platform opens a URL (`UIApplication`), through the hook the shell provides. A
         // path has no file manager to be shown in.
         "ios" if !is_path => Some((IOS_OPEN_PROGRAM, alloc::vec![target])),
+        // Android starts no process either: the platform opens a link by starting an ACTIVITY, through the hook the shell provides.
+        // A path has no file manager to be shown in.
+        "android" if !is_path => Some((ANDROID_OPEN_PROGRAM, alloc::vec![target])),
         "linux" | "freebsd" | "openbsd" | "netbsd" | "dragonfly" => {
             Some(("xdg-open", alloc::vec![target]))
         }
@@ -287,6 +290,19 @@ extern "Rust" {
     fn azul_ios_open_url(url: &str) -> bool;
 }
 
+/// The "program" [`opener_command`] names for Android: not a process but the activity the platform starts for a link.
+#[cfg(feature = "std")]
+const ANDROID_OPEN_PROGRAM: &str = "android:open-url";
+
+/// The Android shell's opener (`AzulUrl.open`: an `ACTION_VIEW` intent in a new task; `azul-settings:app` and
+/// `android-settings:app-details` are the app's own page in the system settings), which the shell provides:
+/// `dll/src/desktop/extra/url_opener.rs`. `true` once an activity was started. The settings page is where an app sends a
+/// person who refused a permission for good, since Android shows no dialog for it any more.
+#[cfg(all(feature = "std", target_os = "android"))]
+extern "Rust" {
+    fn azul_android_open_url(url: &str) -> bool;
+}
+
 /// Spawns [`opener_command`] for this platform; `true` once it started ([`open_with`] of this
 /// process's hooks).
 #[cfg(feature = "std")]
@@ -301,6 +317,11 @@ fn spawn_opener(target: &str, is_path: bool) -> bool {
             if program == IOS_OPEN_PROGRAM {
                 // SAFETY: the shell defines the symbol (a safe `fn(&str) -> bool` of the same build).
                 return args.first().is_some_and(|url| unsafe { azul_ios_open_url(url) });
+            }
+            #[cfg(target_os = "android")]
+            if program == ANDROID_OPEN_PROGRAM {
+                // SAFETY: the shell defines the symbol (a safe `fn(&str) -> bool` of the same build).
+                return args.first().is_some_and(|url| unsafe { azul_android_open_url(url) });
             }
             std::process::Command::new(program)
                 .args(args)

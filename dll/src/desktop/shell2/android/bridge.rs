@@ -466,6 +466,36 @@ pub unsafe extern "system" fn Java_com_azul_text_NativeTextBridge_nativeOnWindow
     }
 }
 
+/// The display features of the window (cutouts, rounded corners, the system bars, the fingerprint sensor) as the flat int array
+/// of `NativeTextBridge.dispatchDisplayFeatures` (`android_core::display` says what is in it), PHYSICAL px. It comes with every
+/// insets dispatch; only the latest matters to the loop.
+#[no_mangle]
+pub unsafe extern "system" fn Java_com_azul_text_NativeTextBridge_nativeOnDisplayFeatures(
+    env: *mut jni::sys::JNIEnv,
+    _class: jni::sys::jclass,
+    native_ptr: i64,
+    flat: jni::sys::jintArray,
+) {
+    let Some(bridge) = from_cookie(native_ptr) else {
+        return;
+    };
+    if env.is_null() || flat.is_null() {
+        return;
+    }
+    let Ok(env) = jni::JNIEnv::from_raw(env) else {
+        return;
+    };
+    let array = jni::objects::JIntArray::from_raw(flat);
+    let Ok(len) = env.get_array_length(&array) else {
+        return;
+    };
+    let mut values = vec![0_i32; usize::try_from(len).unwrap_or(0)];
+    if env.get_int_array_region(&array, 0, &mut values).is_err() {
+        return;
+    }
+    bridge.push(UiEvent::DisplayFeatures(values));
+}
+
 /// `AzulInputView.onPointerCaptureChange`: the framework's answer to a capture request, and the notice
 /// that one was taken away.
 #[no_mangle]

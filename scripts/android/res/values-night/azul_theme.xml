@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The theme of every azul activity, NIGHT mode: see res/values/azul_theme.xml. The colour is the engine's dark default
+     window background (css/src/system.rs: android_holo_dark). -->
+<resources>
+    <color name="azul_window_background">#000000</color>
+    <style name="AzulTheme" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/azul_window_background</item>
+        <item name="android:colorBackground">@color/azul_window_background</item>
+    </style>
+</resources>

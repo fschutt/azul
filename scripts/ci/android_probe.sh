@@ -3,6 +3,8 @@
 # on the APK: install, properties, cold starts, one logcat per start, a marker line, the permission dialogs that ever showed.
 #   scripts/remote.sh run <ref> ubuntu-22.04 'bash scripts/ci/android_probe.sh out <apk> --prop debug.az.selftest=1 --marker AZ_SELFTEST_REPORT --watch-permissions' --artifacts 'out/**'
 #   scripts/remote.sh run <ref> ubuntu-22.04 'bash scripts/ci/android_probe.sh out <apk> --clear-data --starts 2 --startup --marker AZ_STARTUP' --artifacts 'out/**'
+# AZ_PROBE_PY names another script to run on the booted emulator in place of android_probe.py (it gets the same arguments; the attended
+# permission proof of the Android shell, scripts/ci/android_permission_proof.py, imports android_probe for its helpers).
 # AZ_ANDROID_IMAGE overrides the system image (default system-images;android-34;default;x86_64). Exit: 2 when the emulator or the install failed,
 # else what android_probe.py says (0 good, 3 the marker never appeared, 4 a permission dialog showed). See android_probe.py for the options.
 set -uo pipefail
@@ -39,5 +41,5 @@ done
 adb shell input keyevent 82 >/dev/null 2>&1 || true
 adb shell settings put global window_animation_scale 0 >/dev/null 2>&1 || true
 echo "emulator booted: $(adb shell getprop ro.product.cpu.abi | tr -d '\r'), API $(adb shell getprop ro.build.version.sdk | tr -d '\r')"
-python3 "$(dirname "$0")/android_probe.py" --apk "$apk" --out "$out" "$@"
+python3 "${AZ_PROBE_PY:-$(dirname "$0")/android_probe.py}" --apk "$apk" --out "$out" "$@"
 exit $?

@@ -151,3 +151,155 @@ fn a_haptic_primitive_the_hardware_cannot_play_falls_back() {
     assert!(after.contains("Ok(false)=>returnOk(false)"), "unsupported: not played, the caller falls back");
     assert!(after.contains("Err(_)=>"), "a missing method does not end in an exception");
 }
+
+/// Home and back gives the window a NEW surface, which showed black until the layout and the render of the next pass were
+/// done (about 130 ms, QA's flicker audit, ledger E47). The CPU frame that was on the screen is posted on it at once, in
+/// the surface-created handler, before the layout is requested, when it is the size of the surface (the rule is
+/// `android_core::present::retained_frame_fits`, tested on every host) and only for a window that draws on the CPU (the
+/// GPU path owns its surface and presents its own frame as soon as it has one).
+///
+/// Mutation: the early `render_frame` removed from `InitWindow` (the state of 6ce827b284).
+#[test]
+fn the_retained_frame_goes_on_a_new_surface_before_the_layout() {
+    let shell = rust_code("dll/src/desktop/shell2/android/mod.rs");
+    let arm = shell.find("MainEvent::InitWindow{..}=>{").expect("the surface-created arm") + "MainEvent::InitWindow{..}".len();
+    let init = body(&shell[arm..], "=>");
+    let gpu = init.find("window.gpu_surface_created();").expect("the GPU path takes the surface first");
+    let gate = init
+        .find("window.draws_on_cpu()&&crate::desktop::shell2::android_core::present::retained_frame_fits(retained,surface_px)")
+        .expect("the retained frame is posted only to a CPU window and only at the surface's size");
+    let post = init[gate..].find("render_frame(window)").expect("it is posted") + gate;
+    let layout = init.find("window.common.request_regeneration(reason)").expect("the layout is requested");
+    assert!(gpu < gate && gate < post && post < layout, "the frame is posted before the layout is requested");
+}
+
+/// `Url::open` answered `false` on Android for every URL with no log line (core spawns `open` / `xdg-open` /
+/// `rundll32`, and a phone has none): an app could not open a page, nor send a user who refused a permission for good to the
+/// settings (AN-15), and `CallbackInfo::open_app_settings` answered `Unsupported`. Core's `opener_command` has an arm for
+/// Android as for iOS (the "program" `android:open-url`, a link only), `spawn_opener` hands it to `azul_android_open_url`, which
+/// the shell defines (`desktop::extra::url_opener`) and which starts an activity through `AzulUrl.open` (a new task, an
+/// `ActivityNotFoundException` is `false`); `azul-settings:app` and the permission manager's `android-settings:app-details` are
+/// the app's own page in the system settings; a headless or scripted test run starts nothing, as on the desktop. ONE route: api.json's
+/// `Url.open` is core's `object.open()` again.
+///
+/// Mutation: the `"android"` arm of `opener_command` removed (the state of 6ce827b284).
+#[test]
+fn a_url_opens_on_android_and_the_app_can_open_its_settings() {
+    let core = rust_code("core/src/url.rs");
+    assert!(
+        core.contains("\"android\"if!is_path=>Some((ANDROID_OPEN_PROGRAM,alloc::vec![target])),"),
+        "core: a link on Android goes to the shell's hook, a path has no opener"
+    );
+    assert!(core.contains("constANDROID_OPEN_PROGRAM:&str=\"android:open-url\";"));
+    assert!(
+        core.contains("#[cfg(all(feature=\"std\",target_os=\"android\"))]extern\"Rust\"{fnazul_android_open_url(url:&str)->bool;}"),
+        "core declares the hook the shell defines"
+    );
+    let spawn = body(&core, "fnspawn_opener(target:&str,is_path:bool)->bool{");
+    let hook = spawn.find("program==ANDROID_OPEN_PROGRAM").expect("spawn_opener names the Android program");
+    let call = spawn.find("azul_android_open_url(url)").expect("and calls the shell's hook");
+    let process = spawn.find("std::process::Command::new(program)").expect("a process for the others");
+    assert!(hook < call && call < process, "the hook is asked before a process is spawned");
+
+    let api = read("api.json");
+    let doc = api
+        .find("\"Opens this URL in the system's default browser.\"")
+        .expect("api.json: Url.open");
+    let body_at = doc + api[doc..].find("\"fn_body\"").expect("its body");
+    let line = &api[body_at..body_at + api[body_at..].find('\n').unwrap()];
+    assert!(line.contains("\"object.open()\""), "Url.open is core's opener, which has the Android hook: {line}");
+
+    let rust = rust_code("dll/src/desktop/extra/url_opener.rs");
+    assert!(
+        rust.contains("#[cfg(target_os=\"android\")]#[no_mangle]pubfnazul_android_open_url(url:&str)->bool{open(url)}"),
+        "the shell defines the hook core declares"
+    );
+    let started = body(&rust, "pubfnopen(href:&str)->bool{");
+    let hooks = started.find("azul_core::run_mode::test_hooks().open_nothing").expect("a scripted run starts nothing");
+    let call = started.find("\"com/azul/url/AzulUrl\"").expect("the Java opener");
+    assert!(hooks < call);
+    assert!(started.contains("env.exception_clear()"), "a pending exception aborts the process at the next JNI call");
+
+    let java = java_code("scripts/android/AzulUrl.java");
+    let open = body(&java, "public static boolean open(Activity activity, String url)");
+    assert!(open.contains("intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)"), "another app is another task");
+    assert!(open.contains("catch (ActivityNotFoundException e)") && open.contains("return false;"), "no handler: false");
+    assert!(
+        open.contains("new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,")
+            && open.contains("Uri.fromParts(\"package\", activity.getPackageName(), null)"),
+        "the app's own settings page"
+    );
+    assert!(java.contains("public static final String APP_SETTINGS = \"azul-settings:app\";"));
+    assert!(
+        java.contains("public static final String APP_DETAILS = \"android-settings:app-details\";")
+            && open.contains("APP_SETTINGS.equals(url) || APP_DETAILS.equals(url)"),
+        "the permission manager's name for the page opens it as well"
+    );
+    // Once the permission manager names the settings page of each platform (`settings_url`), the name it gives Android is one the
+    // Java opener answers to.
+    let manager = rust_code("layout/src/managers/permission.rs");
+    if manager.contains("fnsettings_url(") {
+        assert!(
+            manager.contains("SettingsPlatform::Android=>Some(\"android-settings:app-details\"),"),
+            "the permission manager's name for the settings page of Android"
+        );
+    }
+}
+
+/// `PowerState::query` answered `(None, None)` on Android: on mains false and idle 0 for ever, on the charger too
+/// (AN-12). A phone is on mains when its battery is on a charger (`BatteryState::charging`, the monitor's reading of
+/// `BatteryManager`); no battery known is "the platform does not say".
+///
+/// Mutation: the Android arm removed (the state of 6ce827b284).
+#[test]
+fn a_phone_on_its_charger_is_on_mains() {
+    let power = rust_code("dll/src/desktop/extra/sensors/power.rs");
+    let arm = power
+        .find("#[cfg(target_os=\"android\")]modplatform{")
+        .expect("an Android arm of the power reading");
+    let android = body(&power[arm..], "modplatform{");
+    assert!(android.contains("crate::desktop::extra::sensors::battery::BatteryState::query()"));
+    assert!(android.contains("(battery.present.then_some(battery.charging),None)"));
+    let fallback = power
+        .find("#[cfg(not(any(target_os=\"macos\",target_os=\"windows\",target_os=\"linux\",target_os=\"android\")))]modplatform{")
+        .expect("the stub no longer claims Android");
+    assert!(fallback > arm);
+}
+
+/// `NetworkState::connected` was the network's INTERNET capability: true behind a captive portal and on a Wi-Fi that leads nowhere,
+/// for every request that then failed (AN-21). It needs the system's own VALIDATED check as well.
+///
+/// Mutation: the VALIDATED test removed (the state of 6ce827b284).
+#[test]
+fn connected_means_the_system_validated_the_network() {
+    let rust = rust_code("dll/src/desktop/extra/sensors/network/android.rs");
+    assert!(rust.contains("constNET_CAPABILITY_VALIDATED:i32=16;"), "ConnectivityManager's NET_CAPABILITY_VALIDATED is 16");
+    assert!(
+        rust.contains(
+            "letconnected=caps_say(env,&caps,\"hasCapability\",NET_CAPABILITY_INTERNET)&&caps_say(env,&caps,\"hasCapability\",NET_CAPABILITY_VALIDATED);"
+        ),
+        "connected = INTERNET and VALIDATED"
+    );
+}
+
+/// A media button or a seek of the system UI is parked on a queue from Android's media thread; a loop parked with no surface (the
+/// app is in the background: that is what a headset button is for) saw it only when something else woke it (AN-22). Both entry
+/// points wake the loop after they queue.
+///
+/// Mutation: the `wake_event_loop()` calls removed (the state of 6ce827b284).
+#[test]
+fn a_media_button_wakes_a_parked_loop() {
+    let rust = rust_code("dll/src/desktop/extra/media_keys/android.rs");
+    let button = body(
+        &rust,
+        "pubunsafeextern\"system\"fnJava_com_azul_media_AzulMediaSession_nativeOnMediaButton(",
+    );
+    let queued = button.find("queues.push_media_key(key);").expect("the button is parked");
+    assert!(button[queued..].contains("crate::desktop::shell2::android::wake_event_loop();"), "and the loop is woken");
+    let seek = body(
+        &rust,
+        "pubunsafeextern\"system\"fnJava_com_azul_media_AzulMediaSession_nativeOnMediaSeek(",
+    );
+    let queued = seek.find("queues.push_media_control(").expect("the seek is parked");
+    assert!(seek[queued..].contains("crate::desktop::shell2::android::wake_event_loop();"));
+}
