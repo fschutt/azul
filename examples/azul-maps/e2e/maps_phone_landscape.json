@@ -1,7 +1,7 @@
 [
   {
     "name": "azul_maps_phone_landscape_search_place_way_host",
-    "description": "AzMaps in a 914 x 411 window (pixel8, turned on its side): wide, so the panel at the left, as on a desktop. Pictures, in order: 1 first look, 2 the results of 'Stuttgart', 3 the place, 3b Share, 4 the way, 5 a chip's search, 6 dark, 7 the panel folded away.",
+    "description": "AzMaps in a 914 x 411 window (pixel8, turned on its side): wide, so the panel at the left, as on a desktop. Pictures, in order: 1 first look, 2 the results of 'Stuttgart', 3 the place, 3b Share, 4 the way, 5 a chip's search, 6 dark, 7 the panel folded away, 8 the settings page.",
     "only_on": [
       "linux",
       "macos",
@@ -406,6 +406,50 @@
       {
         "op": "assert_exists",
         "selector": "#__azmaps_panel"
+      },
+      {
+        "op": "click",
+        "selector": "#__azmaps_settings"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "assert_exists",
+        "selector": "#appkit-settings"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_settled"
+      },
+      {
+        "op": "take_screenshot"
+      },
+      {
+        "op": "click",
+        "selector": "#appkit-settings-cancel"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "assert_not_exists",
+        "selector": "#appkit-settings"
+      },
+      {
+        "op": "assert_exists",
+        "selector": "#__azmaps_map"
       }
     ]
   }

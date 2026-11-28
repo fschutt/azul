@@ -73,6 +73,13 @@ def tiles():
     return [op("wait", ms=3000, real=True)] + frames(3)
 
 
+def settings_page():
+    """The gear opens azul-appkit's settings page in the window itself (a full-window view with an OK and a Cancel): a picture of it, then
+    Cancel, which closes it on every device (a phone has no Escape)."""
+    return (click("#__azmaps_settings") + [op("assert_exists", selector="#appkit-settings")] + shot()
+            + click("#appkit-settings-cancel") + [op("assert_not_exists", selector="#appkit-settings"), op("assert_exists", selector="#__azmaps_map")])
+
+
 def window(name, width, height, preset):
     return [op("set_display_preset", preset=preset), op("resize", width=float(width), height=float(height))] + frames(3) + [op("wait_settled")]
 
@@ -105,14 +112,15 @@ def desktop_steps():
     # the map is drawn in the light style again (its tiles are fetched in it, a gray ground until they are in): wait, then fold the panel
     s += [op("set_mode", mode="light")] + tiles() + click("#__azmaps_panel-toggle") + [op("assert_exists", selector="#__azmaps_panel-show")] + shot()  # 7 folded
     s += click("#__azmaps_panel-show") + [op("assert_exists", selector="#__azmaps_panel")]
+    s += settings_page()                                          # 8 the settings page
     return s
 
 
 def desktop_file():
     desc = ("AzMaps on a desktop, 1280 x 800: the map fills the window, the panel at the left (search, chips, then the results, the place, "
             "the way), the zoom, locate and map-style keys at the right. Pictures, in order: 1 first look, 2 the results of 'Stuttgart', 3 the "
-            "place, 3b Share (the notice that the link is on the clipboard), 4 the way (Route), 5 a chip's search, 6 dark, 7 the panel folded away to its search key. (The map styles' popover is a "
-            "window of its own: the host's picture is of the main window, so no step opens it.)")
+            "place, 3b Share (the notice that the link is on the clipboard), 4 the way (Route), 5 a chip's search, 6 dark, 7 the panel folded away to its search key, "
+            "8 the settings page (the gear). (The map styles' popover is a window of its own: the host's picture is of the main window, so no step opens it.)")
     return [{
         "name": "azul_maps_desktop_panel_search_place_way",
         "description": desc,
@@ -161,10 +169,11 @@ def phone_steps(root_top=None, root_height=None):
     s += [op("assert_exists", selector="#__azmaps_results")] + shot()                                # 7 a chip's search
     s += [op("set_mode", mode="dark")] + map_redrawn() + shot()                                      # 8 dark
     s += [op("set_mode", mode="light")]
+    s += settings_page()                                                                             # 9 the settings page
     return s
 
 
-PICTURES = "1 first look, 2 the results of 'Stuttgart', 3 the place at the sheet's peek, 4 half, 5 full, 6 the way, 7 a chip's search, 8 dark"
+PICTURES = "1 first look, 2 the results of 'Stuttgart', 3 the place at the sheet's peek, 4 half, 5 full, 6 the way, 7 a chip's search, 8 dark, 9 the settings page (the gear)"
 
 # tag, width, height, display preset, (status bar, navigation bar) the preset stands for
 UPRIGHT = [
@@ -188,7 +197,7 @@ def phone_files():
         "name": "azul_maps_phone_landscape_search_place_way_host",
         "description": "AzMaps in a 914 x 411 window (pixel8, turned on its side): wide, so the panel at the left, as on a desktop. Pictures, "
                        "in order: 1 first look, 2 the results of 'Stuttgart', 3 the place, 3b Share, 4 the way, 5 a chip's search, 6 dark, 7 the "
-                       "panel folded away.",
+                       "panel folded away, 8 the settings page.",
         "only_on": DESKTOPS,
         "steps": window("landscape", 914, 411, "pixel8") + desktop_steps(),
     }]

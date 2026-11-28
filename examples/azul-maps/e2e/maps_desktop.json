@@ -1,7 +1,7 @@
 [
   {
     "name": "azul_maps_desktop_panel_search_place_way",
-    "description": "AzMaps on a desktop, 1280 x 800: the map fills the window, the panel at the left (search, chips, then the results, the place, the way), the zoom, locate and map-style keys at the right. Pictures, in order: 1 first look, 2 the results of 'Stuttgart', 3 the place, 3b Share (the notice that the link is on the clipboard), 4 the way (Route), 5 a chip's search, 6 dark, 7 the panel folded away to its search key. (The map styles' popover is a window of its own: the host's picture is of the main window, so no step opens it.)",
+    "description": "AzMaps on a desktop, 1280 x 800: the map fills the window, the panel at the left (search, chips, then the results, the place, the way), the zoom, locate and map-style keys at the right. Pictures, in order: 1 first look, 2 the results of 'Stuttgart', 3 the place, 3b Share (the notice that the link is on the clipboard), 4 the way (Route), 5 a chip's search, 6 dark, 7 the panel folded away to its search key, 8 the settings page (the gear). (The map styles' popover is a window of its own: the host's picture is of the main window, so no step opens it.)",
     "only_on": [
       "linux",
       "macos",
@@ -406,6 +406,50 @@
       {
         "op": "assert_exists",
         "selector": "#__azmaps_panel"
+      },
+      {
+        "op": "click",
+        "selector": "#__azmaps_settings"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "assert_exists",
+        "selector": "#appkit-settings"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_settled"
+      },
+      {
+        "op": "take_screenshot"
+      },
+      {
+        "op": "click",
+        "selector": "#appkit-settings-cancel"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "assert_not_exists",
+        "selector": "#appkit-settings"
+      },
+      {
+        "op": "assert_exists",
+        "selector": "#__azmaps_map"
       }
     ]
   }

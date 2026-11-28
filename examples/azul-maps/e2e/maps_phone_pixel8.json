@@ -1,7 +1,7 @@
 [
   {
     "name": "azul_maps_phone_pixel8_search_place_way_host",
-    "description": "AzMaps in a 411 x 914 window (pixel8), as a phone shows it: the search bar and the chips on top of the map, the sheet from the bottom (peek, half, full). Pictures, in order: 1 first look, 2 the results of 'Stuttgart', 3 the place at the sheet's peek, 4 half, 5 full, 6 the way, 7 a chip's search, 8 dark.",
+    "description": "AzMaps in a 411 x 914 window (pixel8), as a phone shows it: the search bar and the chips on top of the map, the sheet from the bottom (peek, half, full). Pictures, in order: 1 first look, 2 the results of 'Stuttgart', 3 the place at the sheet's peek, 4 half, 5 full, 6 the way, 7 a chip's search, 8 dark, 9 the settings page (the gear).",
     "only_on": [
       "linux",
       "macos",
@@ -468,6 +468,50 @@
       {
         "op": "set_mode",
         "mode": "light"
+      },
+      {
+        "op": "click",
+        "selector": "#__azmaps_settings"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "assert_exists",
+        "selector": "#appkit-settings"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_settled"
+      },
+      {
+        "op": "take_screenshot"
+      },
+      {
+        "op": "click",
+        "selector": "#appkit-settings-cancel"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "wait_frame"
+      },
+      {
+        "op": "assert_not_exists",
+        "selector": "#appkit-settings"
+      },
+      {
+        "op": "assert_exists",
+        "selector": "#__azmaps_map"
       }
     ]
   }
