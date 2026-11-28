@@ -222,6 +222,10 @@ class Proof:
         uri = str(item.get("uri"))
         self.expect(uri.startswith(f"content://{self.package}.azul.share/") and "/data/" not in uri,
                     "the URI is the app's provider's, not a path", uri)
+        # the /proc/self/fd question (ledger 3.4 a): the descriptor a provider gave works, does its PATH open again in the receiver?
+        fd_proc = str(item.get("fd_proc"))
+        self.say(f"  [info] /proc/self/fd/N of the descriptor the provider gave ShareLab: {fd_proc}")
+        self.results.append({"info": "fd_proc of a provider file in the receiving app", "detail": fd_proc})
         self.results[-1]["uri"] = uri
 
     def share_many(self):

@@ -117,7 +117,29 @@ public final class ReceiveActivity extends Activity {
         } catch (Exception e) {
             out.append(",\"read_error\":").append(quote(e.toString()));
         }
+        out.append(",\"fd_proc\":").append(quote(reopenThroughProc(uri)));
         return out.append('}').toString();
+    }
+
+    /**
+     * The /proc/self/fd question, settled on a real provider file: the descriptor a provider gave this app works (it is read above), but does
+     * the PATH of that descriptor (`/proc/self/fd/N`, a magic link) open again? Answer: "ok <n> bytes" or the exception's text.
+     * Handing such a path to code that wants a path (a decoder, std::fs) is only worth anything when this says ok, for every provider.
+     */
+    private String reopenThroughProc(Uri uri) {
+        try (android.os.ParcelFileDescriptor pfd = getContentResolver().openFileDescriptor(uri, "r")) {
+            if (pfd == null) {
+                return "no descriptor";
+            }
+            String path = "/proc/self/fd/" + pfd.getFd();
+            try (InputStream in = new java.io.FileInputStream(path)) {
+                byte[] buf = new byte[4096];
+                int n = in.read(buf);
+                return "ok " + n + " bytes through " + path;
+            }
+        } catch (Exception e) {
+            return "denied: " + e;
+        }
     }
 
     private static String quote(String s) {
