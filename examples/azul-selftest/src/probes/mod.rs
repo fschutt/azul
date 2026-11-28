@@ -16,8 +16,10 @@ use azul::prelude::*;
 use crate::report::{RowResult, Verdict};
 
 pub mod device;
+pub mod network;
 pub mod pending;
 pub mod platform;
+pub mod protected;
 pub mod render;
 pub mod security;
 pub mod sensors;
@@ -99,8 +101,10 @@ pub fn all() -> Vec<&'static ProbeDef> {
         device::PROBES,
         sensors::PROBES,
         security::PROBES,
+        protected::PROBES,
         system::PROBES,
         platform::PROBES,
+        network::PROBES,
         render::PROBES,
         pending::PROBES,
     ]
