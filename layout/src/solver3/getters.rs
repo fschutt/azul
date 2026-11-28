@@ -7105,6 +7105,70 @@ pub fn collect_used_codepoints_all(styled_dom: &StyledDom) -> std::collections::
     out
 }
 
+/// Whether the faces registered in MEMORY ([`crate::text3::cache::FontManager::memory_families`]: the ones azul bundles,
+/// the ones the app ships with `AppConfig::add_font` and the ones it registers while it runs) draw EVERY character of
+/// `styled_dom`'s text under EVERY font stack the DOM names, so that laying the DOM out needs nothing from the system's
+/// fonts: the shell's first layout need not wait for the registry's scan of them.
+///
+/// On a font cache MISS (the first start after an install, an OS update or a changed font) that scan takes hundreds of
+/// milliseconds on a desktop and seconds on a phone, and the first frame used to wait for it whatever the app's text was
+/// set in (the startup timeline of 2026-11-28: iOS Simulator 3148 ms against 1151 ms on a hit).
+///
+/// The rule is CONSERVATIVE: each way it could say "yes" wrongly is closed, and a "no" only costs the wait of before.
+///
+/// - A DOM with no text says no: an empty field still takes its line from a face, the system's.
+/// - A stack is read family by family up to the first one that is not a memory family. A stack that STARTS with a system
+///   family (or a generic one, `serif`, `system-ui`) says no: the system face would draw the characters it has before any
+///   memory face after it. Names after the memory families (`"Calmet UI", "EB Garamond", Georgia, serif`) are never
+///   reached when the memory faces cover the text, and are not asked.
+/// - The memory faces of those leading families, together, must cover every character of the text with their cmaps as
+///   registered: ONE character none of them draws says no (a CJK character, an emoji, a symbol would fall to a system
+///   face). Control characters are no glyph and are not asked for.
+///
+/// An installed copy of a family the app also ships (the memory face is the FALLBACK tier) is not in the registry yet
+/// either way: the first frame draws the shipped face, and the next layout the installed one, as it did when the scan
+/// had finished a moment before.
+#[must_use]
+pub fn memory_faces_draw_all_text<T: ParsedFontTrait>(
+    styled_dom: &StyledDom,
+    font_manager: &crate::text3::cache::FontManager<T>,
+    platform: &azul_css::system::Platform,
+    viewport: PhysicalSize,
+) -> bool {
+    let chars: std::collections::BTreeSet<char> = collect_used_codepoints_all(styled_dom)
+        .into_iter()
+        .filter(|c| !c.is_control())
+        .collect();
+    if chars.is_empty() {
+        return false;
+    }
+    let collected = collect_font_stacks_from_styled_dom_in_viewport(styled_dom, platform, viewport);
+    if collected.font_stacks.is_empty() {
+        return false;
+    }
+    collected.font_stacks.iter().all(|stack| {
+        // The faces of the memory families the stack opens with.
+        let mut leading = Vec::new();
+        for selector in stack {
+            let norm = rust_fontconfig::utils::normalize_family_name(&selector.family);
+            match font_manager.memory_families.get(&norm) {
+                Some(faces) if !faces.is_empty() => leading.extend(faces.iter()),
+                _ => break,
+            }
+        }
+        !leading.is_empty()
+            && chars.iter().all(|c| {
+                let cp = u32::from(*c);
+                leading.iter().any(|face| {
+                    face.font_match
+                        .unicode_ranges
+                        .iter()
+                        .any(|range| cp >= range.start && cp <= range.end)
+                })
+            })
+    })
+}
+
 /// Trim a [`FontFallbackChain`] down to the minimum set of `FontMatch`
 /// entries needed to cover `used_chars` (typically from
 /// [`collect_used_codepoints`]).

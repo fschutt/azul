@@ -60,6 +60,14 @@ srcgate)
     step srcgate cargo test -p azul-srcgate --no-fail-fast
     guard srcgate
     ;;
+firstlayout)
+    # The pieces of the first layout's font wait: the rule in azul-layout, the shell's decision with a registry that never scans,
+    # the font cache's tests (compile errors and the new tests first, before the whole halves).
+    step layout-rule cargo test -p azul-layout --test all -- a_dom_drawn_by_faces_in_memory_needs_no_system_font
+    guard layout-rule
+    step dll-wait cargo test -p azul-dll --lib -- layout_font_wait app_font_cache font_cache_guard
+    guard dll-wait
+    ;;
 fonts)
     # The font cache's tests and the source gates: for a change of those tests alone, after the whole `dll` half passed
     # on the same production code.
