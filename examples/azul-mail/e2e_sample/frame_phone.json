@@ -234,7 +234,8 @@
         "op": "wait_frame"
       },
       {
-        "op": "wait_settled"
+        "op": "wait_settled",
+        "timeout_ms": 8000
       },
       {
         "op": "assert_exists",
@@ -303,7 +304,8 @@
         "op": "wait_frame"
       },
       {
-        "op": "wait_settled"
+        "op": "wait_settled",
+        "timeout_ms": 8000
       },
       {
         "op": "assert_exists",
@@ -337,7 +339,8 @@
         "op": "wait_frame"
       },
       {
-        "op": "wait_settled"
+        "op": "wait_settled",
+        "timeout_ms": 8000
       },
       {
         "op": "assert_exists",
@@ -365,7 +368,8 @@
         "op": "wait_frame"
       },
       {
-        "op": "wait_settled"
+        "op": "wait_settled",
+        "timeout_ms": 8000
       },
       {
         "op": "assert_not_exists",
