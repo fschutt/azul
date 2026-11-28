@@ -1258,6 +1258,9 @@ mod build_window {
         /// Whether a tab strip of the build in this scope has taken the window's one chevron.
         pub(super) static TAB_TOGGLE_TAKEN: core::cell::Cell<bool> =
             const { core::cell::Cell::new(false) };
+        /// Whether that window sits on a simulated phone (`WindowFlags::display_preset` is not `Off`).
+        pub(super) static SIMULATED_PHONE: core::cell::Cell<bool> =
+            const { core::cell::Cell::new(false) };
     }
 }
 
@@ -1274,6 +1277,8 @@ pub struct WindowSizeScope {
     previous_hidden: bool,
     #[cfg(feature = "std")]
     previous_taken: bool,
+    #[cfg(feature = "std")]
+    previous_phone: bool,
     /// `!Send`: the scope belongs to the thread whose build it frames.
     _thread_bound: core::marker::PhantomData<*const ()>,
 }
@@ -1290,6 +1295,13 @@ impl WindowSizeScope {
     /// guard lives. A fresh scope has no tab strip that took the window's one chevron yet
     /// ([`build_take_tab_content_toggle`]).
     pub fn enter_with(size: LogicalSize, tab_content_hidden: bool) -> Self {
+        Self::enter_for_window(size, tab_content_hidden, false)
+    }
+
+    /// [`Self::enter_with`] for a window that sits on a simulated phone (`simulated_phone`:
+    /// `WindowFlags::display_preset` is not `Off`): what [`build_window_simulates_phone`] answers while
+    /// the guard lives.
+    pub fn enter_for_window(size: LogicalSize, tab_content_hidden: bool, simulated_phone: bool) -> Self {
         #[cfg(feature = "std")]
         let previous = build_window::SIZE
             .try_with(|scoped| scoped.replace(Some(size)))
@@ -1303,8 +1315,12 @@ impl WindowSizeScope {
         let previous_taken = build_window::TAB_TOGGLE_TAKEN
             .try_with(|scoped| scoped.replace(false))
             .unwrap_or(false);
+        #[cfg(feature = "std")]
+        let previous_phone = build_window::SIMULATED_PHONE
+            .try_with(|scoped| scoped.replace(simulated_phone))
+            .unwrap_or(false);
         #[cfg(not(feature = "std"))]
-        let _ = (size, tab_content_hidden);
+        let _ = (size, tab_content_hidden, simulated_phone);
         Self {
             #[cfg(feature = "std")]
             previous,
@@ -1312,6 +1328,8 @@ impl WindowSizeScope {
             previous_hidden,
             #[cfg(feature = "std")]
             previous_taken,
+            #[cfg(feature = "std")]
+            previous_phone,
             _thread_bound: core::marker::PhantomData,
         }
     }
@@ -1325,6 +1343,7 @@ impl Drop for WindowSizeScope {
             let _ = build_window::SIZE.try_with(|scoped| scoped.set(previous));
             let _ = build_window::TAB_CONTENT_HIDDEN.try_with(|scoped| scoped.set(self.previous_hidden));
             let _ = build_window::TAB_TOGGLE_TAKEN.try_with(|scoped| scoped.set(self.previous_taken));
+            let _ = build_window::SIMULATED_PHONE.try_with(|scoped| scoped.set(self.previous_phone));
         }
     }
 }
@@ -1368,6 +1387,24 @@ pub fn build_tab_content_hidden() -> bool {
     #[cfg(feature = "std")]
     {
         build_window::TAB_CONTENT_HIDDEN.try_with(core::cell::Cell::get).unwrap_or(false)
+    }
+    #[cfg(not(feature = "std"))]
+    {
+        false
+    }
+}
+
+/// Does the window the DOM is being built for sit on a simulated phone?
+///
+/// For a widget's `dom()`: `WindowFlags::display_preset` is not `Off`, `false` outside a build. The
+/// stand-in of "a touch platform" on a host that has none, so that the same scenario file shows on a
+/// desktop what a phone shows (`tabs::phone_build`, the one rule of the phone's widgets). Not a size
+/// question: a preset change builds a layout of its own.
+#[must_use]
+pub fn build_window_simulates_phone() -> bool {
+    #[cfg(feature = "std")]
+    {
+        build_window::SIMULATED_PHONE.try_with(core::cell::Cell::get).unwrap_or(false)
     }
     #[cfg(not(feature = "std"))]
     {

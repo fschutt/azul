@@ -20,6 +20,12 @@ cmd="${1:-}"; [ $# -gt 0 ] && shift || true
 
 job_id() { gh run view "$1" --repo "$REPO" --json jobs --jq '.jobs[0].databaseId'; }
 
+# run_state <id>: queued | in_progress | ... | <the conclusion of a finished run>. Every agent and coordinator shares ONE token with a
+# 5000/h REST quota; scripts/gh_cond.py asks with If-None-Match, and an answer 304 does NOT count against it (the ETag and the body are
+# cached in ${TMPDIR:-/tmp}/remote-sh-cache; python on purpose: bash 3.2 splitting a 400 KB answer is quadratic).
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
+run_state() { python3 "$HERE/gh_cond.py" state "repos/$REPO/actions/runs/$1" "run-$(printf '%s' "$REPO" | tr '/' '_')-$1"; }
+
 case "$cmd" in
   run)
     [ $# -ge 3 ] || { echo "usage: remote.sh run <ref> <runner> '<command>' [--artifacts '<globs>']" >&2; exit 2; }
@@ -39,18 +45,17 @@ case "$cmd" in
     [ -n "$artifacts" ] && args+=(-f artifacts="$artifacts")
     gh workflow run remote.yml --repo "$REPO" --ref master "${args[@]}"
     id=""
-    for _ in $(seq 1 40); do
-      id="$(gh run list --repo "$REPO" --workflow remote.yml --limit 30 --json databaseId,displayTitle \
-            --jq ".[] | select(.displayTitle | endswith(\"$tag\")) | .databaseId" | head -n 1)"
+    for _ in $(seq 1 30); do
+      id="$(python3 "$HERE/gh_cond.py" find-tag "repos/$REPO/actions/workflows/remote.yml/runs?per_page=30" "list-remote-$(printf '%s' "$REPO" | tr '/' '_')" "$tag" 2>/dev/null || true)"
       [ -n "$id" ] && break
-      sleep 3
+      sleep 5
     done
     [ -n "$id" ] || { echo "the run did not appear (tag $tag)" >&2; exit 1; }
     echo "$id"
     echo "https://github.com/$REPO/actions/runs/$id" >&2
     ;;
   status)
-    gh run view "$1" --repo "$REPO" --json status,conclusion --jq 'if .status == "completed" then .conclusion else .status end'
+    run_state "$1"
     ;;
   wait)
     # Every agent and every coordinator shares ONE token with a 5000/h REST quota: 60 s polls of ~20 runs plus
@@ -58,7 +63,7 @@ case "$cmd" in
     # failed or empty API answer (rate limit, network) as "no verdict yet", never as a failed run.
     fails=0
     while true; do
-      if s="$(gh run view "$1" --repo "$REPO" --json status,conclusion --jq 'if .status == "completed" then .conclusion else .status end' 2>/dev/null)" && [ -n "$s" ]; then
+      if s="$(run_state "$1")" && [ -n "$s" ]; then
         fails=0
         case "$s" in
           success) echo success; exit 0;;
