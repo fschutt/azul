@@ -67,5 +67,29 @@ class DisplayFeaturesTests(unittest.TestCase):
         self.assertEqual(subprocess.run(["bash", "-n", str(HERE / "ios_qa.sh")]).returncode, 0)
 
 
+class TextSizeTests(unittest.TestCase):
+    """The tab sessions of both phones take a picture at the largest system text size, for the plain start and for every extra app (AzWriter), so that
+    'the engine ignores the system text size' is measured on more than one app."""
+
+    def test_android_takes_font_scale_1_3_and_2_0_for_the_plain_start_and_the_extra_apps(self):
+        text = (HERE / "android_qa.sh").read_text(encoding="utf-8")
+        self.assertIn('device-fontscale-$fs.png', text)
+        self.assertIn('$xn-fontscale-$fs.png', text)
+        self.assertEqual(text.count("for fs in 1.3 2.0; do"), 2)
+        self.assertGreaterEqual(text.count("settings put system font_scale 1.0"), 2)        # put back after each of the two loops
+
+    def test_ios_takes_the_largest_accessibility_size_and_puts_the_default_back(self):
+        text = (HERE / "ios_qa.sh").read_text(encoding="utf-8")
+        self.assertEqual(text.count("content_size accessibility-extra-extra-extra-large"), 2)
+        self.assertEqual(text.count("content_size large"), 2)
+        self.assertIn("device-text-xxxl.png", text)
+        self.assertIn("$xn-text-xxxl.png", text)
+
+    def test_the_scripts_are_valid_shell(self):
+        import subprocess
+        for name in ("android_qa.sh", "ios_qa.sh"):
+            self.assertEqual(subprocess.run(["bash", "-n", str(HERE / name)]).returncode, 0, name)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

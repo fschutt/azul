@@ -128,6 +128,10 @@ if [ "$session" = tabs ]; then
     xcrun simctl ui "$udid" appearance dark >/dev/null 2>&1; sleep 8
     xcrun simctl io "$udid" screenshot "$td/device-dark-start.png" >/dev/null 2>&1 || true
     xcrun simctl ui "$udid" appearance light >/dev/null 2>&1; sleep 4
+    # the system text size (does the engine follow it?): the largest accessibility size, a picture, back to the default; the light start above is the baseline
+    xcrun simctl ui "$udid" content_size accessibility-extra-extra-extra-large >/dev/null 2>&1; sleep 8
+    xcrun simctl io "$udid" screenshot "$td/device-text-xxxl.png" >/dev/null 2>&1 || true
+    xcrun simctl ui "$udid" content_size large >/dev/null 2>&1; sleep 3
     xcrun simctl terminate "$udid" "$bid" >/dev/null 2>&1 || true
     for part in ${AZ_QA_TABS_FILES:-tab_touch_phone tab_touch.json tab_touch_pictures tab_looks tab_touch_diag tab_overflow_phone tab_overflow_pictures tab_content_toggle}; do
       xcrun simctl io "$udid" recordVideo --codec=h264 --force "$td/videos/${part%.json}.mp4" >"$td/videos/${part%.json}.log" 2>&1 &
@@ -151,6 +155,9 @@ if [ "$session" = tabs ]; then
       xcrun simctl ui "$udid" appearance dark >/dev/null 2>&1; sleep 8
       xcrun simctl io "$udid" screenshot "$td/$xn-dark.png" >/dev/null 2>&1 || true
       xcrun simctl ui "$udid" appearance light >/dev/null 2>&1; sleep 4
+      xcrun simctl ui "$udid" content_size accessibility-extra-extra-extra-large >/dev/null 2>&1; sleep 8
+      xcrun simctl io "$udid" screenshot "$td/$xn-text-xxxl.png" >/dev/null 2>&1 || true
+      xcrun simctl ui "$udid" content_size large >/dev/null 2>&1; sleep 3
       xcrun simctl terminate "$udid" "$xbid" >/dev/null 2>&1 || true
     done
   done

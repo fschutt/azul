@@ -232,6 +232,12 @@ for mode in "${mode_list[@]}"; do
       adb shell cmd uimode night yes >/dev/null 2>&1; sleep 8
       adb exec-out screencap -p >"$td/device-dark-start.png" 2>/dev/null || true
       adb shell cmd uimode night no >/dev/null 2>&1; sleep 4
+      # the system text size (does the engine follow it?): fontScale 1.3 and 2.0, a picture each, back to 1.0; the light start above is the baseline
+      for fs in 1.3 2.0; do
+        adb shell settings put system font_scale "$fs"; sleep 6
+        adb exec-out screencap -p >"$td/device-fontscale-$fs.png" 2>/dev/null || true
+      done
+      adb shell settings put system font_scale 1.0; sleep 3
       adb shell am force-stop "$pkg" >/dev/null 2>&1
       for part in ${AZ_QA_TABS_FILES:-tab_touch_phone tab_touch.json tab_touch_pictures tab_looks tab_touch_diag tab_overflow_phone tab_overflow_pictures tab_content_toggle}; do
         bring_settings
@@ -259,6 +265,11 @@ for mode in "${mode_list[@]}"; do
         adb shell cmd uimode night yes >/dev/null 2>&1; sleep 8
         adb exec-out screencap -p >"$td/$xn-dark.png" 2>/dev/null || true
         adb shell cmd uimode night no >/dev/null 2>&1; sleep 4
+        for fs in 1.3 2.0; do
+          adb shell settings put system font_scale "$fs"; sleep 6
+          adb exec-out screencap -p >"$td/$xn-fontscale-$fs.png" 2>/dev/null || true
+        done
+        adb shell settings put system font_scale 1.0; sleep 3
         adb shell am force-stop "$xpkg" >/dev/null 2>&1
       done
       # AZ_QA_AZMAIL_APK: AzMail on this phone in this orientation (scripts/ci/android_azmail.py: its first start, the sample mailbox when
