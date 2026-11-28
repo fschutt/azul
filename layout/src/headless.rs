@@ -2882,10 +2882,11 @@ impl CpuHitTester {
         // The boxes the touch is in, front to back: one of them being interactive is the normal
         // answer.
         let (hits, _) = self.entries_at_counted(position, resolve_scroll, resolve_transform, stamps_of);
-        if hits
-            .iter()
-            .any(|h| h.scrollbar.is_none() && self.interactive.contains(&(h.dom_id, h.node_id)))
-        {
+        // A scrollbar under the finger is what the finger is on (it is drawn there), whatever small
+        // control lies beside it; so is a box that takes a press.
+        if hits.iter().any(|h| {
+            h.scrollbar.is_some() || self.interactive.contains(&(h.dom_id, h.node_id))
+        }) {
             return None;
         }
         let view_shift = |dom_id: DomId| self.view_shift_of(dom_id);
