@@ -1228,6 +1228,17 @@ fn module_from_external_path(path: &str) -> Option<String> {
     if path.starts_with("azul_core::url::") {
         return Some("url".to_string());
     }
+    // Sharing a file with another app (the system's share sheet) and being opened with one (what the system asks
+    // the app to open) are the other half of the file dialogs: routed by path, because no name keyword says so
+    // ("Share", "Opened" and "Open" belong to no module, so they fell to `misc`).
+    if path.starts_with("azul_core::share::") || path.starts_with("azul_core::open_files::") {
+        return Some("dialog".to_string());
+    }
+    // The files and folders the user owns, wherever the platform keeps them (`CallbackInfo::documents`): the
+    // `file` module's, beside `FilePath` and `DirEntry`.
+    if path.starts_with("azul_core::documents::") || path.starts_with("azul_layout::documents::") {
+        return Some("file".to_string());
+    }
     // Sign-in sessions: the URL a sign-in opens and the redirect it comes back with.
     if path.starts_with("azul_layout::auth_session::")
         || path.starts_with("azul_dll::unified::auth_session::")
@@ -1822,6 +1833,39 @@ mod tests {
         // The by-concern types keep the established placement.
         assert_eq!(determine_module("OptionShellPane").0, "option");
         assert_eq!(determine_module("ShellPaneVec").0, "vec");
+    }
+
+    /// The share sheet, "Open with" and `Documents` have no keyword of their own; their source path places them: the first
+    /// two with the file dialogs, the third with the file module (their Vec / Option / Error names stay structural).
+    #[test]
+    fn share_open_and_documents_types_are_placed_by_their_source_path() {
+        for (name, path, module) in [
+            ("ShareItem", "azul_core::share::ShareItem", "dialog"),
+            ("ShareItemKind", "azul_core::share::ShareItemKind", "dialog"),
+            ("ShareRequest", "azul_core::share::ShareRequest", "dialog"),
+            ("ShareStatus", "azul_core::share::ShareStatus", "dialog"),
+            ("OpenAction", "azul_core::open_files::OpenAction", "dialog"),
+            ("OpenRequest", "azul_core::open_files::OpenRequest", "dialog"),
+            ("OpenedItem", "azul_core::open_files::OpenedItem", "dialog"),
+            ("OpenedKind", "azul_core::open_files::OpenedKind", "dialog"),
+            ("DocumentEntry", "azul_core::documents::DocumentEntry", "file"),
+            ("Place", "azul_core::documents::Place", "file"),
+            ("PlaceKind", "azul_core::documents::PlaceKind", "file"),
+            ("AllFilesAccess", "azul_core::documents::AllFilesAccess", "file"),
+            ("Documents", "azul_layout::documents::Documents", "file"),
+        ] {
+            assert_eq!(new_type_module(name, path), (module.to_string(), false), "{name} by its path");
+            assert_eq!(get_correct_module_with_path(name, module, Some(path)), None, "{name} stays in {module}");
+            assert_eq!(
+                get_correct_module_with_path(name, "misc", Some(path)),
+                Some(module.to_string()),
+                "{name} moves out of misc"
+            );
+        }
+        assert_eq!(determine_module("ShareItemVec").0, "vec");
+        assert_eq!(determine_module("OptionOpenedItem").0, "option");
+        assert_eq!(determine_module("DocumentError").0, "error");
+        assert_eq!(determine_module("ResultDocumentEntryDocumentError").0, "error");
     }
 
     #[test]
