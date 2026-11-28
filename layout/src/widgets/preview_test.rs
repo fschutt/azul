@@ -511,3 +511,21 @@ fn a_finger_grabs_the_bottom_grip_from_further_above_than_a_pointer() {
     st.reach = grip_reach_above(true);
     assert!(st.grabs(100.0, 590.0, 400.0, 800.0), "a finger 10 px above it: yes");
 }
+
+// ---- the text size of the user ----
+
+use crate::widgets::sidebar_layout::{declares, declares_chrome_cap};
+use azul_css::props::property::CssPropertyType;
+
+#[test]
+fn the_bottom_panes_bar_keeps_its_text_to_the_detent_and_the_right_dock_header_grows_with_it() {
+    let bottom = preview().with_form(FormFactor::Phone).dom();
+    let bar = first(&bottom, PREVIEW_HEADER_CLASS).expect("the bar");
+    assert!(declares_chrome_cap(&bar.root.style), "the bar is the collapsed detent: a fixed height");
+    assert!(declares(&bar.root.style, CssPropertyType::Height));
+    let right = preview().with_form(FormFactor::Desktop).dom();
+    let header = first(&right, PREVIEW_HEADER_CLASS).expect("the header");
+    assert!(!declares_chrome_cap(&header.root.style));
+    assert!(declares(&header.root.style, CssPropertyType::MinHeight), "a floor");
+    assert!(!declares(&header.root.style, CssPropertyType::Height), "not a fixed height");
+}

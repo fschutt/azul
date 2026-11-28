@@ -352,3 +352,10 @@ fn a_swipe_inward_opens_the_drawer_from_either_edge() {
     assert!(swipe_opens_at(Edge::Right, -30.0, 0.0), "from the right edge inward is toward smaller x");
     assert!(!swipe_opens_at(Edge::Right, 30.0, 0.0));
 }
+
+// ---- the text size of the user: the chrome is capped, the rest grows ----
+
+#[test]
+fn the_chrome_cap_is_the_custom_property_the_engine_reads() {
+    assert_eq!(chrome_text_cap(), "--azul-text-scale-max: 1.3;");
+}

@@ -38,6 +38,12 @@ const MANIFEST_FN: &str = "pub(super) fn every_widget_dom()";
 /// re-checked by `the_exemption_list_has_no_stale_entries`.
 const EXEMPT: &[(&str, &str)] = &[
     (
+        "sidebar_layout",
+        "the numbers and the pure rules of the sidebar family (widths, detents, edges, the swipe, the \
+         text-size cap): no widget type and no dom() of its own; the sidebar, preview, location_bar, \
+         action_sheet and app_frame entries render the family",
+    ),
+    (
         "tab_flip",
         "the rules of a vertical pull on a tab panel as plain numbers (TabFlip, the gesture, the rubber, \
          the fling): no widget type and no dom() of its own; the panel that uses them is the \"tabs\" entry",
@@ -91,6 +97,11 @@ const EXEMPT: &[(&str, &str)] = &[
         "single replaced node, zero create_text_* calls; screencap.rs pins children == 0",
     ),
     ("video", "single replaced node, zero create_text_* calls"),
+    (
+        "detents",
+        "the rules of a pane that rests at a few heights as plain numbers (the four detents, where a drag settles, what the keys \
+         do): no widget type and no dom() of its own; the bottom sheet that uses them is the \"bottom_sheet\" entry",
+    ),
     (
         "list_selection",
         "the selection MODEL of a list (ListSelection: click / Ctrl / Shift rules over u64 keys): \

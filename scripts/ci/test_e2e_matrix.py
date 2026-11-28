@@ -61,6 +61,9 @@ class DiscoverTests(unittest.TestCase):
         root = Path(tempfile.mkdtemp(prefix="e2e-matrix-test-"))
         (root / "tests/e2e").mkdir(parents=True)
         (root / "examples/azul-widgets/e2e").mkdir(parents=True)
+        (root / "examples/azul-clock/e2e").mkdir(parents=True)
+        (root / "examples/azul-clock/Cargo.toml").write_text('[package]\nname = "AzClock"\nversion = "0.1.0"\n\n[lib]\nname = "azclock"\n')
+        (root / "examples/azul-clock/e2e/first_look.json").write_text(json.dumps([{"name": "clock_first_look", "steps": [{"op": "take_screenshot"}]}]))
         (root / "tests/e2e/self.json").write_text(json.dumps([{"name": "mounts", "steps": [{"op": "mount", "html": "<p>x</p>"}, {"op": "wait_frame"}]}]))
         (root / "tests/e2e/hello_world_counter.json").write_text(json.dumps({"name": "counter", "steps": [{"op": "click", "text": "Increase counter"}]}))
         (root / "tests/e2e/azwriter_boot.json").write_text(json.dumps([{"name": "boot", "steps": []}]))
@@ -70,8 +73,10 @@ class DiscoverTests(unittest.TestCase):
 
     def test_files_tests_hosts_and_gates_are_found(self):
         found = {s["rel"]: s for s in m.discover(self.make_repo())}
-        self.assertEqual(sorted(found), ["examples/azul-widgets/e2e/tab.json", "tests/e2e/azwriter_boot.json",
-                                         "tests/e2e/hello_world_counter.json", "tests/e2e/self.json"])       # the broken one is skipped
+        self.assertEqual(sorted(found), ["examples/azul-clock/e2e/first_look.json", "examples/azul-widgets/e2e/tab.json",
+                                         "tests/e2e/azwriter_boot.json", "tests/e2e/hello_world_counter.json",
+                                         "tests/e2e/self.json"])       # the broken one is skipped
+        self.assertEqual(found["examples/azul-clock/e2e/first_look.json"]["host"], "AzClock")    # the package of the folder's Cargo.toml
         self.assertEqual(found["tests/e2e/self.json"]["host"], "AzWidgets")                 # it mounts its own DOM: any app hosts it
         self.assertTrue(found["tests/e2e/self.json"]["self_mounted"])
         self.assertEqual(found["tests/e2e/azwriter_boot.json"]["host"], "AzWriter")
@@ -83,6 +88,13 @@ class DiscoverTests(unittest.TestCase):
         self.assertEqual(m.host_for("examples/azul-mail/e2e/text_size.json", False), "AzMail")
         self.assertEqual(m.host_for("tests/e2e/css23_proof.json", True), "AzWidgets")
         self.assertIsNone(m.host_for("tests/e2e/resume_http_get.json", False))
+
+    def test_an_apps_own_folder_names_its_host_by_its_package(self):
+        repo = self.make_repo()
+        self.assertEqual(m.host_for("examples/azul-clock/e2e/first_look.json", False, repo), "AzClock")
+        self.assertIsNone(m.host_for("examples/azul-clock/e2e/first_look.json", False))                 # no checkout to read: no host
+        self.assertIsNone(m.host_for("examples/azul-nothing/e2e/x.json", False, repo))                  # a folder without a Cargo.toml
+        self.assertEqual(m.host_for("examples/azul-widgets/e2e/x.json", False, repo), "AzWidgets")       # the existing rules come first
 
 
 class TableTests(unittest.TestCase):

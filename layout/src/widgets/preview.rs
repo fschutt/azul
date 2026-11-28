@@ -73,7 +73,8 @@ use super::{
     dialog::{Dialog, DialogClosedBy},
     sidebar::SidebarSurface,
     sidebar_layout::{
-        clamp_pane_height, clamp_preview_width, dragged_pane_height, dragged_preview_width_at, grip_reach_above, pane_max,
+        chrome_text_cap, clamp_pane_height, clamp_preview_width, dragged_pane_height, dragged_preview_width_at,
+        grip_reach_above, pane_max,
         preview_edge, settle_pane_height, step_size, toggle_pane_height, Edge, FormFactor, GripKey,
         BORDER_GRAB, BUILT_FOR, GRIP_HEIGHT, GRIP_SLOP, PANE_COLLAPSED, PREVIEW_WIDTH_DEFAULT, TOUCH_PLATFORM,
     },
@@ -631,7 +632,13 @@ const fn size_type(dock: PreviewDock) -> CssPropertyType {
 }
 
 /// While the pointer or a key is moving the pane: a cascade-only write of its size (the override
-/// channel, cheap enough for every move of a drag).
+/// channel, cheap enough for every move of a drag; [`size_settled`] hands it back at rest).
+///
+/// An override of a layout property (a height) was NOT laid out through the touch path of the
+/// shells and of the e2e runner (WP-P found it: the restyle diff of the override was thrown away,
+/// so only a :hover / :active restyle ever staged the relayout: mouse yes, touch never); the fix
+/// is the engine's (`LayoutWindow::stage_css_dirty`, WP-P's branch), not this widget's: the
+/// widget keeps the intended channel and does not write around the bug.
 fn size_while_moving(info: &mut CallbackInfo, pane: azul_core::dom::DomNodeId, dock: PreviewDock, px: f32) {
     info.override_css_property(pane, size_property(dock, px));
 }
@@ -1153,8 +1160,13 @@ fn build(i: Preview) -> Dom {
         Dom::create_div().with_children(DomVec::from_vec(header_kids)),
         &format!(
             "display: flex; flex-direction: row; align-items: center; gap: 6px; flex-shrink: 0; position: relative; \
-             box-sizing: border-box; height: {}px; padding: 0px 8px 0px 12px; font-size: 12px; font-weight: 700;",
-            if bottom { GRIP_HEIGHT } else { 36.0 }
+             box-sizing: border-box; {}: {}px; padding: 0px 8px 0px 12px; font-size: 12px; font-weight: 700; {}",
+            // the right dock's header is as tall as its title needs above 36 px; the bottom pane's grip bar is
+            // the collapsed detent itself (a fixed height: the detents are px, see PANE_COLLAPSED)
+            if bottom { "height" } else { "min-height" },
+            if bottom { GRIP_HEIGHT } else { 36.0 },
+            // the bottom pane's bar is a fixed 28 px detent: its title keeps to it whatever the text size is
+            if bottom { chrome_text_cap() } else { String::new() }
         ),
     )
     .with_ids_and_classes(classes(&[PREVIEW_HEADER_CLASS]));

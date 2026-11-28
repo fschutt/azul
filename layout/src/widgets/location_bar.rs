@@ -42,7 +42,7 @@ use azul_css::{
 };
 
 use super::{
-    sidebar_layout::{FormFactor, TOUCH_PLATFORM},
+    sidebar_layout::{chrome_text_cap, FormFactor, TOUCH_PLATFORM},
     text_input::{
         OnTextInputReturn, TextInput, TextInputOnFocusLostCallbackType,
         TextInputOnTextInputCallbackType, TextInputOnVirtualKeyDownCallbackType, TextInputState,
@@ -493,7 +493,7 @@ fn crumb(label: &str, tag: usize, kind: LocationEventKind, on_event: &OptionLoca
     let node = styled(
         widget_p_with_text(AzString::from(label)),
         &format!(
-            "margin: 0px; flex-shrink: 0; height: {h}px; display: flex; align-items: center; cursor: pointer; \
+            "margin: 0px; flex-shrink: 0; min-height: {h}px; display: flex; align-items: center; cursor: pointer; \
              font-size: 13px; color: system:link; white-space: nowrap; :hover {{ text-decoration: underline; }}"
         ),
     )
@@ -686,8 +686,10 @@ fn build(bar: LocationBar) -> Dom {
         Dom::create_div().with_children(DomVec::from_vec(alloc::vec![crumbs, name_row])),
         &format!(
             "display: flex; flex-direction: column; justify-content: center; gap: 2px; box-sizing: border-box; \
-             width: 100%; height: 100%; padding: 8px {}px; overflow: hidden;",
-            if phone { 12 } else { 16 }
+             width: 100%; height: 100%; padding: 8px {}px; overflow: hidden; {}",
+            if phone { 12 } else { 16 },
+            // the block stands in the tab band, a fixed 106 px: its text keeps to it whatever the text size is
+            chrome_text_cap()
         ),
     )
     .with_ids_and_classes(classes(&[LOCATION_CLASS]))

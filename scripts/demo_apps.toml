@@ -288,6 +288,7 @@ dir = "examples/azul-code"
 description = "a code editor: file tree, tabs, syntax highlighting, find and replace"
 platforms = ["linux", "macos-arm64", "macos-intel", "windows"]
 weight = 3
+e2e = true   # the desktop QA build too (scripts/ci/desktop_e2e_build.sh): the audit pictures and the scenario files of the UI refactor (an artifact, never shipped)
 
 [[app]]
 package = "AzContacts"

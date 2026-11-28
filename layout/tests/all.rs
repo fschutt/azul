@@ -126,6 +126,8 @@ mod a_caret_counts_bytes_in_its_own_block;
 mod a_classic_thumb_stops_above_its_bottom_button;
 #[path = "a_context_menu_opens_from_a_secondary_press.rs"]
 mod a_context_menu_opens_from_a_secondary_press;
+#[path = "a_dom_drawn_by_faces_in_memory_needs_no_system_font.rs"]
+mod a_dom_drawn_by_faces_in_memory_needs_no_system_font;
 #[path = "a_drag_selection_owns_the_scroll_of_its_field.rs"]
 mod a_drag_selection_owns_the_scroll_of_its_field;
 #[path = "a_hundred_and_twenty_nested_blocks_lay_out_on_a_two_megabyte_thread.rs"]
@@ -172,8 +174,8 @@ mod azul_widgets_demo_follows_the_theme;
 mod azul_widgets_toolbar_wraps_on_a_narrow_screen;
 #[path = "azul_maps_drive_banner_fits_a_phone.rs"]
 mod azul_maps_drive_banner_fits_a_phone;
-#[path = "azul_maps_sidebar_is_a_sheet_on_a_phone.rs"]
-mod azul_maps_sidebar_is_a_sheet_on_a_phone;
+#[path = "azul_maps_floating_layout_fits_a_phone.rs"]
+mod azul_maps_floating_layout_fits_a_phone;
 #[path = "azul_paint_toolbar_fits_a_phone.rs"]
 mod azul_paint_toolbar_fits_a_phone;
 #[path = "azul_widgets_mail_window_fits_a_phone.rs"]
@@ -996,6 +998,8 @@ mod focusing_a_search_field_by_its_id_focuses_its_text;
 mod a_button_fades_into_its_hover_face;
 #[path = "a_button_is_a_touch_target_on_a_phone.rs"]
 mod a_button_is_a_touch_target_on_a_phone;
+#[path = "a_buttons_label_never_loses_its_contrast_while_its_face_changes.rs"]
+mod a_buttons_label_never_loses_its_contrast_while_its_face_changes;
 #[path = "a_hovered_button_passes_through_the_faces_in_between.rs"]
 mod a_hovered_button_passes_through_the_faces_in_between;
 #[path = "a_rebuild_under_the_pointer_starts_no_transition.rs"]

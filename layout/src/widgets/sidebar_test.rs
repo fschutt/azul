@@ -1037,3 +1037,94 @@ fn the_root_has_the_dom_id_the_app_gave_in_every_state_and_none_otherwise() {
         assert!(!plain.root.get_ids_and_classes().as_ref().iter().any(|c| c.as_id().is_some()), "{state:?}");
     }
 }
+
+// ---- the text size of the user: the rail is chrome, the rows follow the text ----
+
+use crate::widgets::sidebar_layout::{declares, declares_chrome_cap};
+use azul_css::props::property::CssPropertyType;
+
+#[test]
+fn the_rail_caps_the_text_size_of_its_glyphs_and_the_expanded_sidebar_follows_the_text() {
+    let rail = mail().with_state(SidebarState::Rail).dom();
+    assert!(declares_chrome_cap(&rail.root.style), "the rail is chrome: its glyphs keep to the 18 px column");
+    let expanded = mail().with_state(SidebarState::Expanded).dom();
+    assert!(!declares_chrome_cap(&expanded.root.style), "the expanded rows grow with the user's text");
+}
+
+#[test]
+fn a_row_and_a_section_title_are_as_tall_as_their_text_needs_above_a_floor() {
+    let dom = mail().with_state(SidebarState::Expanded).dom();
+    for class in [SIDEBAR_ROW_CLASS, SIDEBAR_SECTION_CLASS] {
+        let nodes = all(&dom, class);
+        assert!(!nodes.is_empty(), "{class}: there are some");
+        for node in nodes {
+            assert!(declares(&node.root.style, CssPropertyType::MinHeight), "{class}: a floor");
+            assert!(!declares(&node.root.style, CssPropertyType::Height), "{class}: not a fixed height");
+        }
+    }
+}
+
+#[test]
+fn the_outline_lists_carry_the_name_of_the_sidebar() {
+    for state in [SidebarState::Rail, SidebarState::Expanded] {
+        let dom = mail().with_label(AzString::from("Mail folders")).with_state(state).dom();
+        let list = first(&dom, SIDEBAR_LIST_CLASS).expect("the list");
+        assert_eq!(name_of(list), "Mail folders", "{state:?}: a list a screen reader reads has a name");
+    }
+}
+
+// ---- an expanded status row is as wide as the column ----
+
+fn display_of(dom: &Dom) -> Option<azul_css::props::layout::LayoutDisplay> {
+    dom.root
+        .style
+        .iter_inline_properties()
+        .filter_map(|(p, _)| match p {
+            CssProperty::Display(v) => v.get_property().copied(),
+            _ => None,
+        })
+        .last()
+}
+
+fn flex_shrink_of(dom: &Dom) -> Option<f32> {
+    dom.root
+        .style
+        .iter_inline_properties()
+        .filter_map(|(p, _)| match p {
+            CssProperty::FlexShrink(v) => v.get_property().map(|s| s.inner.get()),
+            _ => None,
+        })
+        .last()
+}
+
+#[test]
+fn an_expanded_status_row_sits_in_blocks_as_wide_as_the_column_and_a_rail_keeps_the_dialogs_own_shape() {
+    use azul_css::props::layout::LayoutDisplay;
+    let status = SidebarStatus::badge(AzString::from("Unread"), AzString::from("3"), PieTone::Accent);
+    let expanded = Sidebar::create()
+        .with_status(status.clone())
+        .with_state(SidebarState::Expanded)
+        .with_form(FormFactor::Desktop)
+        .dom();
+    // the dialog's own classes: its wrapper and its invoker are inline blocks, which shrink to fit
+    let wrapper = first(&expanded, "__azul-native-dialog").expect("the popover's wrapper");
+    assert_eq!(display_of(wrapper), Some(LayoutDisplay::Block), "a shrink-to-fit wrapper cannot give the row the column's width");
+    let invoker = first(wrapper, "__azul-native-dialog-invoker").expect("its invoker");
+    assert_eq!(display_of(invoker), Some(LayoutDisplay::Block));
+    let rail = Sidebar::create().with_status(status).with_state(SidebarState::Rail).with_form(FormFactor::Desktop).dom();
+    let wrapper = first(&rail, "__azul-native-dialog").expect("the popover's wrapper");
+    assert_eq!(display_of(wrapper), Some(LayoutDisplay::InlineBlock), "the rail keeps the dialog's own shape");
+}
+
+#[test]
+fn the_label_of_an_expanded_status_row_keeps_its_width_and_the_text_gives_way() {
+    let status = SidebarStatus::create(AzString::from("Sync"), 0.5, PieTone::Busy)
+        .with_text(AzString::from("All folders are up to date. Connected to localhost"));
+    let dom = Sidebar::create().with_status(status).with_state(SidebarState::Expanded).with_form(FormFactor::Desktop).dom();
+    let row = first(&dom, SIDEBAR_STATUS_CLASS).expect("the status row");
+    let kids = row.children.as_ref();
+    assert_eq!(kids.len(), 3, "the mark, the label, the text");
+    assert_eq!(text_of(&kids[1]), "Sync");
+    assert_eq!(flex_shrink_of(&kids[1]), Some(0.0), "the label has its natural width first");
+    assert_eq!(flex_shrink_of(&kids[2]), Some(1.0), "the text takes what is left");
+}

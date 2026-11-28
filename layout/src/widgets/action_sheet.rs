@@ -493,7 +493,7 @@ fn build(sheet: ActionSheet) -> Dom {
             Dom::create_div().with_children(DomVec::from_vec(row_kids)),
             &format!(
                 "display: flex; flex-direction: row; align-items: center; gap: 16px; flex-shrink: 0; \
-                 box-sizing: border-box; height: {ITEM_HEIGHT}px; padding: 0px 16px; cursor: pointer; {color} {} \
+                 box-sizing: border-box; min-height: {ITEM_HEIGHT}px; padding: 0px 16px; cursor: pointer; {color} {} \
                  :active {{ background: rgba(127, 127, 127, 0.20); }} \
                  :focus-visible {{ box-shadow: inset 0px 0px 0px 2px #4a8be8; }}",
                 if disabled { "opacity: 0.45;" } else { "" }
