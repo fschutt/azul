@@ -196,3 +196,65 @@ fn the_same_system_style_again_asks_the_page_for_nothing() {
     assert_eq!(layouts_of(&layouts), 1, "the mode it already shows asked for a new DOM");
     assert!(!rebuild_owed(&window));
 }
+
+/// A timer whose callback answers nothing.
+extern "C" fn tick_that_answers_nothing(
+    _data: RefAny,
+    _info: azul_layout::timer::TimerCallbackInfo,
+) -> azul_core::callbacks::TimerCallbackReturn {
+    azul_core::callbacks::TimerCallbackReturn::continue_unchanged()
+}
+
+/// A timer whose callback asks for the page once and ends.
+extern "C" fn tick_that_asks_for_the_page(
+    _data: RefAny,
+    _info: azul_layout::timer::TimerCallbackInfo,
+) -> azul_core::callbacks::TimerCallbackReturn {
+    azul_core::callbacks::TimerCallbackReturn::create(
+        azul_core::callbacks::Update::RefreshDom,
+        azul_core::task::TerminateTimer::Terminate,
+    )
+}
+
+/// Register a 16 ms timer of `callback` in the window, on the window's clock.
+fn start_timer(
+    window: &mut HeadlessWindow,
+    id: usize,
+    callback: extern "C" fn(
+        RefAny,
+        azul_layout::timer::TimerCallbackInfo,
+    ) -> azul_core::callbacks::TimerCallbackReturn,
+) {
+    use azul_core::task::{Duration, SystemTimeDiff};
+    use azul_layout::timer::{Timer, TimerCallback};
+    let timer = Timer::create(
+        RefAny::new(()),
+        TimerCallback::create(callback),
+        azul_layout::callbacks::ExternalSystemCallbacks::rust_internal().get_system_time_fn,
+    )
+    .with_interval(Duration::System(SystemTimeDiff::from_millis(16)));
+    window.start_timer(id, timer);
+}
+
+/// A timer that runs and answers `DoNothing` asks the page for nothing, however often it runs (a spinner's driver, a
+/// clock that updates a label in place, a poll).
+#[test]
+fn a_timer_that_answers_nothing_asks_the_page_for_nothing() {
+    let (mut window, layouts) = settled();
+    start_timer(&mut window, 0x7e76, tick_that_answers_nothing);
+    pump(&mut window, 60);
+    assert_eq!(layouts_of(&layouts), 1, "sixty turns of a quiet timer asked for a new DOM");
+    assert!(!rebuild_owed(&window));
+}
+
+/// A timer that answers `RefreshDom` is the callback that asked: the page is laid out once more for it, not twice.
+/// The positive control of the tests above: the same pump, the same count, one more.
+#[test]
+fn a_timer_that_asks_for_the_page_gets_it_once() {
+    let (mut window, layouts) = settled();
+    start_timer(&mut window, 0x7e77, tick_that_asks_for_the_page);
+    pump(&mut window, 20);
+    assert_eq!(layouts_of(&layouts), 2, "the timer asked once: one more layout, no more");
+    assert!(!rebuild_owed(&window));
+}
+
