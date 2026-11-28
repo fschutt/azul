@@ -7,7 +7,12 @@
 #   scripts/remote.sh run <ref> ubuntu-22.04 'bash scripts/ci/wp_e2_scenarios.sh' --codegen --artifacts 'demo-out/wp-e2/scenarios/**'
 #
 # WP_E2_APPS: the apps (default AzMaps AzCode); WP_E2_SKIP_BUILD=<dir>: the QA builds (*-e2e-linux) of an earlier run instead of building again;
-# WP_E2_FILES: the files, space separated, instead of every file of the apps' e2e folders. The exit code is 0 only when every file passed.
+# WP_E2_FILES: the files, space separated, instead of every file of the apps' e2e folders; WP_E2_LEGACY=1: afterwards AzMaps' three older
+# debug-server drivers against the same QA build (scripts/azmaps_e2e.py: the map, the panel, the place, Route, the fold, the settings, the kept
+# view, timed typing; azmaps_nav_e2e.py: public transport, a guided drive, an NMEA replay, the cache offline, a Takeout import;
+# azmaps_routing_e2e.py: road routing on a Monaco extract, a plain file server and routing-tiles built here), their pictures and logs in
+# demo-out/wp-e2/legacy/<driver>/; they need the network (Transitous, FOSSGIS' Valhalla, Geofabrik): a red one is read before it is believed.
+# The exit code is 0 only when every file (and every driver asked for) passed.
 set -uo pipefail
 apps="${WP_E2_APPS:-AzMaps AzCode}"
 out="$PWD/demo-out/wp-e2/scenarios"
@@ -64,4 +69,36 @@ PY
     ls "$out/$stem" | head -40
   done
 done
+
+if [ -n "${WP_E2_LEGACY:-}" ]; then
+  bin="$bins/AzMaps-e2e-linux"
+  ldir="$PWD/demo-out/wp-e2/legacy"
+  mkdir -p "$ldir"
+  legacy() {   # legacy <name> <seconds> <command...>: one driver, its tail printed, a non-zero exit counted
+    local name="$1" seconds="$2"
+    shift 2
+    echo "=== legacy $name ==="
+    mkdir -p "$ldir/$name"
+    timeout "$seconds" "$@" --out "$ldir/$name" > "$ldir/$name/driver.log" 2>&1
+    local code=$?
+    tail -25 "$ldir/$name/driver.log"
+    echo "=== legacy $name: exit $code ==="
+    [ "$code" -eq 0 ] || bad=1
+  }
+  if [ -f "$bin" ]; then
+    chmod +x "$bin"
+    legacy azmaps_e2e 900 python3 scripts/azmaps_e2e.py --bin "$bin"
+    legacy azmaps_nav_e2e 900 python3 scripts/azmaps_nav_e2e.py --bin "$bin"
+    if cargo build --release -p azul-routing --bin routing-tiles > "$ldir/routing-tiles-build.log" 2>&1; then
+      legacy azmaps_routing_e2e 900 python3 scripts/azmaps_routing_e2e.py --bin "$bin" --routing-tiles-bin target/release/routing-tiles --download
+    else
+      echo "routing-tiles did not build:"
+      tail -20 "$ldir/routing-tiles-build.log"
+      bad=1
+    fi
+  else
+    echo "no $bin for the legacy drivers"
+    bad=1
+  fi
+fi
 exit "$bad"
