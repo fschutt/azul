@@ -8,6 +8,7 @@
     demo_apps.py features <leg> <variant>   the cargo features of one library of the plan (android-x86_64 mobile-e2e, linux desktop-e2e)
     demo_apps.py mobile-lib <package>       the library variant a phone app links (mobile, mobile-iroh)
     demo_apps.py e2e-lib <package>          the QA library variant of its QA build (mobile-e2e, mobile-e2e-iroh)
+    demo_apps.py qa-only <package>          exit 0 for an app that exists only as a QA build (qa_only = true), 1 for any other
     demo_apps.py assets [<package>]    the file names every app is built as, one per line
     demo_apps.py weights <status.json> the weight the measured build seconds of a run suggest for each app
     demo_apps.py status <dir> ...      merge the result files of a run into demo-status.json / .md
@@ -74,6 +75,11 @@ def load(path=MANIFEST):
     with open(path, "rb") as fh:
         m = tomllib.load(fh)
     for app in m.get("app", []):
+        app.setdefault("qa_only", False)
+        if app["qa_only"] is True:
+            # an app that exists only as a QA build (AzSelfTest): the library it links IS its QA library, and it asks for QA builds
+            app["e2e"] = True
+            app.setdefault("e2e_lib", app.get("mobile_lib", DEFAULT_E2E_LIB))
         app.setdefault("name", app["package"])
         app.setdefault("bundle_id", "com.azul." + app["package"])
         app.setdefault("weight", 1)
@@ -86,11 +92,22 @@ def load(path=MANIFEST):
         app.setdefault("e2e_lib", DEFAULT_E2E_LIB)
         app.setdefault("e2e_desktop_lib", DEFAULT_E2E_DESKTOP_LIB)
         app.setdefault("iroh", False)
+    # An app that says `qa_only = true` is no app of the release: it is built only as a QA build, when a run asks for them, and it is no
+    # row or link of the page, no release asset, no cell of the status table and no entry of the shipped plan. It is kept apart HERE, in
+    # m["qa_app"], so that everything that reads m["app"] (the page, the asset list, the status table, the shipped plan, the publish step)
+    # cannot ship it by forgetting to skip it. What builds the QA variants and what checks the manifest read both lists.
+    m["qa_app"] = [a for a in m.get("app", []) if a["qa_only"] is True]
+    m["app"] = [a for a in m.get("app", []) if a["qa_only"] is not True]
     return m
 
 
 def apps_of(m, platform=None):
     return [a for a in m["app"] if platform is None or platform in a["platforms"]]
+
+
+def qa_apps_of(m):
+    """The apps that ask for QA builds: the apps of the release that say e2e = true, and the QA-only apps (which have no other build)."""
+    return [a for a in list(m["app"]) + list(m.get("qa_app", [])) if a.get("e2e")]
 
 
 def staged_name(app, column, e2e=False):
@@ -196,7 +213,7 @@ def check(m=None):
     m = m or load()
     errors = []
     err = errors.append
-    apps = m["app"]
+    apps = list(m["app"]) + list(m.get("qa_app", []))
     names = [a["package"] for a in apps]
     for dup in sorted({n for n in names if names.count(n) > 1}):
         err(f"{dup} is listed twice")
@@ -248,11 +265,24 @@ def check(m=None):
         bad = [x for x in a.get("platforms", []) if x not in PLATFORMS]
         if bad or not a.get("platforms"):
             err(f"{where} platforms {a.get('platforms')} must be a non-empty subset of {list(PLATFORMS)}")
+        qa_only = a.get("qa_only") is True
+        if not isinstance(a.get("qa_only", False), bool):
+            err(f"{where} qa_only must be true or false, not {a['qa_only']!r}: anything but true leaves the app in the list of the release")
+        if qa_only and any(x not in MOBILE for x in a.get("platforms", [])):
+            err(f"{where} is qa_only (built only as a QA build, for the phones) and lists platforms {a['platforms']}: android and ios only")
         if any(x in MOBILE for x in a["platforms"]):
             lib = a.get("mobile_lib")
             if lib not in libs or lib == "desktop":
                 err(f"{where} is built for a phone and needs mobile_lib = one of "
                     f"{[k for k in libs if k != 'desktop']}, not {lib!r}")
+            elif qa_only:
+                # its only builds are QA builds: the library it links is an artifact_only one, and it is its QA library
+                if not libs[lib].get("artifact_only") or lib_family(libs[lib]) != "phone":
+                    err(f"{where} is qa_only, so its only builds are QA builds: mobile_lib must name an artifact_only phone lib "
+                        f"({sorted(artifact_only_libs(m, 'phone'))}), not {lib!r}")
+                if a.get("e2e_lib") != lib:
+                    err(f"{where} is qa_only: the QA lib it is built against is the one it links, e2e_lib {a.get('e2e_lib')!r} "
+                        f"must be its mobile_lib {lib!r}")
             elif libs[lib].get("artifact_only"):
                 err(f"{where} mobile_lib {lib!r} is artifact_only: a shipped app never links a QA variant of the library")
         # [app.smoke] after_tap / after_tap_gone: lists of texts for the screen after the button `tap` was pressed
@@ -353,6 +383,8 @@ def check(m=None):
             if "cdylib" not in crate_types and "android" in a["platforms"] and not pending:
                 err(f"{where} is built for Android and needs [lib] crate-type to include cdylib")
         for col in columns_of(a):
+            if qa_only:
+                continue     # it has no shipped file: nothing it is built as is a release asset (the QA names carry the package as well)
             for name in (staged_name(a, col), release_name(a, col)):
                 other = assets.setdefault(name, p)
                 if other != p:
@@ -422,7 +454,7 @@ def plan(m=None, e2e=False):
                 artifact=f"demolib-{col}-{variant}"))
     if e2e:
         for variant, lib in sorted(artifact_only_libs(m, "phone").items()):
-            wanting = [a for a in m["app"] if a.get("e2e") and a["e2e_lib"] == variant]
+            wanting = [a for a in qa_apps_of(m) if a["e2e_lib"] == variant]
             for col in lib["targets"]:
                 if not any(col in columns_of(a) for a in wanting):
                     continue
@@ -434,7 +466,7 @@ def plan(m=None, e2e=False):
                     artifact=f"demolib-{col}-{variant}"))
     if e2e:   # the desktop QA libraries: the shipped one plus the debug server, for the apps that say e2e = true
         for variant, lib in sorted(artifact_only_libs(m, "desktop").items()):
-            wanting = [a for a in m["app"] if a.get("e2e") and a["e2e_desktop_lib"] == variant]
+            wanting = [a for a in qa_apps_of(m) if a["e2e_desktop_lib"] == variant]
             for leg in lib["targets"]:
                 if not any(leg in a["platforms"] for a in wanting):
                     continue
@@ -463,7 +495,7 @@ def plan(m=None, e2e=False):
     if e2e:   # the QA builds of the desktop apps: one job per leg, against the QA library, in artifacts the shipped-files patterns never match
         for variant, lib in sorted(artifact_only_libs(m, "desktop").items()):
             for leg in lib["targets"]:
-                qa_apps = [a["package"] for a in m["app"] if a.get("e2e") and a["e2e_desktop_lib"] == variant and leg in a["platforms"]]
+                qa_apps = [a["package"] for a in qa_apps_of(m) if a["e2e_desktop_lib"] == variant and leg in a["platforms"]]
                 if not qa_apps:
                     continue
                 t = desktop_targets[leg]
@@ -491,7 +523,7 @@ def plan(m=None, e2e=False):
         if e2e:   # the QA builds: the same app build against the artifact-only lib, in artifacts the shipped-files patterns never match
             for variant, lib in sorted(artifact_only_libs(m, "phone").items()):
                 for col, target in MOBILE_TARGETS.items():
-                    apps = [a for a in m["app"] if a.get("e2e") and a["e2e_lib"] == variant and col in columns_of(a)]
+                    apps = [a for a in qa_apps_of(m) if a["e2e_lib"] == variant and col in columns_of(a)]
                     if col.startswith(kind) and col in lib["targets"] and apps:
                         entries.append(dict(
                             leg=col, kind=kind, target=target, apps=" ".join(a["package"] for a in apps),
@@ -878,7 +910,8 @@ def main(argv):
         if len(rest) != 1:
             print("usage: demo_apps.py mobile-lib <package>", file=sys.stderr)
             return 2
-        for a in load()["app"]:
+        m = load()
+        for a in list(m["app"]) + list(m["qa_app"]):
             if a["package"] == rest[0] and any(p in MOBILE for p in a["platforms"]):
                 print(a["mobile_lib"])
                 return 0
@@ -889,12 +922,19 @@ def main(argv):
         if len(rest) != 1:
             print("usage: demo_apps.py e2e-lib <package>", file=sys.stderr)
             return 2
-        for a in load()["app"]:
+        m = load()
+        for a in list(m["app"]) + list(m["qa_app"]):
             if a["package"] == rest[0] and a.get("e2e"):
                 print(a["e2e_lib"])
                 return 0
         print(f"demo_apps: {rest[0]} has no QA build (e2e = true) in scripts/demo_apps.toml", file=sys.stderr)
         return 1
+    if cmd == "qa-only":
+        # demo_apps.py qa-only <package>: exit 0 when the app is a QA-only app (it has no shipped build), for the scripts that build both
+        if len(rest) != 1:
+            print("usage: demo_apps.py qa-only <package>", file=sys.stderr)
+            return 2
+        return 0 if any(a["package"] == rest[0] for a in load()["qa_app"]) else 1
     if cmd == "assets":
         m = load()
         for a in m["app"]:

@@ -32,6 +32,12 @@ case "$which" in
   *) echo "usage: ios_build_qa.sh [mobile | mobile-e2e | both] [<App>]" >&2; exit 2 ;;
 esac
 
+# an app that exists only as a QA build (qa_only in the manifest: AzSelfTest) has no shipped `mobile` build to compare with
+if python3 scripts/demo_apps.py qa-only "$app"; then
+  [ "$which" = mobile ] && { echo "$app is qa_only: it has no shipped (mobile) build, only mobile-e2e" >&2; exit 2; }
+  variants="mobile-e2e"
+fi
+
 mkdir -p demo-out/libs demo-out/apps demo-out/results
 rustup target add "$target"
 python3 scripts/demo_apps.py plan --e2e > demo-out/plan.txt
